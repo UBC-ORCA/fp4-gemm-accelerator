@@ -53,3 +53,158 @@ I have written a skeleton of what it looks like to break down a simple NN with a
 
 You may find it instructive to also look at this very simple C code to train a small MLP network. At a later stage in the project, we (read: Steven) may wish to add a stretch goal of doing training, not just inference.
 https://github.com/djbyrne/mlp.c/blob/main/mlp_simple.c
+
+
+# Hardware MAC64 Instruction Set for Outer Product with FP4
+
+On an RV32 processor, most instructions combine two source integer registers `rs1` and `rs2` into a third destination `rd`.
+We will produce an instruction to compute 64 MACs in parallel as a way of building the outer product in matrix multiply.
+
+Accumulation will be done with 16b signed integers using saturating arithmetic (cannot exceed 32767, or go below -32768).
+
+Multiply operations are done with 8 * FP4 values packed into 32b integers.
+
+Compute operations:
+- **zzMAC64** resets entire tile, `T[i][j] = 0` for all i x j in 0..7 x 0..7
+- **maxMAC64 rs1** computes `T = max(T, rs1)` on all tile entries; `rs1` holds a signed 16-b integer (use `0` for ReLU)
+- **hwMAC64 rs1, rs2** computes   `T[i][j] += rs1[i] * rs2[j]` for all i x j in 0..7 x 0..7, where `rs1` and `rs2` are 32b integer registers each holding 8 x FP4 values
+- **ad2MAC64 rs1, rs2** computes saturating add using **pair** of 16b integers from `rs1`, `T[i][2*j] += rs1[15:0]` and `T[i][2*j+1] += rs1[31:16]`
+- these instructions do not modify any integer registers
+- for **ad2MAC64**, `rs2` is a 5b register specifier that does not indicate an integer register; instead, the 2 LSB indicate `2*j` and the next 3 bits indicate `i`
+
+Move operations:
+- always moves from T to integer register file
+- **mvoMAC64 rd,  rs2** moves single odd  tile entry `T[i][2*j+1]` indicated by `rs2` to integer register `rd`, **clearing the tile entry to zero**
+- **mveMAC64 rd,  rs2** moves single even tile entry `T[i][2*j]`   indicated by `rs2` to integer register `rd`, **clearing the tile entry to zero**
+- **mv2MAC64 rd,  rs2** moves concatenated **pair** of tile entries `{ T[i][2*j+1], T[i][2*j] }`, where `i` and `j` are taken from the `rs2` specifier (not register contents), to integer register `rd`, **clearing the tile entries to zero**
+- `rd` is a destination in the integer register file
+- `rs2` is a 5b register specifier that does not indicate an integer register; instead, the 2 LSB indicate `2*j` and the next 3 bits indicate `i`
+
+Memory operations:
+- **ld2MAC64 rs2, IMM12(rs1)** reads 32b memory from effective address `rs1+IMM12`, writing to concatenated pair of tile entries `{T[i][2*j+1],T[i][2*j]}` indicated by field `rs2`
+- **st2MAC64 rs2, IMM12(rs1)** writes 32b from concatenated **pair** of tile entries `{ T[i][2*j+1], T[i][2*j] }` indicated by field `rs2` to effective address `rs1+IMM12`, **clearing the tile entry to zero**
+- the `rs2` field is a 5b register specifier that does not indicate an integer register; instead, the 2 LSB indicate `2*j` and the next 3 bits indicate `i`
+
+The **zzMAC64**, **maxMAC64**, and **hwMAC64** instructions operate on all 64 tile entries.
+
+The **ad2MAC64** instruction operates on two tile entries, allowing 2 bias terms to be added (with saturation).
+
+In **hwMAC64**, the results of every FP4 * FP4 operation will be accumulated into a 16b integer. Each FP4 value itself can fit into an INT5, but not all INT5 values are used, making it a bad idea to get lazy and compute FP4 * FP4 in the INT5 * INT5 space. Instead, stay in the FP4 space and remove the sign bit so each multiplier operand is only 3b. This makes a product easy to compute using 6-input LUTs and summed into 16b integer accumulator. Each product spans the range from +/-0 to +/-144. A 16b accumulator can accumulate up to 227 of the largest products (144) before overflowing. This would be extremely rare, as there would normally be many small values and negative values as well. I think it is safe to assume up to 256 terms can be accumulated before overflow becomes a concern. To protect against overflow, make the accumulators **saturating** (wraparound would likely yield unpredictable results, but saturating at 32767 or -32768 should be OK).
+
+Curiously, there are only 18 unique products out of the 64 combinations from multiplying two FP4 values: it consists of the FP4 valueset {0, 1, 2, 3, 4, 6, 8, 12}, but it also consists of {9, 16, 18, 24, 32, 36, 48, 64, 72, 96, 144 }. (Valuesets expressed as their integer equivalent when used in accumulation.)
+
+
+# Tiled Matrix Multiply
+
+## WARNING: TEXT BELOW HAS NOT BEEN CAREFULLY EDITTED. IT WILL PROBABLY BE HEAVILY REWRITTEN.
+
+The naive version of matrix multiply uses three nested loops, in order of `i`, `j`, and `k`, where the innermost `k` loop is used to compute a dot product, also known as the **inner product**, and the `i` loop traverses rows of `A` and `C` while the `j` loop traverses columns of `B` and `C`. The core computation is `C[i][j] += A[i][k] * B[k][j]`:
+```
+for i = 0 to 1023
+  for j = 0 to 1023
+    for k = 0 to 1023
+      C[i][j] += A[i][k] * B[k][j]
+```
+To avoid reading/writing memory for `C` each time, we can do this:
+```
+for i = 0 to 1023
+  for j = 0 to 1023
+    t = 0
+    for k = 0 to 1023
+      t += A[i][k] * B[k][j]
+    C[i][j] += t
+```
+This `t` term stays in a register, acting a bit like a cache. Later, we will transform `t` into `T`, an entire 8 x 8 tile of temporary values, and operate on all of them in parallel with the **hwMAC64** instruction. The last line, `C[i][j] += t` ensures new results are added to any initial value in the matrix, just like the original algorithm which also added to the initial value of `C`.
+
+While the **inner product** works well to cache the value of `t`, it can only compute one output element at a time (the dot product). For example, suppose we use sub-word SIMD and group eight FP4 values from `A` into `rs1` and eight FP4 values from `B` into `rs2`. An inner product between A and B would compute eight multiplications and seven additions; once added to the original value of `C[i][j]`, an 8th addition appears. In other words, this inner product computes at most 8 multiply-accumulate operations (MACs).
+
+However, an **outer product** can compute even more MACs in parallel, as long as it has enough storage to hold the intermediate sums (several values of `t`).
+ For this, it needs a tile of values `T` which will be written (?added?) into `C` one tile at a time. To start this , we transform the algorithm loop order so the `k` loop is now the outermost loop, and the `i` and `j` loops are the innermost loops:
+```
+for k = 0 to 1023
+  for i = 0 to 1023
+    for j = 0 to 1023
+      C[i][j] += A[i][k] * B[k][j]
+```
+For large matrices like these, we must break this down into smaller 8 * 8 tiles:
+```
+for I = 0 to 1023 step 8
+  for J = 0 to 1023 step 8
+    T = 8*8 tile starting at C[i][j]
+    for k = 0 to 1023
+      for i = 0 to 7 // UNROLL
+        for j = 0 to 7 // UNROLL
+          T[i][j] += A[I+i][k] * B[k][J+j]
+    C[i][j] = T // copy entire tile back
+```
+Here, you'll see the innermost `i` and `j` loops have just 8 iterations. This is the size of the tile `T`, and it covers just an 8 * 8 patch of the larger 1024 * 1024 `C` matrix. These two innermost loops can be fully unrolled, yielding a total of 64 MAC operations taken from the core computation, `T[i][j] += A[I+i][k] * B[k][J+j]`. This core computation uses a strip of the `A` matrix that is 8 rows tall, and a strip of the `B` matrix that is 8 columns wide; both strips are of length 1024, which is iterated over by the `k` dimension (the middle loop). These 3 inner loops only compute the results for one tile, so outer loops are added for `I` and `J` to iterate over all possible 8 * 8 tiles within `C`; those outer loops go in increments of 8, of course, to step along by one tile at a time. The code now looks like this:
+```
+for I = 0 to 1023 step 8
+  for J = 0 to 1023 step 8
+    T = 8*8 tile starting at C[i][j]
+    for k = 0 to 1023
+      T[0][0] += A[I+0][k] * B[k][J+0]
+      T[0][1] += A[I+0][k] * B[k][J+1]
+      T[0][2] += A[I+0][k] * B[k][J+2]
+      ...
+      T[7][5] += A[I+7][k] * B[k][J+5]
+      T[7][6] += A[I+7][k] * B[k][J+6]
+      T[7][7] += A[I+7][k] * B[k][J+7]
+    C[i][j] = T // copy entire 8*8 tile back
+```
+Rewriting this into the ISA:
+```
+for I = 0 to 1023 step 8
+  for J = 0 to 1023 step 8
+    zzMAC64; // clears entire tile; alternatively, could load tile from `C`
+    for k = 0 to 1023
+      AA = A[I+0][k] to A[I+7][k] // reads 8 elements from a column
+      BB = B[k][J+0] to B[k][J+7] // reads 8 elements from a row
+      hwMAC64 AA, BB
+    maxMAC64 x0 // computes ReLU on entire tile
+    stMAC64 r0, 0(rs1) // stores tile, 2 elements at a time; also clears tile entries
+    stMAC64 r1, 4(rs1)
+    stMAC64 r2, 8(rs1)
+    stMAC64 r3, 12(rs1)
+    ...
+    stMAC64 r31, 124(rs1)
+```
+where `r0` to `r31` represent the contents of the tile `{ T[i][2*j], T[i][2*j+1] }`, that is `rX` where `X=4*i+j`.
+
+The only problem with this code is the k dimension is 1024. Any value over 227 can potentially overflow the 16b integers. In that case, the tile `T` could be read out, one 16b entry at a time, converted to 32b, and added to a 32b integer matrix. This is one use-case for the **mvoMAC64** and **mveMAC64** instructions.
+
+Overall, I see code looking something like this:
+
+```
+for I = 0 to 1023 step 8 begin
+  for J = 0 to 1023 step 8 begin
+
+    // the i/j loops below can be fully unrolled
+    for i = 0 to 7
+      for j = 0 to 7
+        T[i][j] = 0 or T[i][j] = C[I+i][J+j]; // using **zzMAC64** or **ld2MAC64** instructions
+
+    for K = 0 to 1023 begin // CAREFUL: may cause saturation of 16b values
+      // the i/j loops below can be fully unrolled
+      for i = 0 to 7
+        for j = 0 to 7
+          T[i][j] += A[I+i][K] * B[K][J+j] // using **hwMAC64**
+    end // K
+
+// EITHER: write out tile into the matrix
+    // this needs a "store C[i][j]" instruction
+    for i = 0 to 7
+      for j = 0 to 7
+        C[I+i][J+j] = T[i][j] // using **st2MAC64** intructions
+// OR: immediately apply bias and activation
+    // this needs a "rd = T[i][j]" instruction
+    for i = 0 to 7
+      for j = 0 to 7 begin
+        r = max( T[i][j] + bias[I+i][J+j], 0 ) // integer instructions, including **mvoMAC64** and **mveMAC64**, and may be **maxMAC64**
+        C[I+i][J+j] = r // regular store instruction
+      end // j
+
+  end // J
+end // I
+```
+
