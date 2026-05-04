@@ -105,12 +105,12 @@ The 8 * 8 input tile of `A` are FP4 registers that are preloaded with the image 
 
 Move operations:
 - **mvA IMM2, rs1, rs2** loads two rows of pixels in the 8 * 8 `A` tile, where the `IMM2` specifier indicates a value for `r` from 0..3. The values of `rs1` and `rs2` each hold 8 FP4 values for rows `2*r` and `2*r+1` in `A`.
-- - **conv rs1, IMM3** computes `T += f(rs1) * A`, where `T` is the 8 * 8 accumulator tile, `rs1` holds 8 FP4 values, and IMM3 indicates which FP4 value to extract from `rs1`. The rightmost/bottom-most columns/rows of `A` that are considered **inactive** do not update `T` (i.e., are treated as zeros).
-- **convLC rs1, IMM3** like **conv**, but this also concurrently computes `A = rotlc(A)`, where `rs1` holds 8 FP4 values, and IMM3 indicates which FP4 value to extract from `rs1`. The `rotlc()` function moves all FP4 values in A to the left by 1 column, with the leftmost pixels moving to the rightmost column. An **inactive** region at the far right grows by 1 column. Inactive pixels are treated as 0 in future instruction invocations.
-- **convRC rs1, IMM3** similar to **convLC** but computes `A = rotrc(A)` which rotates A to the right by 1 column, with the rightmost column moving to the leftmost position. The **inactive** region at the far right shrinks by 1 column.
-- **convUR rs1, IMM3** similar to **convLC** but computes `A = rotur(A)` which rotates A up by 1 row, with the topmost column moving to the bottom-most position. The **inactive** region at the bottom grows by 1 row.
-- **convDR rs1, IMM3** similar to **convLC** but computes `A = rotdr(A)` which rotates A down by 1 row, with the bottom-most column moving to the topmost position. The **inactive** region at the bottom shrinks by 1 row.
-- as above, the **zzMAC64** instruction is needed. This instruction should make all rows/columns of **active** to start the convolution correctly.
+- - **conv rs1, IMM3** computes `T += f(rs1) * A`, where `T` is the 8 * 8 accumulator tile, `rs1` holds 8 FP4 values, and IMM3 indicates which FP4 value to extract from `rs1`.
+- **convLC rs1, IMM3** like **conv**, but this also concurrently computes `A = rotlc(A)`, where `rs1` holds 8 FP4 values, and IMM3 indicates which FP4 value to extract from `rs1`. The `rotlc()` function moves all FP4 values in A to the left by 1 column, with the leftmost pixels moving to the rightmost column.
+- **convRC rs1, IMM3** similar to **convLC** but computes `A = rotrc(A)` which rotates A to the right by 1 column, with the rightmost column moving to the leftmost position.
+- **convUR rs1, IMM3** similar to **convLC** but computes `A = rotur(A)` which rotates A up by 1 row, with the topmost column moving to the bottom-most position. 
+- **convDR rs1, IMM3** similar to **convLC** but computes `A = rotdr(A)` which rotates A down by 1 row, with the bottom-most column moving to the topmost position.
+- instructions needed from the outer product accelerator include t**zzMAC64** and **st2MAC64**
 
 The idea is to use these instructions to snake through all positions within the K * K filter kernel. For example, this sequence of instructions convolves `A` with a 3 x 3 filter kernel:
 ```
@@ -130,12 +130,14 @@ convLC  x9, 6 // convolve A with  x9[27:24], A = rotrc(A) moves A left   (after:
 convLC  x9, 7 // convolve A with  x9[31:28], A = rotrc(A) moves A left   (after: 2 inactive columns on right, 2 inactive rows on bottom)
 conv   x10, 0 // convolve A with x10[ 3: 0]                              (after: 2 inactive columns on right, 2 inactive rows on bottom)
 // write out T which holds the convolution results
-// using up to 64 mvoMAC64, mveMAC64 instructions
-// or up to 32 mv2MAC64, or st2MAC64 instructions
-// NOTE: fewer instructions are needed if the last few rows/columns of T can be skipped
-//       e.g., only 6 * 6 results are valid, requiring 18 st2MAC64 instructions, when computing a 3 * 3 filter on an 8 * 8 tile
+// 3 * 3 tile produces 6 * 6 results (results outside of this region are gibberish)
+// 5 * 5 tile produces 4 * 4 results (results outside of this region are gibberish)
+// 7 * 7 tile produces 2 * 2 results (results outside of this region are gibberish)
+// these results must be saved to memory using st2MAC64 instructions
+// or they can be moved to integer registers using mvoMAC64, mveMAC64, mv2MAC64 instructions
 
-// 1 kernel requires: 4 x mvA, 1 x zzMAC64, 18 x st2MAC64, plus 9 conv* instructions
+// one 3 * 3 kernel requires: 4 x mvA, 1 x zzMAC64, 18 x st2MAC64, plus 9 conv* instructions = 32 instructions total
+// in contrast, one 3 * 3 kernel would require 18 * 6 * 6 = 32 * 81 individual multiply or add instructions, plus 36 store instructions and many (repeated) loads and loop overhead
 
 // OPTIONAL THOUGHT:
 // if re-using the image tile with another convolution kernel (different 3x3 filter), it is possible to work backwards from the above
@@ -158,7 +160,6 @@ The extra hardware required to support these instructions is:
 - an 8 * 8 array of FP4 values
 - the ability to shift values in the 8 * 8 array in 4 directions (4:1 mux), from U/D/L/R positions
 - the ability to extract a single FP4 value from a 32 operand using IMM3, and broadcast this to all 8 * 8 multipliers
-- 14 flip-flops that track up to 7 inactive rows and 7 inactive columns, and prevent those rows/columns from participating in the tile update (either force the multiplicand to 0, or prohibit writing to the relevant accumulators; latter probably uses less logic); these flip-flops must be reset on a **zzMAC64** instruction.
 
 To see an example of this being computed in C, please look at the [examples/conv.c](examples/conv.c) source code.
 
