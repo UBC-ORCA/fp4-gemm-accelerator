@@ -164,7 +164,48 @@ The extra hardware required to support these instructions is:
 To see an example of this being computed in C, please look at the [examples/conv.c](examples/conv.c) source code.
 
 
-# Tiled Matrix Multiply
+# Software Needed
+
+- MPTorch used to train basic MNIST using MLP and 3 * 3 CNNs
+- avoid hardware complex things like batchnorm, if possible
+- think hard about tensor scaling and activation function, and range limits during training
+- software on CVE2 to run MLP and CNN models without acceleration
+- without acceleration means extracting FP4 bit patterns, treating them as INT4, and computing directly with regular C code; the results will be incorrect, but this is only to set runtime baseline
+- software on CVE2 to run MLP and CNN models with acceleration
+- accelerated version needs to tile the larger matrices, probably batch the models so matrix * matrix multiplication is used (not matrix * vector), and worry about the tile-based transpose problem between C outputs becoming the A inputs for the next layer
+
+## Thoughts on post-processing and tensor scaling on INT16 values (no hw assist)
+The hwMAC64 accelerator produces pairs of INT16 values, either moving them into integer registers using instructions like **mv2MAC64**, or first writing them to memory using **st2MAC64**. If written to memory, they can be reloaded again using regular C data types (int16_t) without the need to extract halfwords from words. However, directly moving the results into the register file may be more efficient.
+
+The problem then becomes final processing of INT16 results and packing them into UINT32 words holding 8 * FP4 results. This will be done during the tensor scaling and quantize steps.
+
+For tensor scaling, I think this is the process:
+- scan entire output matrix for its max value
+- compute the power of 2 needed to scale this max value to 16384 or larger; call this value SCALE
+- multiply all elements by SCALE so they are left-justified in the INT16 format
+- convert each matrix element into FP4 (many ways, including cheating by conversion to INT4 then to <sign,UINT3> signed-magnitude format)
+- alternate way: take the top 5-6 MSB of INT16 value and use a 32 or 64 entry lookup table to convert it into FP4 (may need rounding to consider the lower truncated INT16 bits)
+- pack eight FP4 values into words
+
+The lookup table would be the reverse of FP4 to INT5 (INT5 because the sign bit still needs to be acounted for):
+- (b000) 0.0 = 0
+- (b001) 0.5 = 1
+- (b010) 1.0 = 2
+- (b011) 1.5 = 3
+- (b100) 2.0 = 4
+- (b101) 3.0 = 6
+- (b110) 4.0 = 8
+- (b111) 6.0 = 12
+
+In reverse, the missing integer values become (using round nearest, ties to even -- please verify):
+- 5 would become 2.0 
+- 7 would become 4.0
+- 9 and 10 would become 4.0
+- 11 or larger would become 6.0
+
+
+
+# REFERENCE: Tiled Matrix Multiply
 
 ## WARNING: TEXT BELOW HAS NOT BEEN CAREFULLY EDITTED. IT WILL PROBABLY BE HEAVILY REWRITTEN.
 
