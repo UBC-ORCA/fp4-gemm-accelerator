@@ -97,44 +97,70 @@ Curiously, there are only 18 unique products out of the 64 combinations from mul
 
 # Hardware MAC64 Instruction Set for Convolutions with FP4
 
-The same 8 * 8 array of FP4 * FP4 multipliers and int16 accumulators can also be used to efficiently compute convolutions of with a filter of size K * K. The image source and filter coefficients will all be in FP4, but accumulation will be in int16.
+In an effort to add further novelty to the design, I'm considering adding instructions to assist with accelerating convolutional neural networks.
 
-An 8 * 8 input tile of FP4 registers will be preloaded with the image pixels, forming one operand of the multiplication. The second operand comes from broadcasting a single FP4 value from a 32b integer register. To efficiently iterate over multiple filter coefficients, an immediate constant 0..7 will determine one of 8 FP4 values to extract from the second operand. Also, rather than moving the location of the filter, the image pixels will rotate by 1 column for one instruction, or 1 row for another instruction; a snaking path will be taken to cover the entire 2D window of the filter. The instruction set and code below shows how this works.
+This convolution accelerator should work for 1 * 1, 3 * 3, 5 * 5 and 7 * 7 kernels. It requires the same `MAC64' array used for matrix multiply, consisting of FP4 multipliers and int16 accumulators, plus some extra logic to hold 8 * 8 tile of image pixels in FP4, called `A`, and the ability to rotate the pixels in that image tile them up/down/left/right.
+
+The 8 * 8 input tile of `A` are FP4 registers that are preloaded with the image pixels forming one operand of the multiplication. The second operand comes from broadcasting a single FP4 value from a 32b integer register. To efficiently iterate over multiple filter coefficients, an immediate constant 0..7 will determine one of 8 FP4 values to extract from the second operand. Also, rather than moving the location of the filter, the image pixels will rotate by 1 column for one instruction, or 1 row for another instruction; a snaking path will be taken to cover the entire 2D window of the filter. The instruction set and code below shows how this works.
 
 Move operations:
-- **mvA IMM3, rs1** loads one row of pixels in the 8 * 8 `A` tile, where the `IMM3` specifier indicates rows 0..7 for the destination, and `rs1` holds the 8 FP4 values to save in that row.
-- **convLC rs1, IMM3** computes `T += f(rs1) * A; A = rotlc(A)`, where `T` is the 8 * 8 accumulator tile, `rs1` holds 8 FP4 values, and IMM3 indicates which FP4 value to extract from `rs1`. The `rotlc()` function moves all FP4 values in A to the left by 1 column, with the leftmost pixels moving to the rightmost column. An inactive region at the far right grows by 1 column. Inactive pixels are treated as 0 in future instruction invocations.
-- **convRC rs1, IMM3** similar to **mvCONVLC** but `A = rotrc(A)` rotates A to the right by 1 column, with the rightmost column moving to the leftmost position. The inactive region at the far right shrinks by 1 column.
-- **convUR rs1, IMM3** similar to **mvCONVLC** but `A = rotur(A)` rotates A to the up by 1 row, with the topmost column moving to the bottom-most position. The inactive region at the bottom grows by 1 row.
-- **convDR rs1, IMM3** similar to **mvCONVUR** but `A = rotdr(A)` rotates A to the down by 1 row, with the bottom-most column moving to the topmost position. The inactive region at the bottom shrinks by 1 row.
-- The idea is to use these instructions to snake through all positions within the K * K filter kernel. For example, for a 3 x 3 filter kernel, this sequence of instructions would be needed:
+- **mvA IMM2, rs1, rs2** loads two rows of pixels in the 8 * 8 `A` tile, where the `IMM2` specifier indicates a value for `r` from 0..3. The values of `rs1` and `rs2` each hold 8 FP4 values for rows `2*r` and `2*r+1` in `A`.
+- - **conv rs1, IMM3** computes `T += f(rs1) * A`, where `T` is the 8 * 8 accumulator tile, `rs1` holds 8 FP4 values, and IMM3 indicates which FP4 value to extract from `rs1`. The rightmost/bottom-most columns/rows of `A` that are considered **inactive** do not update `T` (i.e., are treated as zeros).
+- **convLC rs1, IMM3** like **conv**, but this also concurrently computes `A = rotlc(A)`, where `rs1` holds 8 FP4 values, and IMM3 indicates which FP4 value to extract from `rs1`. The `rotlc()` function moves all FP4 values in A to the left by 1 column, with the leftmost pixels moving to the rightmost column. An **inactive** region at the far right grows by 1 column. Inactive pixels are treated as 0 in future instruction invocations.
+- **convRC rs1, IMM3** similar to **convLC** but computes `A = rotrc(A)` which rotates A to the right by 1 column, with the rightmost column moving to the leftmost position. The **inactive** region at the far right shrinks by 1 column.
+- **convUR rs1, IMM3** similar to **convLC** but computes `A = rotur(A)` which rotates A up by 1 row, with the topmost column moving to the bottom-most position. The **inactive** region at the bottom grows by 1 row.
+- **convDR rs1, IMM3** similar to **convLC** but computes `A = rotdr(A)` which rotates A down by 1 row, with the bottom-most column moving to the topmost position. The **inactive** region at the bottom shrinks by 1 row.
+- as above, the **zzMAC64** instruction is needed. This instruction should make all rows/columns of **active** to start the convolution correctly.
+
+The idea is to use these instructions to snake through all positions within the K * K filter kernel. For example, this sequence of instructions convolves `A` with a 3 x 3 filter kernel:
 ```
-mvA 0, x1 // pre-load 8 rows of tile A
-mvA 1, x2
-mvA 2, x3
-mvA 3, x4
-mvA 4, x5
-mvA 5, x6
-mvA 6, x7
-mvA 7, x8
-zzMA64  // clear all 8 * 8 entries of T
+mvA 0, x1, x2 // pre-load 8 rows of tile A with 4 instructions
+mvA 1, x3, x4
+mvA 2, x5, x6
+mvA 3, x7, x8
 // do a 3x3 convolution with the first 8 filter values from x9, and the 9th from x10
-convLC  x9, 0 // convolve A with  x9[ 3: 0], A = rotlc(A) moves A left   (1 inactive column on right)
-convLC  x9, 1 // convolve A with  x9[ 7: 4], A = rotlc(A) moves A left   (2 inactive columns on right)
-convUR  x9, 2 // convolve A with  x9[11: 8], A = rotur(A) moves A up    (2 inactive columns on right, 1 inactive row on bottom)
-convRC  x9, 3 // convolve A with  x9[15:12], A = rotrc(A) moves A right (1 inactive columns on right, 1 inactive row on bottom)
-convRC  x9, 4 // convolve A with  x9[19:16], A = rotrc(A) moves A right (0 inactive columns on right, 1 inactive row on bottom)
-convUR  x9, 5 // convolve A with  x9[23:20], A = rotur(A) moves A up    (0 inactive columns on right, 2 inactive rows on bottom)
-convLC  x9, 6 // convolve A with  x9[27:24], A = rotrc(A) moves A left (1 inactive columns on right, 2 inactive rows on bottom)
-convLC  x9, 7 // convolve A with  x9[31:28], A = rotrc(A) moves A left (2 inactive columns on right, 2 inactive rows on bottom)
-convDR x10, 0 // convolve A with x10[ 3: 0], A = rotdr(A) moves A down  (2 inactive columns on right, 1 inactive rows on bottom)
-// restore A to proper position with 1 more rotdr() and 2 more rotrc() using x0 as multiplicand
-// other than rotating A back to the original position, these instructions are no-ops
-convDR  x0, 0 // convolve A with  x0[ 3: 0], A = rotdr(A) moves A down  (2 inactive columns on right, 0 inactive rows on bottom)
-convLC  x0, 0 // convolve A with  x0[ 3: 0], A = rotrc(A) moves A right (2 inactive columns on right, 0 inactive rows on bottom)
-convLC  x0, 0 // convolve A with  x0[ 3: 0], A = rotrc(A) moves A right (2 inactive columns on right, 0 inactive rows on bottom)
+zzMA64  // clear all 8 * 8 entries of T, erase all inactive rows/columns
+convLC  x9, 0 // convolve A with  x9[ 3: 0], A = rotlc(A) moves A left   (after: 1 inactive column on right)
+convLC  x9, 1 // convolve A with  x9[ 7: 4], A = rotlc(A) moves A left   (after: 2 inactive columns on right)
+convUR  x9, 2 // convolve A with  x9[11: 8], A = rotur(A) moves A up     (after: 2 inactive columns on right, 1 inactive row on bottom)
+convRC  x9, 3 // convolve A with  x9[15:12], A = rotrc(A) moves A right  (after: 1 inactive columns on right, 1 inactive row on bottom)
+convRC  x9, 4 // convolve A with  x9[19:16], A = rotrc(A) moves A right  (after: 0 inactive columns on right, 1 inactive row on bottom)
+convUR  x9, 5 // convolve A with  x9[23:20], A = rotur(A) moves A up     (after: 0 inactive columns on right, 2 inactive rows on bottom)
+convLC  x9, 6 // convolve A with  x9[27:24], A = rotrc(A) moves A left   (after: 1 inactive columns on right, 2 inactive rows on bottom)
+convLC  x9, 7 // convolve A with  x9[31:28], A = rotrc(A) moves A left   (after: 2 inactive columns on right, 2 inactive rows on bottom)
+conv   x10, 0 // convolve A with x10[ 3: 0]                              (after: 2 inactive columns on right, 2 inactive rows on bottom)
+// write out T which holds the convolution results
+// using up to 64 mvoMAC64, mveMAC64 instructions
+// or up to 32 mv2MAC64, or st2MAC64 instructions
+// NOTE: fewer instructions are needed if the last few rows/columns of T can be skipped
+//       e.g., only 6 * 6 results are valid, requiring 18 st2MAC64 instructions, when computing a 3 * 3 filter on an 8 * 8 tile
+
+// 1 kernel requires: 4 x mvA, 1 x zzMAC64, 18 x st2MAC64, plus 9 conv* instructions
+
+// OPTIONAL THOUGHT:
+// if re-using the image tile with another convolution kernel (different 3x3 filter), it is possible to work backwards from the above
+// clear T, start next convolution while restoring A to proper position by snaking the reverse of the above. does this make sense?
+zzMA64  // clear all 8 * 8 entries of T
+mvA // load new filter kernel
+convRC x10, 0 // convolve A with x10[ 3: 0], A = rotdr(A) moves A down  (after: 1 inactive columns on right, 2 inactive rows on bottom)
+convRC  x9, 7 // convolve A with  x9[31:28], A = rotrc(A) moves A left  (after: 0 inactive columns on right, 2 inactive rows on bottom)
+convDR  x9, 6 // convolve A with  x9[27:24], A = rotrc(A) moves A left  (after: 0 inactive columns on right, 1 inactive rows on bottom)
+convLC  x9, 5 // convolve A with  x9[23:20], A = rotur(A) moves A up    (after: 1 inactive columns on right, 1 inactive rows on bottom)
+convLC  x9, 4 // convolve A with  x9[19:16], A = rotrc(A) moves A right (after: 2 inactive columns on right, 1 inactive row on bottom)
+convDR  x9, 3 // convolve A with  x9[15:12], A = rotrc(A) moves A right (after: 2 inactive columns on right, 0 inactive row on bottom)
+convRC  x9, 2 // convolve A with  x9[11: 8], A = rotur(A) moves A up    (after: 1 inactive columns on right, 0 inactive row on bottom)
+convRC  x9, 1 // convolve A with  x9[ 7: 4], A = rotlc(A) moves A left  (after: all rows/columns active)
+conv    x9, 0 // convolve A with  x9[ 3: 0]                             (after: all rows/columns active)
 // now write out tile T as the solution
 ```
+
+The extra hardware required to support these instructions is:
+- an 8 * 8 array of FP4 values
+- the ability to shift values in the 8 * 8 array in 4 directions (4:1 mux), from U/D/L/R positions
+- the ability to extract a single FP4 value from a 32 operand using IMM3, and broadcast this to all 8 * 8 multipliers
+- 14 flip-flops that track up to 7 inactive rows and 7 inactive columns, and prevent those rows/columns from participating in the tile update (either force the multiplicand to 0, or prohibit writing to the relevant accumulators; latter probably uses less logic); these flip-flops must be reset on a **zzMAC64** instruction.
+
+To see an example of this being computed in C, please look at the [examples/conv.c](examples/conv.c) source code.
 
 
 # Tiled Matrix Multiply
