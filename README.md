@@ -319,8 +319,11 @@ for I = 0 to 1023 step 8 begin
 end // I
 ```
 
-Example software for writing custom instructions can be found here:
+Jerry's software for writing custom instructions can be found here:
 https://github.com/JerryYun2004/RISC-V-RVV-Lite/tree/LUTRAM-VRF/sw/benchmarks
+
+Jerry's hardware is here:
+https://github.com/JerryYun2004/CVe2-RVV-Lite-A1-Extension
 
 INT8 repository:
 https://github.com/ruwayd99/RISC_V_Small_Integer_Accelerator_for_DNN_Inference
