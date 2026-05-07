@@ -246,7 +246,7 @@ for I = 0 to 1023 step 8
       for i = 0 to 7 // UNROLL
         for j = 0 to 7 // UNROLL
           T[i][j] += A[I+i][k] * B[k][J+j]
-    C[i][j] = T // copy entire tile back
+    C[I+i][J+j] = T[i][j] // copy entire tile back
 ```
 Here, you'll see the innermost `i` and `j` loops have just 8 iterations. This is the size of the tile `T`, and it covers just an 8 * 8 patch of the larger 1024 * 1024 `C` matrix. These two innermost loops can be fully unrolled, yielding a total of 64 MAC operations taken from the core computation, `T[i][j] += A[I+i][k] * B[k][J+j]`. This core computation uses a strip of the `A` matrix that is 8 rows tall, and a strip of the `B` matrix that is 8 columns wide; both strips are of length 1024, which is iterated over by the `k` dimension (the middle loop). These 3 inner loops only compute the results for one tile, so outer loops are added for `I` and `J` to iterate over all possible 8 * 8 tiles within `C`; those outer loops go in increments of 8, of course, to step along by one tile at a time. The code now looks like this:
 ```
@@ -261,7 +261,7 @@ for I = 0 to 1023 step 8
       T[7][5] += A[I+7][k] * B[k][J+5]
       T[7][6] += A[I+7][k] * B[k][J+6]
       T[7][7] += A[I+7][k] * B[k][J+7]
-    C[i][j] = T // copy entire 8*8 tile back
+    C[I+i][J+j] = T[i][j] // copy entire 8*8 tile back
 ```
 Rewriting this into the ISA:
 ```
@@ -318,4 +318,10 @@ for I = 0 to 1023 step 8 begin
   end // J
 end // I
 ```
+
+Example software for writing custom instructions can be found here:
+https://github.com/JerryYun2004/RISC-V-RVV-Lite/tree/LUTRAM-VRF/sw/benchmarks
+
+INT8 repository:
+https://github.com/ruwayd99/RISC_V_Small_Integer_Accelerator_for_DNN_Inference
 
