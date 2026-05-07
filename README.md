@@ -15,9 +15,9 @@ Note that FP4 is only for the matrix multiply inputs. The outputs format is yet 
 
 - convert FP4 inputs to int5 (perfect/lossless), where the integer counts the number of "quanta" in the float (one quanta is the smallest value). for FP4 in OCP, the quanta is 0.5, and the valueset of FP4 (for OCP) is the set of 8 values +/-{ 0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0 }. This can be represented by integers +/-{ 0, 1, 2, 3, 4, 6, 8, 12 }. Note that even if the valueset changes to IEEE P3109, the integer values and the FP4-to-int logic remains the same!
 
-- with values maxing out at +/-12, we can accumulate about 10 MACs (10*12=120) before overflowing an int8. It is tempting to stop accumulating after computing a full 8 * 8 tile of A * B = C, to avoid overflows. However, additional tiles from a strip of A and a stripe of B eventually need to be added together into the same C tile.
+- with values maxing out at +/-144, we can accumulate about 227 MACs (32767/144=227) before overflowing an INT16. It is tempting to stop accumulating after computing a full 8 * 8 tile of A * B = C, to avoid overflows. However, additional tiles from a strip of A and a stripe of B eventually need to be added together into the same C tile.
 
-- accumulating into int16 would allow A and B matrix dimension K = 256*10 = 2560 before overflowing. This is "pretty large" for a tiny inference engine, so let's go with it.
+- practically, accumulating into int16 would allow A and B matrix dimension K = 256 before overflowing. This is "pretty large" for a tiny inference engine, so let's go with it.
 
 - let's read out the C matrix in two different ways, for software flexibility. 1) read out INT16 values, 2) read out INT16 converted to BINARY16 (or BFLOAT16). The readout will be 32b at a time, so at most you will need two int-to-float conversion modules. The range of BINARY16 is about +/- 60,000, so it should easily handle the INT16 range (it will end up rounding many data values into the buckets it has; also, BINARY16 can represent many many values < 0.25, which are impossible to produce while accumulating FP4 * FP4 values (their smallest value would be 0.5 * 0.5 = 0.25).
 
