@@ -1,0 +1,3 @@
+[submodule "int8"]
+	path = int8
+	url = git@github.com:ruwayd99/RISC_V_Small_Integer_Accelerator_for_DNN_Inference.git
