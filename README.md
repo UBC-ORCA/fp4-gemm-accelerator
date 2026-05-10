@@ -218,16 +218,15 @@ for i = 0 to 1023
 ```
 Visually, it can be drawn something like this:
 ```
-k=0..3
-\      AAA
- \     AAA
-  \    AAA
-   \   AAA
-     + ---
-WWWW | FFF  < i=0..1
-WWWW | FFF  <
-       ^^^
-     j=0..3
+k:
+  0      AAA
+   1     AAA
+    2    AAA
+     3   AAA
+       + ---  i:
+  WWWW | FFF  0
+  WWWW | FFF  1
+      j: 012
 ```
 
 To avoid reading/writing memory for `F` each time, we can do this:
