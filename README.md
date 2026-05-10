@@ -209,69 +209,82 @@ In reverse, the missing integer values become (using round nearest, ties to even
 
 ## WARNING: TEXT BELOW HAS NOT BEEN CAREFULLY EDITTED. IT WILL PROBABLY BE HEAVILY REWRITTEN.
 
-The naive version of matrix multiply uses three nested loops, in order of `i`, `j`, and `k`, where the innermost `k` loop is used to compute a dot product, also known as the **inner product**, and the `i` loop traverses rows of `A` and `C` while the `j` loop traverses columns of `B` and `C`. The core computation is `C[i][j] += A[i][k] * B[k][j]`:
+The naive version of matrix multiply uses three nested loops, in order of `i`, `j`, and `k`, where the innermost `k` loop is used to compute a dot product, also known as the **inner product**, and the `i` loop traverses rows of `W` and `F` while the `j` loop traverses columns of `A` and `F`. The core computation is `F[i][j] += W[i][k] * A[k][j]` where W are the weights, A are the activations, and F are the computed feature outputs:
 ```
 for i = 0 to 1023
   for j = 0 to 1023
     for k = 0 to 1023
-      C[i][j] += A[i][k] * B[k][j]
+      F[i][j] += W[i][k] * A[k][j]
 ```
-To avoid reading/writing memory for `C` each time, we can do this:
+Visually, it can be drawn something like this:
+```
+k=0..3
+\      AAA
+ \     AAA
+  \    AAA
+   \   AAA
+     + ---
+WWWW | FFF  < i=0..1
+WWWW | FFF  <
+       ^^^
+     j=0..3
+```
+
+To avoid reading/writing memory for `F` each time, we can do this:
 ```
 for i = 0 to 1023
   for j = 0 to 1023
     t = 0
     for k = 0 to 1023
-      t += A[i][k] * B[k][j]
-    C[i][j] += t
+      t += W[i][k] * A[k][j]
+    F[i][j] += t
 ```
-This `t` term stays in a register, acting a bit like a cache. Later, we will transform `t` into `T`, an entire 8 x 8 tile of temporary values, and operate on all of them in parallel with the **hwMAC64** instruction. The last line, `C[i][j] += t` ensures new results are added to any initial value in the matrix, just like the original algorithm which also added to the initial value of `C`.
+This `t` term stays in a register, acting a bit like a cache. Later, we will transform `t` into `T`, an entire 8 x 8 tile of temporary values, and operate on all of them in parallel with the **hwMAC64** instruction. The last line, `F[i][j] += t` ensures new results are added to any initial value in the matrix, just like the original algorithm which also added to the initial value of `F`.
 
-While the **inner product** works well to cache the value of `t`, it can only compute one output element at a time (the dot product). For example, suppose we use sub-word SIMD and group eight FP4 values from `A` into `rs1` and eight FP4 values from `B` into `rs2`. An inner product between A and B would compute eight multiplications and seven additions; once added to the original value of `C[i][j]`, an 8th addition appears. In other words, this inner product computes at most 8 multiply-accumulate operations (MACs).
+While the **inner product** works well to cache the value of `t`, it can only compute one output element at a time (the dot product). For example, suppose we use sub-word SIMD and group eight FP4 values from `W` into `rs1` and eight FP4 values from `A` into `rs2`. An inner product between W and A would compute eight multiplications and seven additions; once added to the original value of `F[i][j]`, an 8th addition appears. In other words, this inner product computes at most 8 multiply-accumulate operations (MACs).
 
-However, an **outer product** can compute even more MACs in parallel, as long as it has enough storage to hold the intermediate sums (several values of `t`).
- For this, it needs a tile of values `T` which will be written (?added?) into `C` one tile at a time. To start this , we transform the algorithm loop order so the `k` loop is now the outermost loop, and the `i` and `j` loops are the innermost loops:
+However, an **outer product** can compute even more MACs in parallel, as long as it has enough storage to hold the intermediate sums (several values of `t`). For this, it needs a tile of values `T` which will be written (?added?) into `F` one tile at a time. To start this , we transform the algorithm loop order so the `k` loop is now the outermost loop, and the `i` and `j` loops are the innermost loops:
 ```
 for k = 0 to 1023
   for i = 0 to 1023
     for j = 0 to 1023
-      C[i][j] += A[i][k] * B[k][j]
+      F[i][j] += W[i][k] * A[k][j]
 ```
 For large matrices like these, we must break this down into smaller 8 * 8 tiles:
 ```
 for I = 0 to 1023 step 8
   for J = 0 to 1023 step 8
-    T = 8*8 tile starting at C[i][j]
+    T = 8*8 tile starting at F[i][j]
     for k = 0 to 1023
       for i = 0 to 7 // UNROLL
         for j = 0 to 7 // UNROLL
-          T[i][j] += A[I+i][k] * B[k][J+j]
-    C[I+i][J+j] = T[i][j] // copy entire tile back
+          T[i][j] += W[I+i][k] * A[k][J+j]
+    F[I+i][J+j] = T[i][j] // copy entire tile back
 ```
-Here, you'll see the innermost `i` and `j` loops have just 8 iterations. This is the size of the tile `T`, and it covers just an 8 * 8 patch of the larger 1024 * 1024 `C` matrix. These two innermost loops can be fully unrolled, yielding a total of 64 MAC operations taken from the core computation, `T[i][j] += A[I+i][k] * B[k][J+j]`. This core computation uses a strip of the `A` matrix that is 8 rows tall, and a strip of the `B` matrix that is 8 columns wide; both strips are of length 1024, which is iterated over by the `k` dimension (the middle loop). These 3 inner loops only compute the results for one tile, so outer loops are added for `I` and `J` to iterate over all possible 8 * 8 tiles within `C`; those outer loops go in increments of 8, of course, to step along by one tile at a time. The code now looks like this:
+Here, you'll see the innermost `i` and `j` loops have just 8 iterations. This is the size of the tile `T`, and it covers just an 8 * 8 patch of the larger 1024 * 1024 `F` matrix. These two innermost loops can be fully unrolled, yielding a total of 64 MAC operations taken from the core computation, `T[i][j] += W[I+i][k] * A[k][J+j]`. This core computation uses a strip of the `W` matrix that is 8 rows tall, and a strip of the `A` matrix that is 8 columns wide; both strips are of length 1024, which is iterated over by the `k` dimension (the middle loop). These 3 inner loops only compute the results for one tile, so outer loops are added for `I` and `J` to iterate over all possible 8 * 8 tiles within `F`; those outer loops go in increments of 8, of course, to step along by one tile at a time. The code now looks like this:
 ```
 for I = 0 to 1023 step 8
   for J = 0 to 1023 step 8
-    T = 8*8 tile starting at C[i][j]
+    T = 8*8 tile starting at F[i][j]
     for k = 0 to 1023
-      T[0][0] += A[I+0][k] * B[k][J+0]
-      T[0][1] += A[I+0][k] * B[k][J+1]
-      T[0][2] += A[I+0][k] * B[k][J+2]
+      T[0][0] += W[I+0][k] * A[k][J+0]
+      T[0][1] += W[I+0][k] * A[k][J+1]
+      T[0][2] += W[I+0][k] * A[k][J+2]
       ...
-      T[7][5] += A[I+7][k] * B[k][J+5]
-      T[7][6] += A[I+7][k] * B[k][J+6]
-      T[7][7] += A[I+7][k] * B[k][J+7]
-    C[I+i][J+j] = T[i][j] // copy entire 8*8 tile back
+      T[7][5] += W[I+7][k] * A[k][J+5]
+      T[7][6] += W[I+7][k] * A[k][J+6]
+      T[7][7] += W[I+7][k] * A[k][J+7]
+    F[I+i][J+j] = T[i][j] // copy entire 8*8 tile back
 ```
 Rewriting this into the ISA:
 ```
 for I = 0 to 1023 step 8
   for J = 0 to 1023 step 8
-    zzMAC64; // clears entire tile; alternatively, could load tile from `C`
+    zzMAC64; // clears entire tile; alternatively, could load tile from `F`
     for k = 0 to 1023
-      AA = A[I+0][k] to A[I+7][k] // reads 8 elements from a column
-      BB = B[k][J+0] to B[k][J+7] // reads 8 elements from a row
-      hwMAC64 AA, BB
+      WW = W[I+0][k] to W[I+7][k] // reads 8 elements from a column
+      AA = A[k][J+0] to A[k][J+7] // reads 8 elements from a row
+      hwMAC64 WW, AA
     maxMAC64 x0 // computes ReLU on entire tile
     stMAC64 r0, 0(rs1) // stores tile, 2 elements at a time; also clears tile entries
     stMAC64 r1, 4(rs1)
@@ -293,26 +306,26 @@ for I = 0 to 1023 step 8 begin
     // the i/j loops below can be fully unrolled
     for i = 0 to 7
       for j = 0 to 7
-        T[i][j] = 0 or T[i][j] = C[I+i][J+j]; // using **zzMAC64** or **ld2MAC64** instructions
+        T[i][j] = 0 or T[i][j] = F[I+i][J+j]; // using **zzMAC64** or **ld2MAC64** instructions
 
     for K = 0 to 1023 begin // CAREFUL: may cause saturation of 16b values
       // the i/j loops below can be fully unrolled
       for i = 0 to 7
         for j = 0 to 7
-          T[i][j] += A[I+i][K] * B[K][J+j] // using **hwMAC64**
+          T[i][j] += W[I+i][K] * A[K][J+j] // using **hwMAC64**
     end // K
 
 // EITHER: write out tile into the matrix
     // this needs a "store C[i][j]" instruction
     for i = 0 to 7
       for j = 0 to 7
-        C[I+i][J+j] = T[i][j] // using **st2MAC64** intructions
+        F[I+i][J+j] = T[i][j] // using **st2MAC64** intructions
 // OR: immediately apply bias and activation
     // this needs a "rd = T[i][j]" instruction
     for i = 0 to 7
       for j = 0 to 7 begin
         r = max( T[i][j] + bias[I+i][J+j], 0 ) // integer instructions, including **mvoMAC64** and **mveMAC64**, and may be **maxMAC64**
-        C[I+i][J+j] = r // regular store instruction
+        F[I+i][J+j] = r // regular store instruction
       end // j
 
   end // J
