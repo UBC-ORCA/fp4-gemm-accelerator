@@ -57,6 +57,10 @@ https://github.com/djbyrne/mlp.c/blob/main/mlp_simple.c
 
 # Hardware MAC64 Instruction Set for Outer Product with FP4
 
+**NOTE:** these instructions have been replaced with new instructions, to support parameterized tile sizes, in the next subsection
+
+## STALE: instructions for 8 * 8 tile only, computing MAC with two operands of 32b holding 8 * FP4 values
+
 On an RV32 processor, most instructions combine two source integer registers `rs1` and `rs2` into a third destination `rd`.
 We will produce an instruction to compute 64 MACs in parallel as a way of building the outer product in matrix multiply.
 
@@ -68,17 +72,18 @@ Compute operations:
 - **zzMAC64** resets entire tile, `T[i][j] = 0` for all i x j in 0..7 x 0..7
 - **maxMAC64 rs1** computes `T = max(T, rs1)` on all tile entries; `rs1` holds a signed 16-b integer (use `0` for ReLU)
 - **hwMAC64 rs1, rs2** computes   `T[i][j] += rs1[i] * rs2[j]` for all i x j in 0..7 x 0..7, where `rs1` and `rs2` are 32b integer registers each holding 8 x FP4 values
-- **ad2MAC64 rs1, rs2** computes saturating add using **pair** of 16b integers from `rs1`, `T[i][2*j] += rs1[15:0]` and `T[i][2*j+1] += rs1[31:16]`
+- **addMAC64 rs1, rs2** computes saturating add using 16b integer from `rs2` to all activations in row in `rs1` specifier, `T[rs1][*] += rs2[15:0]`
 - these instructions do not modify any integer registers
-- for **ad2MAC64**, `rs2` is a 5b register specifier that does not indicate an integer register; instead, the 2 LSB indicate `2*j` and the next 3 bits indicate `i`
+- for **addMAC64**, `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
 
 Move operations:
-- always moves from T to integer register file
-- **mvoMAC64 rd,  rs2** moves single odd  tile entry `T[i][2*j+1]` indicated by `rs2` to integer register `rd`, **clearing the tile entry to zero**
-- **mveMAC64 rd,  rs2** moves single even tile entry `T[i][2*j]`   indicated by `rs2` to integer register `rd`, **clearing the tile entry to zero**
-- **mv2MAC64 rd,  rs2** moves concatenated **pair** of tile entries `{ T[i][2*j+1], T[i][2*j] }`, where `i` and `j` are taken from the `rs2` specifier (not register contents), to integer register `rd`, **clearing the tile entries to zero**
+- moves from T to integer register file (or to vector register file, if it exists)
+- **mvoMAC64 rd, rs1, rs2** moves single odd  tile entry `T[rs1][2*rs2+1]` indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
+- **mveMAC64 rd, rs1, rs2** moves single even tile entry `T[rs1][2*rs2]`   indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
+- **mv2MAC64 rd, rs1, rs2** moves concatenated **pair** of tile entries `{ T[rs1][2*rs2+1], T[rs1][2*rs2] }`, indicated by 5b specifiers `rs1 and `rs2` (not register contents) to  register `rd`, **clearing the tile entries to zero**
 - `rd` is a destination in the integer register file
-- `rs2` is a 5b register specifier that does not indicate an integer register; instead, the 2 LSB indicate `2*j` and the next 3 bits indicate `i`
+- `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
+- `rs2` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate column `j` as `2*rs2` and/or `2*rs2+1`
 
 Memory operations:
 - **ld2MAC64 rs2, IMM12(rs1)** reads 32b memory from effective address `rs1+IMM12`, writing to concatenated pair of tile entries `{T[i][2*j+1],T[i][2*j]}` indicated by field `rs2`
@@ -87,11 +92,46 @@ Memory operations:
 
 The **zzMAC64**, **maxMAC64**, and **hwMAC64** instructions operate on all 64 tile entries.
 
-The **ad2MAC64** instruction operates on two tile entries, allowing 2 bias terms to be added (with saturation).
+The **addMAC64** instruction operates on an entire row, allowing a bias term to be added (with saturation).
 
 In **hwMAC64**, the results of every FP4 * FP4 operation will be accumulated into a 16b integer. Each FP4 value itself can fit into an INT5, but not all INT5 values are used, making it a bad idea to get lazy and compute FP4 * FP4 in the INT5 * INT5 space. Instead, stay in the FP4 space and remove the sign bit so each multiplier operand is only 3b. This makes a product easy to compute using 6-input LUTs and summed into 16b integer accumulator. Each product spans the range from +/-0 to +/-144. A 16b accumulator can accumulate up to 227 of the largest products (144) before overflowing. This would be extremely rare, as there would normally be many small values and negative values as well. I think it is safe to assume up to 256 terms can be accumulated before overflow becomes a concern. To protect against overflow, make the accumulators **saturating** (wraparound would likely yield unpredictable results, but saturating at 32767 or -32768 should be OK).
 
 Curiously, there are only 18 unique products out of the 64 combinations from multiplying two FP4 values: it consists of the FP4 valueset {0, 1, 2, 3, 4, 6, 8, 12}, but it also consists of {9, 16, 18, 24, 32, 36, 48, 64, 72, 96, 144 }. (Valuesets expressed as their integer equivalent when used in accumulation.)
+
+## UPDATE: replacement instructions to accept int16 values directly (converts to FP4 in hardware)
+
+Compute tile up to 32 * 64:
+- use Verilog parameter for tilesize is TS = 8 (8 is the default value)
+- actual tile dimensions are rows=TS, columns=2*TS, up to TS=32
+- maximum dimensions are T[32][64], for a maximum size of 2048 elements
+
+MAC-oriented compute operations:
+- **zzMAC** resets entire tile, `T[i][j] = 0` for all i x j in 0 .. TS-1 x 0 .. 2 * TS-1
+- **maxMAC rs1** computes `T = max(T, rs1)` on all tile entries; `rs1` holds a signed 16-b integer (use `0` for ReLU; it's actually an int32 but kept in range of int16)
+- **hwMAC** computes   `T[i][j] += W[i] * A[j]` for all i x j in 0 .. TS-1 x 0 .. 2 * TS-1, where `W` and `A` are the outer product registers each holding TS or 2 * TS FP4 values
+- **setMACW rd, rs1** sets `W[rd] = rs1`, where rs1 holds 8 * FP4 values; there will be at most 8 * 8 = 64 FP4 values
+- **setMACA rd, rs1, rs2** sets `{A[2*rd], A[2*rd+1] } = { rs1[15:0]>>>rs2, rs1[31:16]>>>rs2 }`, where `rd` is in the range 0-31 and `rs1` holds 2 * INT16 values, for a maximum total of 64 positions in `A`, and `rs2` is a 5b specifier for the arithmetic shift-right amount in the range of 0-10. These INT16 values will be immediately converted to and stored as FP4 in hardware registers. The shifting (INT16 >> 10) yields an int6 value (at most 6 bits), in fixed-point Q4.2 format ranging from -8.0 to +7.75, to be converted into FP4 in the range of -6 to 6. The shifting may or may not round or jam the LSBs (truncate for now; we can talk about this rounding/jamming later.)
+
+Matrix update operations (much faster than vector unit):
+- **addMAC64 rs1, rs2** computes saturating add using 16b integer from `rs2` to all activations in the row indicated by the `rs1` specifier, `T[rs1][*] += rs2[15:0]`
+- **maxMAC64 rs1** computes `T = max(T, rs1)` on all tile entries; `rs1` holds 32b value treated as INT16 (use `0` for ReLU)
+- for **addMAC64**, `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
+- IGNORE FOR NOW **setMACD rs1, rs2** sets dimensions for `W` in rs1 and `A` in `rs2`, MACs outside of these dimensions are idle (only for power savings)
+
+Move operations:
+- moves from T to integer register file
+- maximum dimensions are T[32][64], for a maximum MAC size of 2048 elements
+- **mvoMAC rd, rs1, rs2** moves single odd  tile entry `T[rs1][2*rs2+1]` indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
+- **mveMAC rd, rs1, rs2** moves single even tile entry `T[rs1][2*rs2]`   indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
+- **mv2MAC rd, rs1, rs2** moves concatenated **pair** of tile entries `{ T[rs1][2*rs2+1], T[rs1][2*rs2] }`, indicated by 5b specifiers `rs1 and `rs2` (not register contents) to  register `rd`, **clearing the tile entries to zero**
+- `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
+- `rs2` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate column `j` as `2*rs2` and/or `2*rs2+1`
+- `rd` is a destination in the integer register file
+
+Vector operations (OPTIONAL):
+- **mvvMAC vd, rs1** single instruction to copy an entire row, `v[rd] = T[rs1][*]`
+- row length determined by vector length register using `setvl` instructions
+- each vector register needs to hold `VLEN=2*TS*16`, or up to 1024 to hold up to 64 x 16b halfwords
 
 
 
