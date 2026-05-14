@@ -358,6 +358,8 @@ end // I
 
 ## Tensor and Block Scaling
 
+**NOTE: PLEASE IGNORE, THIS DOES NOT CORRECTLY PERFORM BLOCK SCALING**
+
 Tensor/block scaling prenormalizes a tensor or block to scale its maximum value to the maximal or near-maximal value in the target format when quantizing. For simplicity, we will only consider scaling by powers of 2 which require shifting and not multiplying or dividing. For now, shifting will involve simple truncation. Below, we will consider block scaling in the inference design -- however, for now, training will be done only with tensor scaling to produce a single global scaling constant that will be applied to all blocks at the inference level for that layer.
 
 The matrix multiplication being done is `F = W * A = (c_w * W_n) * (c_a * A_n) = (c_w * c_a) * (W_n * A_n)`, where `c_w` and `c_a` are constants extracted from the tensors `W` and `A`, and `W_n` and `A_n` are normalized versions of the weight and activation matrices.
