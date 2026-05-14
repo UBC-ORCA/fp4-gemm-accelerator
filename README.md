@@ -55,50 +55,11 @@ You may find it instructive to also look at this very simple C code to train a s
 https://github.com/djbyrne/mlp.c/blob/main/mlp_simple.c
 
 
-# Hardware MAC64 Instruction Set for Outer Product with FP4
+## Hardware MAC64 Instruction Set for Outer Product with FP4
 
-**NOTE:** these instructions have been replaced with new instructions, to support parameterized tile sizes, in the next subsection
+**NOTE:** the old version of these instructions is at the end of this document (for archival purposes)
 
-## STALE: instructions for 8 * 8 tile only, computing MAC with two operands of 32b holding 8 * FP4 values
-
-On an RV32 processor, most instructions combine two source integer registers `rs1` and `rs2` into a third destination `rd`.
-We will produce an instruction to compute 64 MACs in parallel as a way of building the outer product in matrix multiply.
-
-Accumulation will be done with 16b signed integers using saturating arithmetic (cannot exceed 32767, or go below -32768).
-
-Multiply operations are done with 8 * FP4 values packed into 32b integers.
-
-Compute operations:
-- **zzMAC64** resets entire tile, `T[i][j] = 0` for all i x j in 0..7 x 0..7
-- **maxMAC64 rs1** computes `T = max(T, rs1)` on all tile entries; `rs1` holds a signed 16-b integer (use `0` for ReLU)
-- **hwMAC64 rs1, rs2** computes   `T[i][j] += rs1[i] * rs2[j]` for all i x j in 0..7 x 0..7, where `rs1` and `rs2` are 32b integer registers each holding 8 x FP4 values
-- **addMAC64 rs1, rs2** computes saturating add using 16b integer from `rs2` to all activations in row in `rs1` specifier, `T[rs1][*] += rs2[15:0]`
-- these instructions do not modify any integer registers
-- for **addMAC64**, `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
-
-Move operations:
-- moves from T to integer register file (or to vector register file, if it exists)
-- **mvoMAC64 rd, rs1, rs2** moves single odd  tile entry `T[rs1][2*rs2+1]` indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
-- **mveMAC64 rd, rs1, rs2** moves single even tile entry `T[rs1][2*rs2]`   indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
-- **mv2MAC64 rd, rs1, rs2** moves concatenated **pair** of tile entries `{ T[rs1][2*rs2+1], T[rs1][2*rs2] }`, indicated by 5b specifiers `rs1 and `rs2` (not register contents) to  register `rd`, **clearing the tile entries to zero**
-- `rd` is a destination in the integer register file
-- `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
-- `rs2` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate column `j` as `2*rs2` and/or `2*rs2+1`
-
-Memory operations:
-- FLAWED: **ld2MAC64 rs2, IMM12(rs1)** reads 32b memory from effective address `rs1+IMM12`, writing to concatenated pair of tile entries `{T[i][2*j+1],T[i][2*j]}` indicated by field `rs2`
-- FLAWED: **st2MAC64 rs2, IMM12(rs1)** writes 32b from concatenated **pair** of tile entries `{ T[i][2*j+1], T[i][2*j] }` indicated by field `rs2` to effective address `rs1+IMM12`, **clearing the tile entry to zero**
-- the `rs2` field is a 5b register specifier that does not indicate an integer register; instead, the 2 LSB indicate `2*j` and the next 3 bits indicate `i`
-
-The **zzMAC64**, **maxMAC64**, and **hwMAC64** instructions operate on all 64 tile entries.
-
-The **addMAC64** instruction operates on an entire row, allowing a bias term to be added (with saturation).
-
-In **hwMAC64**, the results of every FP4 * FP4 operation will be accumulated into a 16b integer. Each FP4 value itself can fit into an INT5, but not all INT5 values are used, making it a bad idea to get lazy and compute FP4 * FP4 in the INT5 * INT5 space. Instead, stay in the FP4 space and remove the sign bit so each multiplier operand is only 3b. This makes a product easy to compute using 6-input LUTs and summed into 16b integer accumulator. Each product spans the range from +/-0 to +/-144. A 16b accumulator can accumulate up to 227 of the largest products (144) before overflowing. This would be extremely rare, as there would normally be many small values and negative values as well. I think it is safe to assume up to 256 terms can be accumulated before overflow becomes a concern. To protect against overflow, make the accumulators **saturating** (wraparound would likely yield unpredictable results, but saturating at 32767 or -32768 should be OK).
-
-Curiously, there are only 18 unique products out of the 64 combinations from multiplying two FP4 values: it consists of the FP4 valueset {0, 1, 2, 3, 4, 6, 8, 12}, but it also consists of {9, 16, 18, 24, 32, 36, 48, 64, 72, 96, 144 }. (Valuesets expressed as their integer equivalent when used in accumulation.)
-
-## UPDATE: replacement instructions to accept int16 values directly (converts to FP4 in hardware)
+### UPDATE: replacement instructions to accept int16 values directly (converts to FP4 in hardware)
 
 Compute tile up to 32 * 64:
 - use Verilog parameter for tilesize is TS = 8 (8 is the default value)
@@ -110,7 +71,7 @@ MAC-oriented compute operations:
 - **maxMAC rs1** computes `T = max(T, rs1)` on all tile entries; `rs1` holds a signed 16-b integer (use `0` for ReLU; it's actually an int32 but kept in range of int16)
 - **hwMAC** computes   `T[i][j] += W[i] * A[j]` for all i x j in 0 .. TS-1 x 0 .. 2 * TS-1, where `W` and `A` are the outer product registers each holding TS or 2 * TS FP4 values
 - **setWMAC rd, rs1** sets `W[rd] = rs1`, where rs1 holds 8 * FP4 values; there will be at most 8 * 8 = 64 FP4 values
-- **setAMAC rd, rs1, rs2** sets `{A[2*rd], A[2*rd+1] } = { rs1[15:0]>>>rs2, rs1[31:16]>>>rs2 }`, where `rd` is in the range 0-31 and `rs1` holds 2 * INT16 values, for a maximum total of 64 positions in `A`, and `rs2` is a 5b specifier for the arithmetic shift-right amount in the range of 0-10. These INT16 values will be immediately converted to and stored as FP4 in hardware registers. The shifting (INT16 >> 10) yields an int6 value (at most 6 bits), in fixed-point Q4.2 format ranging from -8.0 to +7.75, to be converted into FP4 in the range of -6 to 6. The shifting may or may not round or jam the LSBs (truncate for now; we can talk about this rounding/jamming later.)
+- **setAMAC rd, rs1, rs2** sets `{ A[2*rd], A[2*rd+1] } = { rs1[15:0]>>>rs2, rs1[31:16]>>>rs2 }`, where the `rd` specifier is in the range 0-31 and `rs1` holds 2 * INT16 values, for a maximum total of 64 positions in `A`, and `rs2` is a 5b specifier for the arithmetic shift-right amount in the range of 0-10. These INT16 values will be immediately converted to and stored as FP4 in hardware registers. The shifting (INT16 >> 10) yields an int6 value (at most 6 bits), in fixed-point Q4.2 format ranging from -8.0 to +7.75, to be converted into FP4 in the range of -6 to 6. The shifting may or may not round or jam the LSBs (truncate for now; we can talk about this rounding/jamming later.)
 
 Matrix update operations (much faster than vector unit):
 - **addMAC rs1, rs2** computes saturating add using 16b integer from `rs2` to all activations in the row indicated by the `rs1` specifier, `T[rs1][*] += rs2[15:0]`
@@ -140,78 +101,7 @@ Vector operations (OPTIONAL):
 - row length determined by vector length register using `setvl` instructions
 - each vector register needs to hold `VLEN=2*TS*16`, or up to 1024 to hold up to 64 x 16b halfwords
 
-
-
-# Hardware MAC64 Instruction Set for Convolutions with FP4 (may be OBSOLETE -- based on STALE MAC64 design)
-
-In an effort to add further novelty to the design, I'm considering adding instructions to assist with accelerating convolutional neural networks.
-
-This convolution accelerator should work for 1 * 1, 3 * 3, 5 * 5 and 7 * 7 kernels. It requires the same `MAC64' array used for matrix multiply, consisting of FP4 multipliers and int16 accumulators, plus some extra logic to hold 8 * 8 tile of image pixels in FP4, called `A`, and the ability to rotate the pixels in that image tile them up/down/left/right.
-
-The 8 * 8 input tile of `A` are FP4 registers that are preloaded with the image pixels forming one operand of the multiplication. The second operand comes from broadcasting a single FP4 value from a 32b integer register. To efficiently iterate over multiple filter coefficients, an immediate constant 0..7 will determine one of 8 FP4 values to extract from the second operand. Also, rather than moving the location of the filter, the image pixels will rotate by 1 column for one instruction, or 1 row for another instruction; a snaking path will be taken to cover the entire 2D window of the filter. The instruction set and code below shows how this works.
-
-Move operations:
-- **mvA IMM2, rs1, rs2** loads two rows of pixels in the 8 * 8 `A` tile, where the `IMM2` specifier indicates a value for `r` from 0..3. The values of `rs1` and `rs2` each hold 8 FP4 values for rows `2*r` and `2*r+1` in `A`.
-- - **conv rs1, IMM3** computes `T += f(rs1) * A`, where `T` is the 8 * 8 accumulator tile, `rs1` holds 8 FP4 values, and IMM3 indicates which FP4 value to extract from `rs1`.
-- **convLC rs1, IMM3** like **conv**, but this also concurrently computes `A = rotlc(A)`, where `rs1` holds 8 FP4 values, and IMM3 indicates which FP4 value to extract from `rs1`. The `rotlc()` function moves all FP4 values in A to the left by 1 column, with the leftmost pixels moving to the rightmost column.
-- **convRC rs1, IMM3** similar to **convLC** but computes `A = rotrc(A)` which rotates A to the right by 1 column, with the rightmost column moving to the leftmost position.
-- **convUR rs1, IMM3** similar to **convLC** but computes `A = rotur(A)` which rotates A up by 1 row, with the topmost column moving to the bottom-most position. 
-- **convDR rs1, IMM3** similar to **convLC** but computes `A = rotdr(A)` which rotates A down by 1 row, with the bottom-most column moving to the topmost position.
-- instructions needed from the outer product accelerator include t**zzMAC64** and **st2MAC64**
-
-The idea is to use these instructions to snake through all positions within the K * K filter kernel. For example, this sequence of instructions convolves `A` with a 3 x 3 filter kernel:
-```
-mvA 0, x1, x2 // pre-load 8 rows of tile A with 4 instructions
-mvA 1, x3, x4
-mvA 2, x5, x6
-mvA 3, x7, x8
-// do a 3x3 convolution with the first 8 filter values from x9, and the 9th from x10
-zzMA64  // clear all 8 * 8 entries of T, erase all inactive rows/columns
-convLC  x9, 0 // convolve A with  x9[ 3: 0], A = rotlc(A) moves A left   (after: 1 inactive column on right)
-convLC  x9, 1 // convolve A with  x9[ 7: 4], A = rotlc(A) moves A left   (after: 2 inactive columns on right)
-convUR  x9, 2 // convolve A with  x9[11: 8], A = rotur(A) moves A up     (after: 2 inactive columns on right, 1 inactive row on bottom)
-convRC  x9, 3 // convolve A with  x9[15:12], A = rotrc(A) moves A right  (after: 1 inactive columns on right, 1 inactive row on bottom)
-convRC  x9, 4 // convolve A with  x9[19:16], A = rotrc(A) moves A right  (after: 0 inactive columns on right, 1 inactive row on bottom)
-convUR  x9, 5 // convolve A with  x9[23:20], A = rotur(A) moves A up     (after: 0 inactive columns on right, 2 inactive rows on bottom)
-convLC  x9, 6 // convolve A with  x9[27:24], A = rotrc(A) moves A left   (after: 1 inactive columns on right, 2 inactive rows on bottom)
-convLC  x9, 7 // convolve A with  x9[31:28], A = rotrc(A) moves A left   (after: 2 inactive columns on right, 2 inactive rows on bottom)
-conv   x10, 0 // convolve A with x10[ 3: 0]                              (after: 2 inactive columns on right, 2 inactive rows on bottom)
-// write out T which holds the convolution results
-// 3 * 3 tile produces 6 * 6 results (results outside of this region are gibberish)
-// 5 * 5 tile produces 4 * 4 results (results outside of this region are gibberish)
-// 7 * 7 tile produces 2 * 2 results (results outside of this region are gibberish)
-// these results must be saved to memory using st2MAC64 instructions
-// or they can be moved to integer registers using mvoMAC64, mveMAC64, mv2MAC64 instructions
-
-// one 3 * 3 kernel requires: 4 x mvA, 1 x zzMAC64, 18 x st2MAC64, plus 9 conv* instructions = 32 instructions total
-// in contrast, one 3 * 3 kernel would require 18 * 6 * 6 = 32 * 81 individual multiply or add instructions, plus 36 store instructions and many (repeated) loads and loop overhead
-
-// OPTIONAL THOUGHT:
-// if re-using the image tile with another convolution kernel (different 3x3 filter), it is possible to work backwards from the above
-// clear T, start next convolution while restoring A to proper position by snaking the reverse of the above. does this make sense?
-zzMA64  // clear all 8 * 8 entries of T
-mvA // load new filter kernel
-convRC x10, 0 // convolve A with x10[ 3: 0], A = rotdr(A) moves A down  (after: 1 inactive columns on right, 2 inactive rows on bottom)
-convRC  x9, 7 // convolve A with  x9[31:28], A = rotrc(A) moves A left  (after: 0 inactive columns on right, 2 inactive rows on bottom)
-convDR  x9, 6 // convolve A with  x9[27:24], A = rotrc(A) moves A left  (after: 0 inactive columns on right, 1 inactive rows on bottom)
-convLC  x9, 5 // convolve A with  x9[23:20], A = rotur(A) moves A up    (after: 1 inactive columns on right, 1 inactive rows on bottom)
-convLC  x9, 4 // convolve A with  x9[19:16], A = rotrc(A) moves A right (after: 2 inactive columns on right, 1 inactive row on bottom)
-convDR  x9, 3 // convolve A with  x9[15:12], A = rotrc(A) moves A right (after: 2 inactive columns on right, 0 inactive row on bottom)
-convRC  x9, 2 // convolve A with  x9[11: 8], A = rotur(A) moves A up    (after: 1 inactive columns on right, 0 inactive row on bottom)
-convRC  x9, 1 // convolve A with  x9[ 7: 4], A = rotlc(A) moves A left  (after: all rows/columns active)
-conv    x9, 0 // convolve A with  x9[ 3: 0]                             (after: all rows/columns active)
-// now write out tile T as the solution
-```
-
-The extra hardware required to support these instructions is:
-- an 8 * 8 array of FP4 values
-- the ability to shift values in the 8 * 8 array in 4 directions (4:1 mux), from U/D/L/R positions
-- the ability to extract a single FP4 value from a 32 operand using IMM3, and broadcast this to all 8 * 8 multipliers
-
-To see an example of this being computed in C, please look at the [examples/conv.c](examples/conv.c) source code.
-
-
-# Software Needed
+## Software Needed
 
 - MPTorch used to train basic MNIST using MLP and 3 * 3 CNNs
 - avoid hardware complex things like batchnorm, if possible
@@ -221,7 +111,8 @@ To see an example of this being computed in C, please look at the [examples/conv
 - software on CVE2 to run MLP and CNN models with acceleration
 - accelerated version needs to tile the larger matrices, probably batch the models so matrix * matrix multiplication is used (not matrix * vector), and worry about the tile-based transpose problem between C outputs becoming the A inputs for the next layer
 
-## Thoughts on post-processing and tensor scaling on INT16 values (no hw assist)
+### Thoughts on post-processing and tensor scaling on INT16 values (no hw assist)
+
 The hwMAC64 accelerator produces pairs of INT16 values, either moving them into integer registers using instructions like **mv2MAC64**, or first writing them to memory using **st2MAC64**. If written to memory, they can be reloaded again using regular C data types (int16_t) without the need to extract halfwords from words. However, directly moving the results into the register file may be more efficient.
 
 The problem then becomes final processing of INT16 results and packing them into UINT32 words holding 8 * FP4 results. This will be done during the tensor scaling and quantize steps.
@@ -252,7 +143,7 @@ In reverse, the missing integer values become (using round nearest, ties to even
 
 
 
-# REFERENCE: Tiled Matrix Multiply
+## REFERENCE: Tiled Matrix Multiply
 
 The naive version of matrix multiply uses three nested loops, in order of `i`, `j`, and `k`, where the innermost `k` loop is used to compute a dot product, also known as the **inner product**, and the `i` loop traverses rows of `W` and `F` while the `j` loop traverses columns of `A` and `F`. The core computation is `F[i][j] += W[i][k] * A[k][j]` where W are the weights, A are the activations, and F are the computed feature outputs:
 ```
@@ -471,14 +362,28 @@ Tensor/block scaling prenormalizes a tensor or block to scale its maximum value 
 
 The matrix multiplication being done is `F = W * A = (c_w * W_n) * (c_a * A_n) = (c_w * c_a) * (W_n * A_n)`, where `c_w` and `c_a` are constants extracted from the tensors `W` and `A`, and `W_n` and `A_n` are normalized versions of the weight and activation matrices.
 
-In the case of inference, `c_w` and `W_n` are fixed and known in advance. To simplify the outer product generation, we should consider the transposed version `W' = c_w * W_n'`, where the constant `c_w` is produced across columns of `W` (rows of `W_n`). We can think of `c_w` being applied at different scales -- as being unique/constant across the entire tensor, or unique across an entire column of `W`, or unique across a partial column of `W` equal to the height of the tile `T` (i.e., equal to `TS`). As noted in the first paragraph of this section, we will consider `c_w` a constant across the entire `W`, but inference software should be written such that it reloads `c_w` into the MAC engine each time a new tile is computed.
+In the case of inference, `c_w` and `W_n` are fixed and known in advance. To simplify the outer product generation, we should consider the transposed version `W' = c_w * W_n'`, where the constant `c_w` is produced across columns of `W` (rows of `W_n`). We can think of `c_w` being applied at different scales -- as being unique/constant across the entire tensor, or unique across an entire column of `W`, or unique across a partial column of `W` (up to 16/32 elements per block) which is approximately equal to the height of the tile `T` (i.e., equal to `TS`). As noted in the first paragraph of this section, we will consider `c_w` a constant across the entire `W`, but inference software should be written such that it reloads `c_w` into the MAC engine each time a new tile is computed.
 
 For scaling `A`, the scaling factor `c_a` can also be computed in advance based upon the data distribution of activations observed during training. This is valid because, during inference, we expect a similar data distribution if it is encountering input data that is similar to its training set. As the case of the weights, we will extract a single constant `c_a` during training, which is based upon the maximal value of `c_a` observed in the last few epoch in training (reset `c_a` each epoch, remember the maximum value used). Why the maximum? Each time we quantize `A`, we are looking for the scaling factor that shrinks its maximum value down to maxfloat of the target format. If `A` is examined across different batches, then one of those batches will have some larger element in `A` than a prior batch and require a larger scaling factor to bring it down to maxfloat.
 
-To be continued...
+Similarly, `c_a` can be applied to rows of `A`, or to partial rows of `A` up to 16/32 elements at a time. The width or the tile `T` can be up to 64, or double 32 / quadruple 16.
+
+To apply scaling, the hardware will compute `T = W_n * A_n`, where the elements in `W_n` and `A_n` have all been prenormalized to fit the maxfloat of the format. Outside of this, for the entire tile `T`, software must compute `c_w * c_a` outside of this. The largest `T` that we can support in hardware is 32 * 64 (due to limitations of the current ISA, where we reuse the 5 bits in a register specifier to indicate row `T[rs1]` or element-pair `{ T[rs1][2*rs2], T[rs1][2*rs2+1] }', for example). Within that `T`, we may have 1 or 2 different values of `c_w` for block scaling on the weights (eg, block size 16), and likewise have 1/2/4 different values of `c_a`. At most, then, we have `{c_w1, c_w2} x {c_a1, c_a2, c_a3}' different scaling factors being applied, yielding up to 6 different minitiles in T.
+
+For our purposes, where we are assuming all `c_w` are the same and all `c_a` are the same and apply to the entire tensor, this is not hard to track. However, during inference, we want to mimic the smaller block-size scaling factors being used. This means we need to compute (up to 6) scaling factors for the minitiles.
+
+After matrix multiply, we need to apply the bias terms. If this is done inside the hardware tile T, the bias term needs to be prenormalized by `c_w * c_a` before it is added. If it is done outside of the hardware thile T, it can probably be done after restoring `T` to the full version when restoring it into the output matrix `F[I][J] = c_w * c_a * T`. Don't forget to properly apply the activation function as well (with the correct scale, if using hardtanh).
+
+Finally, let's think of going to the next layer. Suppose, at first, that the larger matrix F[I][J] is computed in int32 rather than int16. This would probably allow us to compute `c_w * c_a * T` as int32 (hopefully without overflowing). However, when moving to the next layer, the matrix `F` will be tiled again, and also have block scaling applied again, so layer F_i becomes A_i+1 as follows `A_i+1 = (c_wi * c_ai) * T_i` which is then prenormalized to `A_i+1 = c_a{i+1} * A_n{i+1}`, yielding `A_n{i+1} = A_i+1 / c_a{i+1} =  ((c_wi * c_ai)/c_a{i+1}) * T_i = cc_{i+1} * T_i` where `cc_{i+1} = (c_wi * c_ai)/c_a{i+1)`. Again, since these are powers of 2, it can be done by adding/subtracting their respective exponent values in logspace. Also, since this is inference, we can potentially treat all of these as *constants* based upon the maximal values seen during training. These scaling factors would be applied at a block level in the inference code, computing `A_n{i+1} = cc_{i+1} * T_i` (again, where T_i is post-activation, assuming bias and activations were properly applied to the prenormalized values).
+
+This means that while loading the int16 values of `A` into our MAC engine, we need to do an arithmetic-shift by some power of 2 indicated by the `cc+{i+1}` factor. This power of 2 factor may change every 8/16/32 elements being loaded into T. We can do this shifting ahead of time in software (easiest). Alternatively, we could alter the MAC engine so that it gets shifted as the raw values of `A` are being loaded using `setAMAC` instructions -- this is the purpose of the `rs2` specifier, which assumes we will always be shifting-right (if shift-left is needed, then it will have to be done in software, or we will need to extend the definition of the instruction to shift in both directions). You should be able to determine all of the `c_w` and `c_a` constants from training, then we can check their range to make sure they will fit the shift amounts of the `setAMAC` instruction and probably add support for shifting in either direction.
+
+Alternatively, if we want to treat the `c_a` values as dynamic, we would want to compute them based on the values coming out of `T`. For this purpose, we may wish to have some hardware that tracks the maximum values as they are read out of `T`, then add an instruction to copy those values into a scalar CPU register. This requires only a small amount of extra hardware.
 
 
-# Links
+# APPENDIX MATERIAL
+
+### References
 
 Jerry's software for writing custom instructions can be found here:
 https://github.com/JerryYun2004/RISC-V-RVV-Lite/tree/LUTRAM-VRF/sw/benchmarks
@@ -489,3 +394,113 @@ https://github.com/JerryYun2004/CVe2-RVV-Lite-A1-Extension
 INT8 repository:
 https://github.com/ruwayd99/RISC_V_Small_Integer_Accelerator_for_DNN_Inference
 
+
+
+### STALE: old instructions for 8 * 8 tile only, computing MAC with two operands of 32b holding 8 * FP4 values
+
+On an RV32 processor, most instructions combine two source integer registers `rs1` and `rs2` into a third destination `rd`.
+We will produce an instruction to compute 64 MACs in parallel as a way of building the outer product in matrix multiply.
+
+Accumulation will be done with 16b signed integers using saturating arithmetic (cannot exceed 32767, or go below -32768).
+
+Multiply operations are done with 8 * FP4 values packed into 32b integers.
+
+Compute operations:
+- **zzMAC64** resets entire tile, `T[i][j] = 0` for all i x j in 0..7 x 0..7
+- **maxMAC64 rs1** computes `T = max(T, rs1)` on all tile entries; `rs1` holds a signed 16-b integer (use `0` for ReLU)
+- **hwMAC64 rs1, rs2** computes   `T[i][j] += rs1[i] * rs2[j]` for all i x j in 0..7 x 0..7, where `rs1` and `rs2` are 32b integer registers each holding 8 x FP4 values
+- **addMAC64 rs1, rs2** computes saturating add using 16b integer from `rs2` to all activations in row in `rs1` specifier, `T[rs1][*] += rs2[15:0]`
+- these instructions do not modify any integer registers
+- for **addMAC64**, `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
+
+Move operations:
+- moves from T to integer register file (or to vector register file, if it exists)
+- **mvoMAC64 rd, rs1, rs2** moves single odd  tile entry `T[rs1][2*rs2+1]` indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
+- **mveMAC64 rd, rs1, rs2** moves single even tile entry `T[rs1][2*rs2]`   indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
+- **mv2MAC64 rd, rs1, rs2** moves concatenated **pair** of tile entries `{ T[rs1][2*rs2+1], T[rs1][2*rs2] }`, indicated by 5b specifiers `rs1 and `rs2` (not register contents) to  register `rd`, **clearing the tile entries to zero**
+- `rd` is a destination in the integer register file
+- `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
+- `rs2` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate column `j` as `2*rs2` and/or `2*rs2+1`
+
+Memory operations:
+- FLAWED: **ld2MAC64 rs2, IMM12(rs1)** reads 32b memory from effective address `rs1+IMM12`, writing to concatenated pair of tile entries `{T[i][2*j+1],T[i][2*j]}` indicated by field `rs2`
+- FLAWED: **st2MAC64 rs2, IMM12(rs1)** writes 32b from concatenated **pair** of tile entries `{ T[i][2*j+1], T[i][2*j] }` indicated by field `rs2` to effective address `rs1+IMM12`, **clearing the tile entry to zero**
+- the `rs2` field is a 5b register specifier that does not indicate an integer register; instead, the 2 LSB indicate `2*j` and the next 3 bits indicate `i`
+
+The **zzMAC64**, **maxMAC64**, and **hwMAC64** instructions operate on all 64 tile entries.
+
+The **addMAC64** instruction operates on an entire row, allowing a bias term to be added (with saturation).
+
+In **hwMAC64**, the results of every FP4 * FP4 operation will be accumulated into a 16b integer. Each FP4 value itself can fit into an INT5, but not all INT5 values are used, making it a bad idea to get lazy and compute FP4 * FP4 in the INT5 * INT5 space. Instead, stay in the FP4 space and remove the sign bit so each multiplier operand is only 3b. This makes a product easy to compute using 6-input LUTs and summed into 16b integer accumulator. Each product spans the range from +/-0 to +/-144. A 16b accumulator can accumulate up to 227 of the largest products (144) before overflowing. This would be extremely rare, as there would normally be many small values and negative values as well. I think it is safe to assume up to 256 terms can be accumulated before overflow becomes a concern. To protect against overflow, make the accumulators **saturating** (wraparound would likely yield unpredictable results, but saturating at 32767 or -32768 should be OK).
+
+Curiously, there are only 18 unique products out of the 64 combinations from multiplying two FP4 values: it consists of the FP4 valueset {0, 1, 2, 3, 4, 6, 8, 12}, but it also consists of {9, 16, 18, 24, 32, 36, 48, 64, 72, 96, 144 }. (Valuesets expressed as their integer equivalent when used in accumulation.)
+
+
+
+## Hardware MAC64 Instruction Set for Convolutions with FP4 (may be OBSOLETE -- based on STALE MAC64 design)
+
+In an effort to add further novelty to the design, I'm considering adding instructions to assist with accelerating convolutional neural networks.
+
+This convolution accelerator should work for 1 * 1, 3 * 3, 5 * 5 and 7 * 7 kernels. It requires the same `MAC64' array used for matrix multiply, consisting of FP4 multipliers and int16 accumulators, plus some extra logic to hold 8 * 8 tile of image pixels in FP4, called `A`, and the ability to rotate the pixels in that image tile them up/down/left/right.
+
+The 8 * 8 input tile of `A` are FP4 registers that are preloaded with the image pixels forming one operand of the multiplication. The second operand comes from broadcasting a single FP4 value from a 32b integer register. To efficiently iterate over multiple filter coefficients, an immediate constant 0..7 will determine one of 8 FP4 values to extract from the second operand. Also, rather than moving the location of the filter, the image pixels will rotate by 1 column for one instruction, or 1 row for another instruction; a snaking path will be taken to cover the entire 2D window of the filter. The instruction set and code below shows how this works.
+
+Move operations:
+- **mvA IMM2, rs1, rs2** loads two rows of pixels in the 8 * 8 `A` tile, where the `IMM2` specifier indicates a value for `r` from 0..3. The values of `rs1` and `rs2` each hold 8 FP4 values for rows `2*r` and `2*r+1` in `A`.
+- - **conv rs1, IMM3** computes `T += f(rs1) * A`, where `T` is the 8 * 8 accumulator tile, `rs1` holds 8 FP4 values, and IMM3 indicates which FP4 value to extract from `rs1`.
+- **convLC rs1, IMM3** like **conv**, but this also concurrently computes `A = rotlc(A)`, where `rs1` holds 8 FP4 values, and IMM3 indicates which FP4 value to extract from `rs1`. The `rotlc()` function moves all FP4 values in A to the left by 1 column, with the leftmost pixels moving to the rightmost column.
+- **convRC rs1, IMM3** similar to **convLC** but computes `A = rotrc(A)` which rotates A to the right by 1 column, with the rightmost column moving to the leftmost position.
+- **convUR rs1, IMM3** similar to **convLC** but computes `A = rotur(A)` which rotates A up by 1 row, with the topmost column moving to the bottom-most position. 
+- **convDR rs1, IMM3** similar to **convLC** but computes `A = rotdr(A)` which rotates A down by 1 row, with the bottom-most column moving to the topmost position.
+- instructions needed from the outer product accelerator include t**zzMAC64** and **st2MAC64**
+
+The idea is to use these instructions to snake through all positions within the K * K filter kernel. For example, this sequence of instructions convolves `A` with a 3 x 3 filter kernel:
+```
+mvA 0, x1, x2 // pre-load 8 rows of tile A with 4 instructions
+mvA 1, x3, x4
+mvA 2, x5, x6
+mvA 3, x7, x8
+// do a 3x3 convolution with the first 8 filter values from x9, and the 9th from x10
+zzMA64  // clear all 8 * 8 entries of T, erase all inactive rows/columns
+convLC  x9, 0 // convolve A with  x9[ 3: 0], A = rotlc(A) moves A left   (after: 1 inactive column on right)
+convLC  x9, 1 // convolve A with  x9[ 7: 4], A = rotlc(A) moves A left   (after: 2 inactive columns on right)
+convUR  x9, 2 // convolve A with  x9[11: 8], A = rotur(A) moves A up     (after: 2 inactive columns on right, 1 inactive row on bottom)
+convRC  x9, 3 // convolve A with  x9[15:12], A = rotrc(A) moves A right  (after: 1 inactive columns on right, 1 inactive row on bottom)
+convRC  x9, 4 // convolve A with  x9[19:16], A = rotrc(A) moves A right  (after: 0 inactive columns on right, 1 inactive row on bottom)
+convUR  x9, 5 // convolve A with  x9[23:20], A = rotur(A) moves A up     (after: 0 inactive columns on right, 2 inactive rows on bottom)
+convLC  x9, 6 // convolve A with  x9[27:24], A = rotrc(A) moves A left   (after: 1 inactive columns on right, 2 inactive rows on bottom)
+convLC  x9, 7 // convolve A with  x9[31:28], A = rotrc(A) moves A left   (after: 2 inactive columns on right, 2 inactive rows on bottom)
+conv   x10, 0 // convolve A with x10[ 3: 0]                              (after: 2 inactive columns on right, 2 inactive rows on bottom)
+// write out T which holds the convolution results
+// 3 * 3 tile produces 6 * 6 results (results outside of this region are gibberish)
+// 5 * 5 tile produces 4 * 4 results (results outside of this region are gibberish)
+// 7 * 7 tile produces 2 * 2 results (results outside of this region are gibberish)
+// these results must be saved to memory using st2MAC64 instructions
+// or they can be moved to integer registers using mvoMAC64, mveMAC64, mv2MAC64 instructions
+
+// one 3 * 3 kernel requires: 4 x mvA, 1 x zzMAC64, 18 x st2MAC64, plus 9 conv* instructions = 32 instructions total
+// in contrast, one 3 * 3 kernel would require 18 * 6 * 6 = 32 * 81 individual multiply or add instructions, plus 36 store instructions and many (repeated) loads and loop overhead
+
+// OPTIONAL THOUGHT:
+// if re-using the image tile with another convolution kernel (different 3x3 filter), it is possible to work backwards from the above
+// clear T, start next convolution while restoring A to proper position by snaking the reverse of the above. does this make sense?
+zzMA64  // clear all 8 * 8 entries of T
+mvA // load new filter kernel
+convRC x10, 0 // convolve A with x10[ 3: 0], A = rotdr(A) moves A down  (after: 1 inactive columns on right, 2 inactive rows on bottom)
+convRC  x9, 7 // convolve A with  x9[31:28], A = rotrc(A) moves A left  (after: 0 inactive columns on right, 2 inactive rows on bottom)
+convDR  x9, 6 // convolve A with  x9[27:24], A = rotrc(A) moves A left  (after: 0 inactive columns on right, 1 inactive rows on bottom)
+convLC  x9, 5 // convolve A with  x9[23:20], A = rotur(A) moves A up    (after: 1 inactive columns on right, 1 inactive rows on bottom)
+convLC  x9, 4 // convolve A with  x9[19:16], A = rotrc(A) moves A right (after: 2 inactive columns on right, 1 inactive row on bottom)
+convDR  x9, 3 // convolve A with  x9[15:12], A = rotrc(A) moves A right (after: 2 inactive columns on right, 0 inactive row on bottom)
+convRC  x9, 2 // convolve A with  x9[11: 8], A = rotur(A) moves A up    (after: 1 inactive columns on right, 0 inactive row on bottom)
+convRC  x9, 1 // convolve A with  x9[ 7: 4], A = rotlc(A) moves A left  (after: all rows/columns active)
+conv    x9, 0 // convolve A with  x9[ 3: 0]                             (after: all rows/columns active)
+// now write out tile T as the solution
+```
+
+The extra hardware required to support these instructions is:
+- an 8 * 8 array of FP4 values
+- the ability to shift values in the 8 * 8 array in 4 directions (4:1 mux), from U/D/L/R positions
+- the ability to extract a single FP4 value from a 32 operand using IMM3, and broadcast this to all 8 * 8 multipliers
+
+To see an example of this being computed in C, please look at the [examples/conv.c](examples/conv.c) source code.
