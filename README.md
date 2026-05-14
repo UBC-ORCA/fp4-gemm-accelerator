@@ -465,6 +465,20 @@ for I = 0 to 1023 step TS begin
 end // I
 ```
 
+## Tensor and Block Scaling
+
+Tensor/block scaling prenormalizes a tensor or block to scale its maximum value to the maximal or near-maximal value in the target format when quantizing. For simplicity, we will only consider scaling by powers of 2 which require shifting and not multiplying or dividing. For now, shifting will involve simple truncation. Below, we will consider block scaling in the inference design -- however, for now, training will be done only with tensor scaling to produce a single global scaling constant that will be applied to all blocks at the inference level for that layer.
+
+The matrix multiplication being done is `F = W * A = (c_w * W_n) * (c_a * A_n) = (c_w * c_a) * (W_n * A_n)`, where `c_w` and `c_a` are constants extracted from the tensors `W` and `A`, and `W_n` and `A_n` are normalized versions of the weight and activation matrices.
+
+In the case of inference, `c_w` and `W_n` are fixed and known in advance. To simplify the outer product generation, we should consider the transposed version `W' = c_w * W_n'`, where the constant `c_w` is produced across columns of `W` (rows of `W_n`). We can think of `c_w` being applied at different scales -- as being unique/constant across the entire tensor, or unique across an entire column of `W`, or unique across a partial column of `W` equal to the height of the tile `T` (i.e., equal to `TS`). As noted in the first paragraph of this section, we will consider `c_w` a constant across the entire `W`, but inference software should be written such that it reloads `c_w` into the MAC engine each time a new tile is computed.
+
+For scaling `A`, the scaling factor `c_a` can also be computed in advance based upon the data distribution of activations observed during training. This is valid because, during inference, we expect a similar data distribution if it is encountering input data that is similar to its training set. As the case of the weights, we will extract a single constant `c_a` during training, which is based upon the maximal value of `c_a` observed in the last few epoch in training (reset `c_a` each epoch, remember the maximum value used). Why the maximum? Each time we quantize `A`, we are looking for the scaling factor that shrinks its maximum value down to maxfloat of the target format. If `A` is examined across different batches, then one of those batches will have some larger element in `A` than a prior batch and require a larger scaling factor to bring it down to maxfloat.
+
+To be continued...
+
+
+# Links
 
 Jerry's software for writing custom instructions can be found here:
 https://github.com/JerryYun2004/RISC-V-RVV-Lite/tree/LUTRAM-VRF/sw/benchmarks
