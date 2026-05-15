@@ -4,23 +4,26 @@
     the result to a 16 bit number.
 **/
 
-
-`define INT_OUTPUT_SIZE_BITS 9
-`define INT_OUTPUT_SIZE_MAG_BITS (`INT_OUTPUT_SIZE_BITS - 1) 
-
-module fp4_mul (
+module fp4_mul
+#(parameter INT_OUTPUT_SIZE_BITS = 9) (
     FP4inA, FP4inB,  
     int9Out
 );
 
+/* 
+    Number of *magnitude* bits, i.e. the value without the
+    signed bit.
+*/
+localparam INT_OUTPUT_SIZE_MAG_BITS = INT_OUTPUT_SIZE_BITS - 1;
+
 input logic [3:0] FP4inA;
 input logic [3:0] FP4inB;
-output logic [`INT_OUTPUT_SIZE_BITS-1:0] int9Out;
+output logic signed [INT_OUTPUT_SIZE_BITS-1:0] int9Out;
 
 logic outSign;
-logic [`INT_OUTPUT_SIZE_MAG_BITS - 1:0] outMag;
-assign int9Out[`INT_OUTPUT_SIZE_BITS - 1] = outSign;
-assign int9Out[`INT_OUTPUT_SIZE_MAG_BITS - 1 : 0] = outMag; 
+logic [INT_OUTPUT_SIZE_MAG_BITS - 1:0] outMag;
+assign int9Out[INT_OUTPUT_SIZE_BITS - 1] = outSign;
+assign int9Out[INT_OUTPUT_SIZE_MAG_BITS - 1 : 0] = outMag; 
 
 logic signA, signB;
 logic signOut;
@@ -45,7 +48,11 @@ assign mantB = FP4inB[0];
     See LUT.ipynb for how to generate the 
     LUT.
 
-    LUT is encoded as {e2m1A, e2m1B} -> uint8 
+    LUT is encoded as {e2m1A, e2m1B} -> uint8.
+    
+    The LUT takes in the magnitude of both 
+    input values, and outputs the unsigned INT8
+    fixed point (Q6.2) representation.
  */
 localparam logic [7:0] outLUT[0:63] = '{
     8'b00000000, /* 0.0 * 0.0 => 0.0 */ 
