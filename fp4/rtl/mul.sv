@@ -38,6 +38,10 @@ assign expB = FP4inB[2:1];
 assign mantA = FP4inA[0];
 assign mantB = FP4inB[0];
 
+logic isZeroA = ~&{expA, mantA};
+logic isZeroB = ~&{expB, mantB};
+
+
 /* 
     Hard-coded LUT to encode the logic
     to an int8 space.
