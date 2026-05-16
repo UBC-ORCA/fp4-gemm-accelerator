@@ -10,7 +10,12 @@ module cve2_fp4 import cve2_pkg::*; #(
   input  fp4_op_e           operator_i,
   input  logic [11:0]       imm12_i, 
 
-  // Source operands
+  // Operand Specifiers
+  input  logic [4:0]        op_a_spec,
+  input  logic [4:0]        op_b_spec,
+  input  logic [4:0]        op_dst_spec, 
+
+  // Operand Contents
   input  logic [31:0]       op_a_i,
   input  logic [31:0]       op_b_i,
 
@@ -61,24 +66,6 @@ module cve2_fp4 import cve2_pkg::*; #(
   logic [TILE_ROWS-1 : 0] t_we;
   logic a_we;
   logic w_we;
-  
-  logic signed [16:0] ad2_sum_even;
-  logic signed [16:0] ad2_sum_odd;
-  
-  logic [4:0] tile_index;
-  logic [2:0] row_idx;
-  logic [1:0] col_pair_idx;
-
-  logic [2:0] col_even_idx;
-  logic [2:0] col_odd_idx;
-
-  assign tile_index  = op_b_i[4:0];
-
-  assign row_idx     = tile_index[4:2];
-  assign col_pair_idx = tile_index[1:0];
-
-  assign col_even_idx = {col_pair_idx, 1'b0};
-  assign col_odd_idx  = {col_pair_idx, 1'b1};
   
   /* Result array for the FP4 x FP4 multiplication */
   logic signed [8:0]  hw_product_i9  [TILE_ROWS][TILE_COLS];
@@ -211,7 +198,7 @@ module cve2_fp4 import cve2_pkg::*; #(
 
       FP4_ADDMAC: begin
 
-        logic [4:0] r = op_a_i[4:0];
+        logic [4:0] r = op_a_spec;
         /* Only perform action if the row is in range */
         if ( r < TILE_ROWS ) begin
           /* Only enable write on selected row */
@@ -231,12 +218,12 @@ module cve2_fp4 import cve2_pkg::*; #(
       // ========================================================
 
       FP4_MVEMAC64: begin
-
         t_we = 'b1;
-        fp4_result_o = t_q[row_idx][col_even_idx];
+        fp4_result_o = t_q[op_a_spec][2 * op_b_spec];
         valid_o = 1'b1;
-        t_d[row_idx][col_even_idx] = 0;
 
+        t_d[op_a_spec] = t_q[op_a_spec];
+        t_d[op_a_spec][2 * op_b_spec] = 0;
       end
 
       // ========================================================
@@ -246,11 +233,12 @@ module cve2_fp4 import cve2_pkg::*; #(
       // ========================================================
 
       FP4_MVOMAC64: begin
-
         t_we = 1'b1;
-        fp4_result_o = t_q[row_idx][col_odd_idx];
+        fp4_result_o = t_q[op_a_spec][2 * op_b_spec + 1];
         valid_o = 1'b1;
-        t_d[row_idx][col_odd_idx] = 0;
+
+        t_d[op_a_spec] = t_q;
+        t_d[op_a_spec][2 * op_b_spec + 1] = 0;
 
       end
 
@@ -261,10 +249,12 @@ module cve2_fp4 import cve2_pkg::*; #(
       FP4_MV2MAC64: begin
 
         t_we = 1'b1;
-        fp4_result_o = {t_q[row_idx][col_odd_idx], t_q[row_idx][col_even_idx]};
+        fp4_result_o = {t_q[op_a_spec][2 * op_b_spec + 1],
+                         t_q[op_a_spec][2 * op_b_spec]};
         valid_o = 1'b1;
-        t_d[row_idx][col_odd_idx] = 0;
-        t_d[row_idx][col_even_idx] = 0;
+        t_d[op_a_spec] = t_q;
+        t_d[op_a_spec][2 * op_b_spec + 1] = 0;
+        t_d[op_a_spec][2 * op_b_spec] = 0;
   
       end
 
@@ -292,7 +282,7 @@ module cve2_fp4 import cve2_pkg::*; #(
         t_we = 'b1; 
         mem_w_en = 1'b1;
         mem_w_addr = imm12_i + op_b_i;
-        logic int r = op_a_i[4:0];
+        logic int r = op_a_spec;
         logic int c = imm12_i[6:1];
 
         /* Do nothing if out of range */
@@ -301,12 +291,10 @@ module cve2_fp4 import cve2_pkg::*; #(
           mem_w_data = {t_q[r][c+1], t_q[r][c]};
           
           /* For now, row granularity assigment */          
-          td[r] = tq[r];
-          td[r][c] = 16'b0;
-          td[r][c+1] = 16'b0;
+          t_d[r] = t_q[r];
+          t_d[r][c] = 16'b0;
+          t_d[r][c+1] = 16'b0;
         end            
-        // to be done
-
       end
 
       // ========================================================
