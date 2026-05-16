@@ -199,10 +199,15 @@ package cve2_pkg;
   
   typedef enum logic [4:0] {
     // Custom HW MAC64
-    FP4_ZZMAC64,
-    FP4_MAXMAC64,
-    FP4_HWMAC64,
+    FP4_ZZMAC,
+    FP4_MAXMAC,
+    FP4_HWMAC,
+
+    /* Stale...? */
     FP4_AD2MAC64,
+
+    FP4_ADDMAC,
+    FP4_ST2MAC, 
     
     FP4_MVEMAC64,
     FP4_MVOMAC64,

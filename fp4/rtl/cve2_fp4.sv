@@ -1,5 +1,6 @@
 module cve2_fp4 import cve2_pkg::*; #(
   parameter bit ConvSupport = 1'b1
+  parameter logic TILE_SIZE = 8
 ) (
   input  logic              clk_i,
   input  logic              rst_ni,
@@ -7,6 +8,7 @@ module cve2_fp4 import cve2_pkg::*; #(
   // Decode / control
   input  logic              fp4_en_i,
   input  fp4_op_e           operator_i,
+  input  logic [11:0]       imm12_i, 
 
   // Source operands
   input  logic [31:0]       op_a_i,
@@ -15,21 +17,51 @@ module cve2_fp4 import cve2_pkg::*; #(
   // Result
   output logic              valid_o,
   output logic [31:0]       fp4_result_o
+
+  // Memory interface 
+  output logic              mem_w_en;
+  output logic [31:0]       mem_w_data;
+  output logic [31:0]       mem_w_addr; 
 );
 
-  // 8x8 int16 accumulator tile
-  logic signed [15:0] t_q [8][8];
-  logic signed [15:0] t_d [8][8];
+  localparam int MAX_TILE_SIZE = 32;
+  localparam int MAX_ROWS = MAX_TILE_SIZE;
+  localparam int MAX_COLS = MAX_TILE_SIZE * 2;
+  localparam int MIN_TILE_SIZE = 8;
 
-  // 8x8 FP4 activation tile for convolutions
-  logic [3:0] a_q [8][8];
-  logic [3:0] a_d [8][8];
+  assert(MIN_TILE_SIZE < TILE_SIZE && TILE_SIZE <= MAX_TILE_SIZE) else 
+    $fatal(1,
+      "TILE_SIZE (%0d) must satisfy %0d < TILE_SIZE <= %0d\n",
+      TILE_SIZE,
+      MIN_TILE_SIZE,
+      MAX_TILE_SIZE
+    );
+
+  localparam int TILE_ROWS = TILE_SIZE;
+  localparam int TILE_COLS = TILE_SIZE * 2;
+
+  /* INT16 accumulator tile */
+  logic signed [15:0] t_q [TILE_ROWS][TILE_COLS];
+  logic signed [15:0] t_d [TILE_ROWS][TILE_COLS];
+
+  /* FP4 Weight Registers */
+  logic signed [3:0] w_q [TILE_ROWS];
+  logic signed [3:0] w_d [TILE_ROWS];
+
+  /* FP4 Activation Registers */
+  logic signed [3:0] a_q [TILE_COLS];
+  logic signed [3:0] a_d [TILE_COLS];
 
   // Write enables
-  logic t_we;
+
+  /* 
+      Fine grained per row access 
+      t_we[i] enables row i to be written
+   */
+  logic [TILE_ROWS-1 : 0] t_we;
   logic a_we;
+  logic w_we;
   
-  logic signed [16:0] hw_sum [8][8];
   logic signed [16:0] ad2_sum_even;
   logic signed [16:0] ad2_sum_odd;
   
@@ -48,27 +80,43 @@ module cve2_fp4 import cve2_pkg::*; #(
   assign col_even_idx = {col_pair_idx, 1'b0};
   assign col_odd_idx  = {col_pair_idx, 1'b1};
   
-  logic [3:0] hw_weight     [8];
-  logic [3:0] hw_activation [8];
-    
-  logic signed [8:0]  hw_product_i9  [8][8];
-    
-  for (genvar i = 0; i < 8; i++) begin : gen_hw_unpack
-    assign hw_weight[i]     = op_a_i[i*4 +: 4];
-    assign hw_activation[i] = op_b_i[i*4 +: 4];
-  end
-    
-  for (genvar r = 0; r < 8; r++) begin : gen_hw_mul_row
-    for (genvar c = 0; c < 8; c++) begin : gen_hw_mul_col
+  /* Result array for the FP4 x FP4 multiplication */
+  logic signed [8:0]  hw_product_i9  [TILE_ROWS][TILE_COLS];
+  
+  /* Outer product array */
+  for (genvar r = 0; r < TILE_ROWS; r++) begin : gen_hw_mul_row
+    for (genvar c = 0; c < TILE_COLS; c++) begin : gen_hw_mul_col
     
       fp4_mul u_fp4_mul (
-        .FP4inA  (hw_weight[r]),
-        .FP4inB  (hw_activation[c]),
+        .FP4inA  (w_q[r]),
+        .FP4inB  (a_q[c]),
         .int9Out (hw_product_i9[r][c])
       );
     
     end
   end
+
+  /* 
+      Clamped 16-bit addition.  
+      Result saturates if a + b falls out of 
+      the int16 range. 
+   */
+  function automatic signed logic [15:0] saturated_add16(
+    input signed logic [15:0] a,
+    input signed logic [15:0] b
+  ) 
+    signed logic [16:0] add16_result; 
+    add16_result = a + b;   
+
+    if (add16_result > 16'sh7fff)
+      return  16'sh7fff;
+    
+    if (hw_sum[r][c] < 16'sh8000)
+      return 16'sh8000;
+    
+    return add16_result[15:0];
+
+  endfunction
 
   // ------------------------------------------------------------
   // Combinational next-state logic
@@ -80,10 +128,14 @@ module cve2_fp4 import cve2_pkg::*; #(
     t_d           = t_q;
     a_d           = a_q;
 
-    t_we          = 1'b0;
+    t_we          = 'b1;
     a_we          = 1'b0;
 
     valid_o       = fp4_en_i;
+
+    mem_w_en      = 1'b0;
+    mem_w_data    = 32'b0;
+    mem_w_addr    = 32'b0;
 
     fp4_result_o  = 32'b0;
 
@@ -99,12 +151,12 @@ module cve2_fp4 import cve2_pkg::*; #(
       // Clear entire accumulator tile T
       // ========================================================
 
-      FP4_ZZMAC64: begin
+      FP4_ZZMAC: begin
 
-        t_we = 1'b1;
+        t_we = 'b1;
 
-        for (int r = 0; r < 8; r++) begin
-          for (int c = 0; c < 8; c++) begin
+        for (int r = 0; r < TILE_ROWS; r++) begin
+          for (int c = 0; c < TILE_COLS; c++) begin
             t_d[r][c] = 16'sd0;
           end
         end
@@ -118,12 +170,12 @@ module cve2_fp4 import cve2_pkg::*; #(
       // T = max(T, scalar)
       // ========================================================
 
-      FP4_MAXMAC64: begin
+      FP4_MAXMAC: begin
 
-        t_we = 1'b1;
+        t_we = 'b1;
         
-        for (int r = 0; r < 8; r++) begin
-          for (int c = 0; c < 8; c++) begin
+        for (int r = 0; r < TILE_ROWS; r++) begin
+          for (int c = 0; c < TILE_COLS; c++) begin
             t_d[r][c] = (t_q[r][c] > $signed(op_a_i[15:0])) ? t_q[r][c] : $signed(op_a_i[15:0]);
           end
         end
@@ -138,22 +190,13 @@ module cve2_fp4 import cve2_pkg::*; #(
       // T[r][c] += rs1[r] * rs2[c]
       // ========================================================
 
-      FP4_HWMAC64: begin
+      FP4_HWMAC: begin
 
-        t_we = 1'b1;
+        t_we = 'b1;
         
-        for (int r = 0; r < 8; r++) begin
-          for (int c = 0; c < 8; c++) begin
-        
-            hw_sum[r][c] = t_q[r][c] + hw_product_i9[r][c];
-
-            if (hw_sum[r][c] > 17'sd32767)
-              t_d[r][c] = 16'sh7fff;
-            else if (hw_sum[r][c] < -17'sd32768)
-              t_d[r][c] = 16'sh8000;
-            else
-              t_d[r][c] = hw_sum[r][c][15:0];
-        
+        for (int r = 0; r < TILE_ROWS; r++) begin
+          for (int c = 0; c < TILE_COLS; c++) begin
+            t_d[r][c] = saturated_add16(t_q[r][c], hw_product_i9[r][c]);
           end
         end
         
@@ -166,25 +209,19 @@ module cve2_fp4 import cve2_pkg::*; #(
       // and T[i][2*j+1] += rs1[31:16]
       // ========================================================
 
-      FP4_AD2MAC64: begin
-        t_we = 1'b1;
-        
-        ad2_sum_even = t_q[row_idx][col_even_idx] + $signed(op_a_i[15:0]);
-        ad2_sum_odd  = t_q[row_idx][col_odd_idx]  + $signed(op_a_i[31:16]);
-        
-        if (ad2_sum_even > 17'sd32767)
-          t_d[row_idx][col_even_idx] = 16'sh7fff;
-        else if (ad2_sum_even < -17'sd32768)
-          t_d[row_idx][col_even_idx] = 16'sh8000;
-        else
-          t_d[row_idx][col_even_idx] = ad2_sum_even[15:0];
-       
-        if (ad2_sum_odd > 17'sd32767)
-          t_d[row_idx][col_odd_idx] = 16'sh7fff;
-        else if (ad2_sum_odd < -17'sd32768)
-          t_d[row_idx][col_odd_idx] = 16'sh8000;
-        else
-          t_d[row_idx][col_odd_idx] = ad2_sum_odd[15:0];
+      FP4_ADDMAC: begin
+
+        logic [4:0] r = op_a_i[4:0];
+        /* Only perform action if the row is in range */
+        if ( r < TILE_ROWS ) begin
+          /* Only enable write on selected row */
+          t_we = (1'b1 << r); 
+          
+          for (int c = 0; c < TILE_COLS; ++c) begin
+            t_d[r][c] = saturated_add16(t_q[r][c], op_b_i[15:0]);
+          end
+        end
+
       end 
 
       // ========================================================
@@ -195,7 +232,7 @@ module cve2_fp4 import cve2_pkg::*; #(
 
       FP4_MVEMAC64: begin
 
-        t_we = 1'b1;
+        t_we = 'b1;
         fp4_result_o = t_q[row_idx][col_even_idx];
         valid_o = 1'b1;
         t_d[row_idx][col_even_idx] = 0;
@@ -244,11 +281,30 @@ module cve2_fp4 import cve2_pkg::*; #(
 
       // ========================================================
       // st2MAC64
+      // Stores {T[rs1][IMM12[6:1]+1], T[rs1][IMM12[6:1]]}
+      // to address rs2 + IMM12[6:1]. 
+      // 
+      // Zeroes both tile entries to 0.
       // ========================================================
 
       FP4_ST2MAC64: begin
 
-        t_we = 1'b1;
+        t_we = 'b1; 
+        mem_w_en = 1'b1;
+        mem_w_addr = imm12_i + op_b_i;
+        logic int r = op_a_i[4:0];
+        logic int c = imm12_i[6:1];
+
+        /* Do nothing if out of range */
+        if (r < TILE_ROWS && (c < TILE_COLS) 
+            && ((c+1) < TILE_COLS)) begin
+          mem_w_data = {t_q[r][c+1], t_q[r][c]};
+          
+          /* For now, row granularity assigment */          
+          td[r] = tq[r];
+          td[r][c] = 16'b0;
+          td[r][c+1] = 16'b0;
+        end            
         // to be done
 
       end
@@ -321,9 +377,13 @@ module cve2_fp4 import cve2_pkg::*; #(
       end
 
     end else begin
-
-      if (t_we)
-        t_q <= t_d;
+      
+      /* Row-grained t_q select. */
+      for (int i = 0; i < MAX_ROWS; ++i) begin
+        if (t_we[i]) begin 
+          t_q[i] <= t_d[i];
+        end
+      end
 
       if (a_we)
         a_q <= a_d;
