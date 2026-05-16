@@ -1,5 +1,5 @@
 module cve2_fp4 import cve2_pkg::*; #(
-  parameter bit ConvSupport = 1'b1
+  parameter bit ConvSupport = 1'b1,
   parameter logic TILE_SIZE = 8
 ) (
   input  logic              clk_i,
@@ -21,12 +21,12 @@ module cve2_fp4 import cve2_pkg::*; #(
 
   // Result
   output logic              valid_o,
-  output logic [31:0]       fp4_result_o
+  output logic [31:0]       fp4_result_o,
 
   // Memory interface 
-  output logic              mem_w_en;
-  output logic [31:0]       mem_w_data;
-  output logic [31:0]       mem_w_addr; 
+  output logic              mem_w_en,
+  output logic [31:0]       mem_w_data,
+  output logic [31:0]       mem_w_addr 
 );
 
   localparam int MAX_TILE_SIZE = 32;
@@ -34,14 +34,17 @@ module cve2_fp4 import cve2_pkg::*; #(
   localparam int MAX_COLS = MAX_TILE_SIZE * 2;
   localparam int MIN_TILE_SIZE = 8;
 
-  assert(MIN_TILE_SIZE < TILE_SIZE && TILE_SIZE <= MAX_TILE_SIZE) else 
+  initial begin
+    assert(MIN_TILE_SIZE < TILE_SIZE && TILE_SIZE <= MAX_TILE_SIZE) else 
     $fatal(1,
       "TILE_SIZE (%0d) must satisfy %0d < TILE_SIZE <= %0d\n",
       TILE_SIZE,
       MIN_TILE_SIZE,
       MAX_TILE_SIZE
     );
+  end
 
+ 
   localparam int TILE_ROWS = TILE_SIZE;
   localparam int TILE_COLS = TILE_SIZE * 2;
 
@@ -88,17 +91,18 @@ module cve2_fp4 import cve2_pkg::*; #(
       Result saturates if a + b falls out of 
       the int16 range. 
    */
-  function automatic signed logic [15:0] saturated_add16(
-    input signed logic [15:0] a,
-    input signed logic [15:0] b
-  ) 
-    signed logic [16:0] add16_result; 
+  function automatic logic signed [15:0] saturated_add16(
+    input logic signed [15:0] a,
+    input logic signed [15:0] b
+  );
+
+    logic signed [16:0] add16_result; 
     add16_result = a + b;   
 
     if (add16_result > 16'sh7fff)
       return  16'sh7fff;
     
-    if (hw_sum[r][c] < 16'sh8000)
+    if (add16_result < 16'sh8000)
       return 16'sh8000;
     
     return add16_result[15:0];
@@ -198,7 +202,7 @@ module cve2_fp4 import cve2_pkg::*; #(
 
       FP4_ADDMAC: begin
 
-        logic [4:0] r = op_a_spec;
+        automatic logic [4:0] r = op_a_spec;
         /* Only perform action if the row is in range */
         if ( r < TILE_ROWS ) begin
           /* Only enable write on selected row */
@@ -279,11 +283,12 @@ module cve2_fp4 import cve2_pkg::*; #(
 
       FP4_ST2MAC64: begin
 
+        automatic int r = op_a_spec;
+        automatic int c = imm12_i[6:1];
+
         t_we = 'b1; 
         mem_w_en = 1'b1;
         mem_w_addr = imm12_i + op_b_i;
-        logic int r = op_a_spec;
-        logic int c = imm12_i[6:1];
 
         /* Do nothing if out of range */
         if (r < TILE_ROWS && (c < TILE_COLS) 
