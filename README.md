@@ -15,9 +15,9 @@ Note that FP4 is only for the matrix multiply inputs. The outputs format is yet 
 
 - convert FP4 inputs to int5 (perfect/lossless), where the integer counts the number of "quanta" in the float (one quanta is the smallest value). for FP4 in OCP, the quanta is 0.5, and the valueset of FP4 (for OCP) is the set of 8 values +/-{ 0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0 }. This can be represented by integers +/-{ 0, 1, 2, 3, 4, 6, 8, 12 }. Note that even if the valueset changes to IEEE P3109, the integer values and the FP4-to-int logic remains the same!
 
-- with values maxing out at +/-12, we can accumulate about 10 MACs (10*12=120) before overflowing an int8. It is tempting to stop accumulating after computing a full 8 * 8 tile of A * B = C, to avoid overflows. However, additional tiles from a strip of A and a stripe of B eventually need to be added together into the same C tile.
+- with values maxing out at +/-144, we can accumulate about 227 MACs (32767/144=227) before overflowing an INT16. It is tempting to stop accumulating after computing a full 8 * 8 tile of A * B = C, to avoid overflows. However, additional tiles from a strip of A and a stripe of B eventually need to be added together into the same C tile.
 
-- accumulating into int16 would allow A and B matrix dimension K = 256*10 = 2560 before overflowing. This is "pretty large" for a tiny inference engine, so let's go with it.
+- practically, accumulating into int16 would allow A and B matrix dimension K = 256 before overflowing. This is "pretty large" for a tiny inference engine, so let's go with it.
 
 - let's read out the C matrix in two different ways, for software flexibility. 1) read out INT16 values, 2) read out INT16 converted to BINARY16 (or BFLOAT16). The readout will be 32b at a time, so at most you will need two int-to-float conversion modules. The range of BINARY16 is about +/- 60,000, so it should easily handle the INT16 range (it will end up rounding many data values into the buckets it has; also, BINARY16 can represent many many values < 0.25, which are impossible to produce while accumulating FP4 * FP4 values (their smallest value would be 0.5 * 0.5 = 0.25).
 
@@ -57,6 +57,10 @@ https://github.com/djbyrne/mlp.c/blob/main/mlp_simple.c
 
 # Hardware MAC64 Instruction Set for Outer Product with FP4
 
+**NOTE:** these instructions have been replaced with new instructions, to support parameterized tile sizes, in the next subsection
+
+## STALE: instructions for 8 * 8 tile only, computing MAC with two operands of 32b holding 8 * FP4 values
+
 On an RV32 processor, most instructions combine two source integer registers `rs1` and `rs2` into a third destination `rd`.
 We will produce an instruction to compute 64 MACs in parallel as a way of building the outer product in matrix multiply.
 
@@ -68,34 +72,77 @@ Compute operations:
 - **zzMAC64** resets entire tile, `T[i][j] = 0` for all i x j in 0..7 x 0..7
 - **maxMAC64 rs1** computes `T = max(T, rs1)` on all tile entries; `rs1` holds a signed 16-b integer (use `0` for ReLU)
 - **hwMAC64 rs1, rs2** computes   `T[i][j] += rs1[i] * rs2[j]` for all i x j in 0..7 x 0..7, where `rs1` and `rs2` are 32b integer registers each holding 8 x FP4 values
-- **ad2MAC64 rs1, rs2** computes saturating add using **pair** of 16b integers from `rs1`, `T[i][2*j] += rs1[15:0]` and `T[i][2*j+1] += rs1[31:16]`
+- **addMAC64 rs1, rs2** computes saturating add using 16b integer from `rs2` to all activations in row in `rs1` specifier, `T[rs1][*] += rs2[15:0]`
 - these instructions do not modify any integer registers
-- for **ad2MAC64**, `rs2` is a 5b register specifier that does not indicate an integer register; instead, the 2 LSB indicate `2*j` and the next 3 bits indicate `i`
+- for **addMAC64**, `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
 
 Move operations:
-- always moves from T to integer register file
-- **mvoMAC64 rd,  rs2** moves single odd  tile entry `T[i][2*j+1]` indicated by `rs2` to integer register `rd`, **clearing the tile entry to zero**
-- **mveMAC64 rd,  rs2** moves single even tile entry `T[i][2*j]`   indicated by `rs2` to integer register `rd`, **clearing the tile entry to zero**
-- **mv2MAC64 rd,  rs2** moves concatenated **pair** of tile entries `{ T[i][2*j+1], T[i][2*j] }`, where `i` and `j` are taken from the `rs2` specifier (not register contents), to integer register `rd`, **clearing the tile entries to zero**
+- moves from T to integer register file (or to vector register file, if it exists)
+- **mvoMAC64 rd, rs1, rs2** moves single odd  tile entry `T[rs1][2*rs2+1]` indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
+- **mveMAC64 rd, rs1, rs2** moves single even tile entry `T[rs1][2*rs2]`   indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
+- **mv2MAC64 rd, rs1, rs2** moves concatenated **pair** of tile entries `{ T[rs1][2*rs2+1], T[rs1][2*rs2] }`, indicated by 5b specifiers `rs1 and `rs2` (not register contents) to  register `rd`, **clearing the tile entries to zero**
 - `rd` is a destination in the integer register file
-- `rs2` is a 5b register specifier that does not indicate an integer register; instead, the 2 LSB indicate `2*j` and the next 3 bits indicate `i`
+- `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
+- `rs2` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate column `j` as `2*rs2` and/or `2*rs2+1`
 
 Memory operations:
-- **ld2MAC64 rs2, IMM12(rs1)** reads 32b memory from effective address `rs1+IMM12`, writing to concatenated pair of tile entries `{T[i][2*j+1],T[i][2*j]}` indicated by field `rs2`
-- **st2MAC64 rs2, IMM12(rs1)** writes 32b from concatenated **pair** of tile entries `{ T[i][2*j+1], T[i][2*j] }` indicated by field `rs2` to effective address `rs1+IMM12`, **clearing the tile entry to zero**
+- FLAWED: **ld2MAC64 rs2, IMM12(rs1)** reads 32b memory from effective address `rs1+IMM12`, writing to concatenated pair of tile entries `{T[i][2*j+1],T[i][2*j]}` indicated by field `rs2`
+- FLAWED: **st2MAC64 rs2, IMM12(rs1)** writes 32b from concatenated **pair** of tile entries `{ T[i][2*j+1], T[i][2*j] }` indicated by field `rs2` to effective address `rs1+IMM12`, **clearing the tile entry to zero**
 - the `rs2` field is a 5b register specifier that does not indicate an integer register; instead, the 2 LSB indicate `2*j` and the next 3 bits indicate `i`
 
 The **zzMAC64**, **maxMAC64**, and **hwMAC64** instructions operate on all 64 tile entries.
 
-The **ad2MAC64** instruction operates on two tile entries, allowing 2 bias terms to be added (with saturation).
+The **addMAC64** instruction operates on an entire row, allowing a bias term to be added (with saturation).
 
 In **hwMAC64**, the results of every FP4 * FP4 operation will be accumulated into a 16b integer. Each FP4 value itself can fit into an INT5, but not all INT5 values are used, making it a bad idea to get lazy and compute FP4 * FP4 in the INT5 * INT5 space. Instead, stay in the FP4 space and remove the sign bit so each multiplier operand is only 3b. This makes a product easy to compute using 6-input LUTs and summed into 16b integer accumulator. Each product spans the range from +/-0 to +/-144. A 16b accumulator can accumulate up to 227 of the largest products (144) before overflowing. This would be extremely rare, as there would normally be many small values and negative values as well. I think it is safe to assume up to 256 terms can be accumulated before overflow becomes a concern. To protect against overflow, make the accumulators **saturating** (wraparound would likely yield unpredictable results, but saturating at 32767 or -32768 should be OK).
 
 Curiously, there are only 18 unique products out of the 64 combinations from multiplying two FP4 values: it consists of the FP4 valueset {0, 1, 2, 3, 4, 6, 8, 12}, but it also consists of {9, 16, 18, 24, 32, 36, 48, 64, 72, 96, 144 }. (Valuesets expressed as their integer equivalent when used in accumulation.)
 
+## UPDATE: replacement instructions to accept int16 values directly (converts to FP4 in hardware)
+
+Compute tile up to 32 * 64:
+- use Verilog parameter for tilesize is TS = 8 (8 is the default value)
+- actual tile dimensions are rows=TS, columns=2*TS, up to TS=32
+- maximum dimensions are T[32][64], for a maximum size of 2048 elements
+
+MAC-oriented compute operations:
+- **zzMAC** resets entire tile, `T[i][j] = 0` for all i x j in 0 .. TS-1 x 0 .. 2 * TS-1
+- **maxMAC rs1** computes `T = max(T, rs1)` on all tile entries; `rs1` holds a signed 16-b integer (use `0` for ReLU; it's actually an int32 but kept in range of int16)
+- **hwMAC** computes   `T[i][j] += W[i] * A[j]` for all i x j in 0 .. TS-1 x 0 .. 2 * TS-1, where `W` and `A` are the outer product registers each holding TS or 2 * TS FP4 values
+- **setWMAC rd, rs1** sets `W[rd] = rs1`, where rs1 holds 8 * FP4 values; there will be at most 8 * 8 = 64 FP4 values
+- **setAMAC rd, rs1, rs2** sets `{A[2*rd], A[2*rd+1] } = { rs1[15:0]>>>rs2, rs1[31:16]>>>rs2 }`, where `rd` is in the range 0-31 and `rs1` holds 2 * INT16 values, for a maximum total of 64 positions in `A`, and `rs2` is a 5b specifier for the arithmetic shift-right amount in the range of 0-10. These INT16 values will be immediately converted to and stored as FP4 in hardware registers. The shifting (INT16 >> 10) yields an int6 value (at most 6 bits), in fixed-point Q4.2 format ranging from -8.0 to +7.75, to be converted into FP4 in the range of -6 to 6. The shifting may or may not round or jam the LSBs (truncate for now; we can talk about this rounding/jamming later.)
+
+Matrix update operations (much faster than vector unit):
+- **addMAC rs1, rs2** computes saturating add using 16b integer from `rs2` to all activations in the row indicated by the `rs1` specifier, `T[rs1][*] += rs2[15:0]`
+- **maxMAC rs1** computes `T = max(T, rs1)` on all tile entries; `rs1` holds 32b value treated as INT16 (use `0` for ReLU)
+- for **addMAC**, `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
+- IGNORE FOR NOW **setDMAC rs1, rs2** sets dimensions for `W` in rs1 and `A` in `rs2`, MACs outside of these dimensions are idle (only for power savings)
+
+Memory operations:
+- **st2MAC rs1, IMM12(rs2)** writes 32b from concatenated **pair** of tile entries `{ T[rs1][IMM12[6:1]+1], T[rs1][IMM12[6:1]] }` indicated by 5b specifier `rs1` (not register contents) and 6b specifier `IMM12[6:1]` to effective address `rs2+IMM12`, **clearing the tile entry to zero**
+- `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
+- `IMM12` is an address offset, but it also indicates which pair of column values to take from `T`. Hence, the `F` matrix rows must be 128-byte aligned
+- the **st2MAC** instruction is essential to write out data after Matrix update operations
+
+Move operations:
+- moves from T to integer register file
+- maximum dimensions are T[32][64], for a maximum MAC size of 2048 elements
+- these moves are needed if further post-processing (other than adding bias and applying ReLU) is required
+- **mvoMAC rd, rs1, rs2** moves single odd  tile entry `T[rs1][2*rs2+1]` indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
+- **mveMAC rd, rs1, rs2** moves single even tile entry `T[rs1][2*rs2]`   indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
+- **mv2MAC rd, rs1, rs2** moves concatenated **pair** of tile entries `{ T[rs1][2*rs2+1], T[rs1][2*rs2] }`, indicated by 5b specifiers `rs1 and `rs2` (not register contents) to  register `rd`, **clearing the tile entries to zero**
+- `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
+- `rs2` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate column `j` as `2*rs2` and/or `2*rs2+1`
+- `rd` is a destination in the integer register file
+
+Vector operations (OPTIONAL):
+- **mvvMAC vd, rs1** single instruction to copy an entire row, `v[rd] = T[rs1][*]`
+- row length determined by vector length register using `setvl` instructions
+- each vector register needs to hold `VLEN=2*TS*16`, or up to 1024 to hold up to 64 x 16b halfwords
 
 
-# Hardware MAC64 Instruction Set for Convolutions with FP4
+
+# Hardware MAC64 Instruction Set for Convolutions with FP4 (may be OBSOLETE -- based on STALE MAC64 design)
 
 In an effort to add further novelty to the design, I'm considering adding instructions to assist with accelerating convolutional neural networks.
 
@@ -207,82 +254,113 @@ In reverse, the missing integer values become (using round nearest, ties to even
 
 # REFERENCE: Tiled Matrix Multiply
 
-## WARNING: TEXT BELOW HAS NOT BEEN CAREFULLY EDITTED. IT WILL PROBABLY BE HEAVILY REWRITTEN.
-
-The naive version of matrix multiply uses three nested loops, in order of `i`, `j`, and `k`, where the innermost `k` loop is used to compute a dot product, also known as the **inner product**, and the `i` loop traverses rows of `A` and `C` while the `j` loop traverses columns of `B` and `C`. The core computation is `C[i][j] += A[i][k] * B[k][j]`:
+The naive version of matrix multiply uses three nested loops, in order of `i`, `j`, and `k`, where the innermost `k` loop is used to compute a dot product, also known as the **inner product**, and the `i` loop traverses rows of `W` and `F` while the `j` loop traverses columns of `A` and `F`. The core computation is `F[i][j] += W[i][k] * A[k][j]` where W are the weights, A are the activations, and F are the computed feature outputs:
 ```
 for i = 0 to 1023
   for j = 0 to 1023
     for k = 0 to 1023
-      C[i][j] += A[i][k] * B[k][j]
+      F[i][j] += W[i][k] * A[k][j]
 ```
-To avoid reading/writing memory for `C` each time, we can do this:
+Visually, it can be drawn something like this:
+```
+k:
+  0      AAA
+   1     AAA
+    2    AAA
+     3   AAA
+       + ---  i:
+  WWWW | FFF  0
+  WWWW | FFF  1
+      j: 012
+```
+
+To avoid reading/writing memory for `F` each time, we can do this:
 ```
 for i = 0 to 1023
   for j = 0 to 1023
     t = 0
     for k = 0 to 1023
-      t += A[i][k] * B[k][j]
-    C[i][j] += t
+      t += W[i][k] * A[k][j]
+    F[i][j] += t
 ```
-This `t` term stays in a register, acting a bit like a cache. Later, we will transform `t` into `T`, an entire 8 x 8 tile of temporary values, and operate on all of them in parallel with the **hwMAC64** instruction. The last line, `C[i][j] += t` ensures new results are added to any initial value in the matrix, just like the original algorithm which also added to the initial value of `C`.
+This `t` term stays in a register, acting a bit like a cache. Later, we will transform `t` into `T`, an entire 8 x 8 tile of temporary values, and operate on all of them in parallel with the **hwMAC** instruction. The last line, `F[i][j] += t` ensures new results are added to any initial value in the matrix, just like the original algorithm which also added to the initial value of `F`.
 
-While the **inner product** works well to cache the value of `t`, it can only compute one output element at a time (the dot product). For example, suppose we use sub-word SIMD and group eight FP4 values from `A` into `rs1` and eight FP4 values from `B` into `rs2`. An inner product between A and B would compute eight multiplications and seven additions; once added to the original value of `C[i][j]`, an 8th addition appears. In other words, this inner product computes at most 8 multiply-accumulate operations (MACs).
+While the **inner product** works well to cache the value of `t`, it can only compute one output element at a time (the dot product). For example, suppose we use sub-word SIMD and group eight FP4 values from `W` into `rs1` and eight FP4 values from `A` into `rs2`. An inner product between W and A would compute eight multiplications and seven additions; once added to the original value of `F[i][j]`, an 8th addition appears. In other words, this inner product computes at most 8 multiply-accumulate operations (MACs).
 
-However, an **outer product** can compute even more MACs in parallel, as long as it has enough storage to hold the intermediate sums (several values of `t`).
- For this, it needs a tile of values `T` which will be written (?added?) into `C` one tile at a time. To start this , we transform the algorithm loop order so the `k` loop is now the outermost loop, and the `i` and `j` loops are the innermost loops:
+However, an **outer product** can compute even more MACs in parallel, as long as it has enough storage to hold the intermediate sums (several values of `t`). For this, it needs a tile of values `T` which will be written (?added?) into `F` one tile at a time. To start this , we transform the algorithm loop order so the `k` loop is now the outermost loop, and the `i` and `j` loops are the innermost loops:
 ```
 for k = 0 to 1023
   for i = 0 to 1023
     for j = 0 to 1023
-      C[i][j] += A[i][k] * B[k][j]
+      F[i][j] += W[i][k] * A[k][j]
 ```
-For large matrices like these, we must break this down into smaller 8 * 8 tiles:
+If `i` and `j` are fully unrolled, and we use a wildcard `i*` and `j*` for those positions and `:*:` to denote an outer product, then we would get:
+```
+for k = 0 to 1023
+  F[*][*] += W[i*][k] :*: A[k][j*]
+```
+As you can see, this reads rows of `A` and columns of `W`, producing all `i*j` products and accumulating them into the target matrix `F` over `k` iterations.
+
+For large matrices, we must break `F` down into smaller 8 * 8 tiles `T`:
 ```
 for I = 0 to 1023 step 8
   for J = 0 to 1023 step 8
-    T = 8*8 tile starting at C[i][j]
+    T = 0 // 8*8 tile, read F[i][j] if unfinished
     for k = 0 to 1023
       for i = 0 to 7 // UNROLL
         for j = 0 to 7 // UNROLL
-          T[i][j] += A[I+i][k] * B[k][J+j]
-    C[i][j] = T // copy entire tile back
+          T[i][j] += W[I+i][k] * A[k][J+j]
+    F[I+i][J+j] = T[i][j] // copy entire tile back (or accumulate using += if `T` started with unfinished `F`).
 ```
-Here, you'll see the innermost `i` and `j` loops have just 8 iterations. This is the size of the tile `T`, and it covers just an 8 * 8 patch of the larger 1024 * 1024 `C` matrix. These two innermost loops can be fully unrolled, yielding a total of 64 MAC operations taken from the core computation, `T[i][j] += A[I+i][k] * B[k][J+j]`. This core computation uses a strip of the `A` matrix that is 8 rows tall, and a strip of the `B` matrix that is 8 columns wide; both strips are of length 1024, which is iterated over by the `k` dimension (the middle loop). These 3 inner loops only compute the results for one tile, so outer loops are added for `I` and `J` to iterate over all possible 8 * 8 tiles within `C`; those outer loops go in increments of 8, of course, to step along by one tile at a time. The code now looks like this:
+Here, you'll see the innermost `i` and `j` loops have just 8 iterations. This is the size of the tile `T`, and it covers just an 8 * 8 patch of the larger 1024 * 1024 `F` matrix. These two innermost loops can be fully unrolled, yielding a total of 64 MAC operations taken from the core computation, `T[i][j] += W[I+i][k] * A[k][J+j]`. This core computation uses a strip of the `W` matrix that is 8 rows tall, and a strip of the `A` matrix that is 8 columns wide; both strips are of length 1024, which is iterated over by the `k` dimension (the middle loop). These 3 inner loops only compute the results for one tile, so outer loops are added for `I` and `J` to iterate over all possible 8 * 8 tiles within `F`; those outer loops go in increments of 8, of course, to step along by one tile at a time. The code now looks like this:
 ```
 for I = 0 to 1023 step 8
   for J = 0 to 1023 step 8
-    T = 8*8 tile starting at C[i][j]
+    T = 8*8 tile starting at F[i][j]
     for k = 0 to 1023
-      T[0][0] += A[I+0][k] * B[k][J+0]
-      T[0][1] += A[I+0][k] * B[k][J+1]
-      T[0][2] += A[I+0][k] * B[k][J+2]
+      T[0][0] += W[I+0][k] * A[k][J+0]
+      T[0][1] += W[I+0][k] * A[k][J+1]
+      T[0][2] += W[I+0][k] * A[k][J+2]
       ...
-      T[7][5] += A[I+7][k] * B[k][J+5]
-      T[7][6] += A[I+7][k] * B[k][J+6]
-      T[7][7] += A[I+7][k] * B[k][J+7]
-    C[i][j] = T // copy entire 8*8 tile back
+      T[7][5] += W[I+7][k] * A[k][J+5]
+      T[7][6] += W[I+7][k] * A[k][J+6]
+      T[7][7] += W[I+7][k] * A[k][J+7]
+    F[I+i][J+j] = T[i][j] // copy entire 8*8 tile back
 ```
-Rewriting this into the ISA:
+The code above reads partial columns of `W`, from `W[I+0]` to `W[I+7]`. It will be more performance oriented if we transpose W (either the entire matrix, or every 8 * 8 block). Suppose the entire matrix is transposed as `W' = transpose(W)`, then the inner loops become:
+```
+    for k = 0 to 1023
+      T[0][0] += W'[k][I+0] * A[k][J+0]
+      T[0][1] += W'[k][I+0] * A[k][J+1]
+      T[0][2] += W'[k][I+0] * A[k][J+2]
+      ...
+      T[7][5] += W'[k][I+7] * A[k][J+5]
+      T[7][6] += W'[k][I+7] * A[k][J+6]
+      T[7][7] += W'[k][I+7] * A[k][J+7]
+    F[I+i][J+j] = T[i][j] // copy entire 8*8 tile back
+```
+and this enables efficient reading of the 8 column values needed of `W` as 8 row values in `W'`.
+
+Rewriting this into the OLD ISA:
 ```
 for I = 0 to 1023 step 8
   for J = 0 to 1023 step 8
-    zzMAC64; // clears entire tile; alternatively, could load tile from `C`
+    zzMAC64; // clears entire tile; alternatively, could load tile from `F`
     for k = 0 to 1023
-      AA = A[I+0][k] to A[I+7][k] // reads 8 elements from a column
-      BB = B[k][J+0] to B[k][J+7] // reads 8 elements from a row
-      hwMAC64 AA, BB
+      WW = W'[k][I+0] to W'[k][I+7] // reads 8 elements from a row
+      AA = A[k][J+0] to A[k][J+7] // reads 8 elements from a row
+      hwMAC64 WW, AA
     maxMAC64 x0 // computes ReLU on entire tile
-    stMAC64 r0, 0(rs1) // stores tile, 2 elements at a time; also clears tile entries
-    stMAC64 r1, 4(rs1)
-    stMAC64 r2, 8(rs1)
-    stMAC64 r3, 12(rs1)
+    stMAC64 x0, 0(rs1) // stores tile, 2 elements at a time; also clears tile entries
+    stMAC64 x1, 4(rs1)
+    stMAC64 x2, 8(rs1)
+    stMAC64 x3, 12(rs1)
     ...
-    stMAC64 r31, 124(rs1)
+    stMAC64 x31, 124(rs1)
 ```
-where `r0` to `r31` represent the contents of the tile `{ T[i][2*j], T[i][2*j+1] }`, that is `rX` where `X=4*i+j`.
+where `x0` to `x31` represent the contents of the tile `{ T[i][2*j], T[i][2*j+1] }`, that is `xN` where `N=4*i+j`.
 
-The only problem with this code is the k dimension is 1024. Any value over 227 can potentially overflow the 16b integers. In that case, the tile `T` could be read out, one 16b entry at a time, converted to 32b, and added to a 32b integer matrix. This is one use-case for the **mvoMAC64** and **mveMAC64** instructions.
+The only problem with this code is the k dimension is 1024. Any value over 227 can potentially overflow the 16b integers. In that case, the tile `T` could be read out, one 16b entry at a time, converted to 32b, and added to a 32b integer matrix. This is one use-case for the **mvoMAC** and **mveMAC** instructions.
 
 Overall, I see code looking something like this:
 
@@ -293,29 +371,107 @@ for I = 0 to 1023 step 8 begin
     // the i/j loops below can be fully unrolled
     for i = 0 to 7
       for j = 0 to 7
-        T[i][j] = 0 or T[i][j] = C[I+i][J+j]; // using **zzMAC64** or **ld2MAC64** instructions
+        T[i][j] = 0 // using **zzMAC** instruction
 
     for K = 0 to 1023 begin // CAREFUL: may cause saturation of 16b values
       // the i/j loops below can be fully unrolled
       for i = 0 to 7
         for j = 0 to 7
-          T[i][j] += A[I+i][K] * B[K][J+j] // using **hwMAC64**
+          T[i][j] += W'[K][I+i] * A[K][J+j] // using **hwMAC**
     end // K
 
 // EITHER: write out tile into the matrix
     // this needs a "store C[i][j]" instruction
     for i = 0 to 7
       for j = 0 to 7
-        C[I+i][J+j] = T[i][j] // using **st2MAC64** intructions
+        F[I+i][J+j] = T[i][j] // using **st2MAC** intructions
+        // don't forget to load F and post-process it with bias + activation
 // OR: immediately apply bias and activation
     // this needs a "rd = T[i][j]" instruction
     for i = 0 to 7
       for j = 0 to 7 begin
-        r = max( T[i][j] + bias[I+i][J+j], 0 ) // integer instructions, including **mvoMAC64** and **mveMAC64**, and may be **maxMAC64**
-        C[I+i][J+j] = r // regular store instruction
+        r = max( T[i][j] + bias[I+i][J+j], 0 ) // integer instructions, including **mvoMAC** and **mveMAC**, and may be **maxMAC**
+        F[I+i][J+j] = r // regular store instruction
       end // j
 
   end // J
 end // I
 ```
+
+Rewriting this into the ISA:
+```
+for I = 0 to 1023 step TS
+  for J = 0 to 1023 step 2*TS
+    zzMAC; // clears entire tile; alternatively, could load tile from `F`
+    for k = 0 to 1023
+      for z = 0 to TS-1 step 8 // step 8 because 8 * FP4 elements fit into 32b words
+        rs1 = W'[k][I+z+0] to W'[k][I+z+7] // reads 8 elements from a row
+        setMACW rd=[z/8], rs1
+      for z = 0 to TS-1
+        rs1 = A[k][J+0] to A[k][J+7] // reads 2 elements from a row
+        rs2[IMM5] = shift amount from tensor scaling max int16 determination 
+        setMACA rd=[z], rs1, rs2
+      hwMAC
+    for i = 0 to TS-1
+      addMAC rs1[i], rs2 // rs2 = bias value (broadcast to entire row of T)
+    maxMAC x0 // computes ReLU on entire tile
+    st2MAC x0, 0(rs2)  // rs2 is destination address for F, writes out 2 values of T[0][1:0]
+    st2MAC x0, 4(rs2)  // writes out 2 values of T[0][3:2]
+    ...
+    st2MAC x0, 124(rs2)  // writes out 2 values of T[0][63:62]
+    ...
+    st2MAC x31, 0(rs2)  // rs2 is destination address for F, writes out 2 values of T[31][1:0]
+    st2MAC x31, 4(rs2)  // writes out 2 values of T[31][3:2]
+    ...
+    st2MAC x31, 124(rs2)  // writes out 2 values of T[31][63:62]
+```
+where `r0` to `r31` represent the contents of the tile `{ T[i][2*j], T[i][2*j+1] }`, that is `rX` where `X=4*i+j`.
+
+The only problem with this code is the k dimension is 1024. Any value over 227 can potentially overflow the 16b integers. In that case, the tile `T` could be read out, one 16b entry at a time, converted to 32b, and added to a 32b integer matrix. This is one use-case for the **mvoMAC** and **mveMAC** instructions.
+
+Overall, I see code looking something like this:
+
+```
+for I = 0 to 1023 step TS begin
+  for J = 0 to 1023 step 2*TS begin
+
+    // the i/j loops below can be fully unrolled
+    for i = 0 to TS-1
+      for j = 0 to 2*TS-1
+        T[i][j] = 0 // using **zzMAC**
+
+    for K = 0 to 1023 begin // CAREFUL: may cause saturation of 16b values
+      // the i/j loops below can be fully unrolled
+      for i = 0 to TS-1
+        for j = 0 to 2*TS-1
+          T[i][j] += W'[K][I+i] * A[K][J+j] // using **hwMAC**
+    end // K
+
+// EITHER: write out tile into the matrix
+    // this needs a "store C[i][j]" instruction
+    for i = 0 to TS-1
+      for j = 0 to 2*TS-1
+        F[I+i][J+j] = T[i][j] // using **st2MAC** intructions
+        // don't forget to load F and post-process it with bias + activation
+// OR: use matrix-update instructions to apply bias and activation
+    // this needs a "rd = T[i][j]" instruction
+    for i = 0 to TS-1
+      for j = 0 to 2*TS-1 begin
+        r = max( T[i][j] + bias[I+i][J+j], 0 ) // integer instructions, including **mvoMAC** and **mveMAC**, and may be **maxMAC**
+        F[I+i][J+j] = r // regular store instruction
+      end // j
+
+  end // J
+end // I
+```
+
+
+Jerry's software for writing custom instructions can be found here:
+https://github.com/JerryYun2004/RISC-V-RVV-Lite/tree/LUTRAM-VRF/sw/benchmarks
+
+Jerry's hardware is here:
+https://github.com/JerryYun2004/CVe2-RVV-Lite-A1-Extension
+
+INT8 repository:
+https://github.com/ruwayd99/RISC_V_Small_Integer_Accelerator_for_DNN_Inference
 
