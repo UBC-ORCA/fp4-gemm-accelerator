@@ -57,49 +57,78 @@ https://github.com/djbyrne/mlp.c/blob/main/mlp_simple.c
 
 ## Hardware MAC64 Instruction Set for Outer Product with FP4
 
-**NOTE:** the old version of these instructions is at the end of this document (for archival purposes)
+**NOTE:** the old versions of these instructions are at the end of this document (for archival purposes)
 
-### UPDATE: replacement instructions to accept int16 values directly (converts to FP4 in hardware)
+### GEN3: instructions for 8 * 8 tile only, computing MAC with two VECTOR operands of 16 * 32b, each 32b holding 8 * FP4 values
 
-Compute tile up to 32 * 64:
-- use Verilog parameter for tilesize is TS = 8 (8 is the default value)
-- actual tile dimensions are rows=TS, columns=2*TS, up to TS=32
-- maximum dimensions are T[32][64], for a maximum size of 2048 elements
+This design will accumulate up to K=256 efficiently, in blocks of 16, using tiles of 8 * 8. For K>256, some loading/saving of an accumulator BRAM `U` will be required.
 
-MAC-oriented compute operations:
-- **zzMAC** resets entire tile, `T[i][j] = 0` for all i x j in 0 .. TS-1 x 0 .. 2 * TS-1
-- **maxMAC rs1** computes `T = max(T, rs1)` on all tile entries; `rs1` holds a signed 16-b integer (use `0` for ReLU; it's actually an int32 but kept in range of int16)
-- **hwMAC** computes   `T[i][j] += W[i] * A[j]` for all i x j in 0 .. TS-1 x 0 .. 2 * TS-1, where `W` and `A` are the outer product registers each holding TS or 2 * TS FP4 values
-- **setWMAC rd, rs1** sets `W[rd] = rs1`, where rs1 holds 8 * FP4 values; there will be at most 8 * 8 = 64 FP4 values
-- **setAMAC rd, rs1, rs2** sets `{ A[2*rd], A[2*rd+1] } = { rs1[15:0]>>>rs2, rs1[31:16]>>>rs2 }`, where the `rd` specifier is in the range 0-31 and `rs1` holds 2 * INT16 values, for a maximum total of 64 positions in `A`, and `rs2` is a 5b specifier for the arithmetic shift-right amount in the range of 0-10. These INT16 values will be immediately converted to and stored as FP4 in hardware registers. The shifting (INT16 >> 10) yields an int6 value (at most 6 bits), in fixed-point Q4.2 format ranging from -8.0 to +7.75, to be converted into FP4 in the range of -6 to 6. The shifting may or may not round or jam the LSBs (truncate for now; we can talk about this rounding/jamming later.)
+```
+// v0-v15 hold weights
+// v16-v31 hold activations
+// we will re-use the activations in the I dimension
+for J = 0 to 1023 step 8 // proceed across activation matrix
+  for I = 0 to 1023 step 8
+    // zero memory storage used to save U BRAM  (8 columns x I rows in total)
+    // better yet, load BIAS values here into memory
+  end I
+  for K = 0 to 1023 step 256 // do the rest of the dot product dimension here, reducing 256 at a time in the innermost loop
+    // 16 vector loads (into v0-v15), each loading 8 columns x 16 rows of activations
+    // clear v16, so all entries are 0
+    for I = 0 to 1023 step 8 // proceed down weight matrix
+      // load U BRAM from position I in memory (first iteration of K it will load BIAS values)
 
-Matrix update operations (much faster than vector unit):
-- **addMAC rs1, rs2** computes saturating add using 16b integer from `rs2` to all activations in the row indicated by the `rs1` specifier, `T[rs1][*] += rs2[15:0]`
-- **maxMAC rs1** computes `T = max(T, rs1)` on all tile entries; `rs1` holds 32b value treated as INT16 (use `0` for ReLU)
-- for **addMAC**, `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
-- IGNORE FOR NOW **setDMAC rs1, rs2** sets dimensions for `W` in rs1 and `A` in `rs2`, MACs outside of these dimensions are idle (only for power savings)
+      // COMPUTE: 1st set of 16 rows of activations:
+      vhwMAC v0, 0(a2) // takes 16 cycles to compute: loads weights starting at 0(a2), writes to tile T 
+      ld t0, 0(a0) // load activation scaling factors, executed while vhwMAC is underway
+      ld t1, 4(a0)
+      hwASCALE x0, t0, t1 // apply activation scaling factors (two 32b words = 8 scales * E4M3 each)
+      ld t2, 8(a1) // load weight scaling factors
+      ld t3, 12(a1)
+      hwWSCALE x0, t2, t3 // apply weight scaling factors
+      //
+      // COMPUTE: 2nd set of 16 rows of activations:
+      // load scaling factors (4 loads, hwASCALE, hwWSCALE)
+      vhwMAC v1, 64(a2) // next set of weights is 4B * 16 = 64B offset
+      ...
+      // COMPUTE: 16th set of 16 rows of activations:
+      // load scaling factors (4 loads, hwASCALE, hwWSCALE)
+      vhwMAC v15, 960(a2)
 
-Memory operations:
-- **st2MAC rs1, IMM12(rs2)** writes 32b from concatenated **pair** of tile entries `{ T[rs1][IMM12[6:1]+1], T[rs1][IMM12[6:1]] }` indicated by 5b specifier `rs1` (not register contents) and 6b specifier `IMM12[6:1]` to effective address `rs2+IMM12`, **clearing the tile entry to zero**
-- `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
-- `IMM12` is an address offset, but it also indicates which pair of column values to take from `T`. Hence, the `F` matrix rows must be 128-byte aligned
-- the **st2MAC** instruction is essential to write out data after Matrix update operations
+      // wait 16 cycles, do a dummy vhwMAC with weights of 0 and activations of 0
+      vhwMAC v16, 0(a2) // dummy NOPs, time delay
+      // BRAM now holds all 8 * 8 accumulated values from T in bfloat16 format
+      // save U BRAM to memory at position I
 
-Move operations:
-- moves from T to integer register file
-- maximum dimensions are T[32][64], for a maximum MAC size of 2048 elements
-- these moves are needed if further post-processing (other than adding bias and applying ReLU) is required
-- **mvoMAC rd, rs1, rs2** moves single odd  tile entry `T[rs1][2*rs2+1]` indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
-- **mveMAC rd, rs1, rs2** moves single even tile entry `T[rs1][2*rs2]`   indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
-- **mv2MAC rd, rs1, rs2** moves concatenated **pair** of tile entries `{ T[rs1][2*rs2+1], T[rs1][2*rs2] }`, indicated by 5b specifiers `rs1 and `rs2` (not register contents) to  register `rd`, **clearing the tile entries to zero**
-- `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
-- `rs2` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate column `j` as `2*rs2` and/or `2*rs2+1`
-- `rd` is a destination in the integer register file
+      addi a2, a2, 1024 // jump to next set of weights
+      addi to a0 and a1 as appropriate
 
-Vector operations (OPTIONAL):
-- **mvvMAC vd, rs1** single instruction to copy an entire row, `v[rd] = T[rs1][*]`
-- row length determined by vector length register using `setvl` instructions
-- each vector register needs to hold `VLEN=2*TS*16`, or up to 1024 to hold up to 64 x 16b halfwords
+    end I go to next 8 rows
+
+  end K // go to next 256 group
+  // apply ACTIVATION function and convert bfloat16 to FP4 on all U BRAM copies (all rows I x 8 columns of J)
+end J // go to next 8 columns
+```
+The **vhwMAC** instruction computes the outer product of weights * v16, summing along the vector length of 16. Note that the weights are read from memory, while the activations come from a vector register.  After 16 cycles of accumulating products, it must snapshot all 8 * 8 x int16 values (total 1024 bits) from T so they are ready for post-processing over the next 16 clock cycles. In addition, it must also snapshot the 8 * E4M3 A scales and the 8 * E4M3 W scales (total 128 bits). This post-processing will overlap with the next vhwMAC (and any other instructions in between). After the post-processing, the fully accumulated tile will be held in a BRAM which we'll call `U`.
+
+This design will be tiny because the 8 * 8 = 64 MAC units are tiny (int16, or even int13 would work) plus a set of snapshot registers. Each product and int16 sum should only take about 30 LUTs.
+
+If this operates at 200MHz, then peak computation rate is 2 * 64 * 200M operations per cycle = 25.6 GOP/s.
+
+In the code above, the innermost loop has been unrolled into 16 distinct **vhwMAC** instructions. Each **vhwMAC** instruction takes 16 cycles to execute, during which the scalar processor may continue executing other instructions in preparation for the next **vhwMAC** operation. Thus, the loading of activation/weight scaling factors is fully overlapped with the MAC computations, and the unrolled loop accumulates a total of 256 products along the k dimension.
+
+Each of the clock cycles, 64 FP4 products are computed in parallel, converted to int9, and summed into an int13 register. After 16 cycles, the 64 int13 registers are all `full' (at risk of overflow) and need to be accumulated into a larger format. We don't want to convert all 64 values and accumulate them in a single clock cycle, because that would require 64 copies of area-intensive hardware.
+
+Instead, we will snapshot the 64 int13 values (832 bits) and the 16 E4M3 scale factors (128 bits) at the end of the 16 cycles. Then, we will use the next 16 cycles (while a subsequent vhwMAC instruction is running) to convert the 64 values into bfloat16, scale them, and accumulate them into the `U` BRAM as bfloat16. This can be done at a minimal rate of 4 values per cycle, requiring only 4 bfloat16 accumulators and 4 or 8 multipliers. This is the post-processing step.
+
+Post-processing each element (done 4 at a time, in parallel) consists of (a) converting int13 into a float -- this requires normalizing the value by counting leading 0s and shifting it left into a format like E4M12 if we want it to be lossless, (b) in parallel, computing the product of the two E4M3 scale factors, one for each row (from weights) and another for each column (from activations), to produce an E5M7 value, and (c) computing the product of the E4M12 accumulation and E5M7 scales, producing an E6M20 value which should then be truncated or rounded to E6M7 and accumulated with the bfloat16 value stored in the `U` BRAM. The `U` BRAM should read out 4 bfloat16 values every cycle and write 4 values back. This post-procesing has some pipeline latency, so it will require 16 + pipeline depth cycles in total to execute. This is OK, because any attempt to read the BRAM will start with the first element written, and take 16 cycles until it reaches the last value written.
+
+After this, we will have accumulated 16*16 = 256 dot products along the K dimension into bfloat16. Going further than this is possible, but then we would not be able to re-use the A matrix which has been conveniently preloaded into vector registers outside of the for I loop (we want to keep re-using the A matrix strip, loading it only once then discarding it). Hence, to go beyond 256, we need a way to write the `U` BRAM to memory, and also to load `U` from memory -- a modest 128 bytes is required to hold each copy of `U`.
+
+This would all be easist if the `U` memory is visible to the vector instructions as a vector. So far, a vector register is used to hold an entire `A` tile consisting of 16 * 32 bits, for a vector VLEN of 512 bits. The `U` memory needs a VLEN of 2048 bits, and must be accessed 64b per cycle (4 bfloat16 at a time), so it would make sense if a `U` BRAM appears to be two adjacent vector registers, eg v30-v31 with a VLEN of 1024 bits, or as four adjacent vector registers v28-v31 while maintaining a VLEN of 512.  (For reference, a VLEN=1024 means total vector register size is 32Kib.)
+
+Also, vector instructions will be needed to convert bfloat16 into packed FP4. Ideally this would be done by writing 8 FP4 values (32b) per cycle into a vector register. This would require reading 8 bfloat16 values per cycle -- likely coming from v28-v31 in parallel every cycle. However, we only have 4 bfloat accumulators (adders).
+
 
 ## Software Needed
 
@@ -398,7 +427,7 @@ https://github.com/ruwayd99/RISC_V_Small_Integer_Accelerator_for_DNN_Inference
 
 
 
-### STALE: old instructions for 8 * 8 tile only, computing MAC with two operands of 32b holding 8 * FP4 values
+### GEN1: instructions for 8 * 8 tile only, computing MAC with two operands of 32b holding 8 * FP4 values
 
 On an RV32 processor, most instructions combine two source integer registers `rs1` and `rs2` into a third destination `rd`.
 We will produce an instruction to compute 64 MACs in parallel as a way of building the outer product in matrix multiply.
@@ -437,9 +466,51 @@ In **hwMAC64**, the results of every FP4 * FP4 operation will be accumulated int
 
 Curiously, there are only 18 unique products out of the 64 combinations from multiplying two FP4 values: it consists of the FP4 valueset {0, 1, 2, 3, 4, 6, 8, 12}, but it also consists of {9, 16, 18, 24, 32, 36, 48, 64, 72, 96, 144 }. (Valuesets expressed as their integer equivalent when used in accumulation.)
 
+### GEN2: with instructions to accept int16 values directly (converts to FP4 in hardware)
 
+Compute tile up to 32 * 64:
+- use Verilog parameter for tilesize is TS = 8 (8 is the default value)
+- actual tile dimensions are rows=TS, columns=2*TS, up to TS=32
+- maximum dimensions are T[32][64], for a maximum size of 2048 elements
 
-## Hardware MAC64 Instruction Set for Convolutions with FP4 (may be OBSOLETE -- based on STALE MAC64 design)
+MAC-oriented compute operations:
+- **zzMAC** resets entire tile, `T[i][j] = 0` for all i x j in 0 .. TS-1 x 0 .. 2 * TS-1
+- **maxMAC rs1** computes `T = max(T, rs1)` on all tile entries; `rs1` holds a signed 16-b integer (use `0` for ReLU; it's actually an int32 but kept in range of int16)
+- **hwMAC** computes   `T[i][j] += W[i] * A[j]` for all i x j in 0 .. TS-1 x 0 .. 2 * TS-1, where `W` and `A` are the outer product registers each holding TS or 2 * TS FP4 values
+- **setWMAC rd, rs1** sets `W[rd] = rs1`, where rs1 holds 8 * FP4 values; there will be at most 8 * 8 = 64 FP4 values
+- **setAMAC rd, rs1, rs2** sets `{ A[2*rd], A[2*rd+1] } = { rs1[15:0]>>>rs2, rs1[31:16]>>>rs2 }`, where the `rd` specifier is in the range 0-31 and `rs1` holds 2 * INT16 values, for a maximum total of 64 positions in `A`, and `rs2` is a 5b specifier for the arithmetic shift-right amount in the range of 0-10. These INT16 values will be immediately converted to and stored as FP4 in hardware registers. The shifting (INT16 >> 10) yields an int6 value (at most 6 bits), in fixed-point Q4.2 format ranging from -8.0 to +7.75, to be converted into FP4 in the range of -6 to 6. The shifting may or may not round or jam the LSBs (truncate for now; we can talk about this rounding/jamming later.)
+
+Matrix update operations (much faster than vector unit):
+- **addMAC rs1, rs2** computes saturating add using 16b integer from `rs2` to all activations in the row indicated by the `rs1` specifier, `T[rs1][*] += rs2[15:0]`
+- **maxMAC rs1** computes `T = max(T, rs1)` on all tile entries; `rs1` holds 32b value treated as INT16 (use `0` for ReLU)
+- for **addMAC**, `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
+- IGNORE FOR NOW **setDMAC rs1, rs2** sets dimensions for `W` in rs1 and `A` in `rs2`, MACs outside of these dimensions are idle (only for power savings)
+
+Memory operations:
+- **st2MAC rs1, IMM12(rs2)** writes 32b from concatenated **pair** of tile entries `{ T[rs1][IMM12[6:1]+1], T[rs1][IMM12[6:1]] }` indicated by 5b specifier `rs1` (not register contents) and 6b specifier `IMM12[6:1]` to effective address `rs2+IMM12`, **clearing the tile entry to zero**
+- `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
+- `IMM12` is an address offset, but it also indicates which pair of column values to take from `T`. Hence, the `F` matrix rows must be 128-byte aligned
+- the **st2MAC** instruction is essential to write out data after Matrix update operations
+
+Move operations:
+- moves from T to integer register file
+- maximum dimensions are T[32][64], for a maximum MAC size of 2048 elements
+- these moves are needed if further post-processing (other than adding bias and applying ReLU) is required
+- **mvoMAC rd, rs1, rs2** moves single odd  tile entry `T[rs1][2*rs2+1]` indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
+- **mveMAC rd, rs1, rs2** moves single even tile entry `T[rs1][2*rs2]`   indicated by 5b specifiers `rs1 and `rs2` (not register contents) to register `rd`, **clearing the tile entry to zero**
+- **mv2MAC rd, rs1, rs2** moves concatenated **pair** of tile entries `{ T[rs1][2*rs2+1], T[rs1][2*rs2] }`, indicated by 5b specifiers `rs1 and `rs2` (not register contents) to  register `rd`, **clearing the tile entries to zero**
+- `rs1` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate row `i`
+- `rs2` is a 5b register specifier that does not indicate an integer register; instead, the 5 bits indicate column `j` as `2*rs2` and/or `2*rs2+1`
+- `rd` is a destination in the integer register file
+
+Vector operations (OPTIONAL):
+- **mvvMAC vd, rs1** single instruction to copy an entire row, `v[rd] = T[rs1][*]`
+- row length determined by vector length register using `setvl` instructions
+- each vector register needs to hold `VLEN=2*TS*16`, or up to 1024 to hold up to 64 x 16b halfwords
+
+- 
+
+## Hardware MAC64 Instruction Set for Convolutions with FP4 (may be OBSOLETE -- based on GEN1 MAC64 design)
 
 In an effort to add further novelty to the design, I'm considering adding instructions to assist with accelerating convolutional neural networks.
 
