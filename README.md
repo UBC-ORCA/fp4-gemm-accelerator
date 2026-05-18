@@ -64,8 +64,8 @@ https://github.com/djbyrne/mlp.c/blob/main/mlp_simple.c
 This design will accumulate up to K=256 efficiently, in blocks of 16, using tiles of 8 * 8. For K>256, some loading/saving of an accumulator BRAM `U` will be required.
 
 ```
-// v0-v15 hold weights
-// v16-v31 hold activations
+// v0-v15 hold activations (maximum re-use)
+// weights loaded directly from memory (no re-use)
 // we will re-use the activations in the I dimension
 for J = 0 to 1023 step 8 // proceed across activation matrix
   for I = 0 to 1023 step 8
