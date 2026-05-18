@@ -79,17 +79,23 @@ for J = 0 to 1023 step 8 // proceed across activation matrix
       // load U BRAM from position I in memory (first iteration of K it will load BIAS values)
 
       // COMPUTE: 1st set of 16 rows of activations:
+      lw t0, 0(a0) // load activation scaling factors
+      lw t1, 4(a0)
+      lw t2, 0(a1) // load weight scaling factors
+      lw t3, 4(a1)
       vhwMAC v0, 0(a2) // takes 16 cycles to compute: loads weights starting at 0(a2), writes to tile T 
-      ld t0, 0(a0) // load activation scaling factors, executed while vhwMAC is underway
-      ld t1, 4(a0)
-      hwASCALE x0, t0, t1 // apply activation scaling factors (two 32b words = 8 scales * E4M3 each)
-      ld t2, 8(a1) // load weight scaling factors
-      ld t3, 12(a1)
-      hwWSCALE x0, t2, t3 // apply weight scaling factors
+      hwASCALE x0, t0, t1 // apply activation scaling factors (two 32b words = 8 scales * E4M3 each), executed while vhwMAC is underway
+      hwWSCALE x0, t2, t3 // apply weight scaling factors, executed while vhwMAC is underway
       //
       // COMPUTE: 2nd set of 16 rows of activations:
       // load scaling factors (4 loads, hwASCALE, hwWSCALE)
+      lw t0, 8(a0) // load activation scaling factors
+      lw t1, 12(a0)
+      lw t2, 8(a1) // load weight scaling factors
+      lw t3, 12(a1)
       vhwMAC v1, 64(a2) // next set of weights is 4B * 16 = 64B offset
+      hwASCALE x0, t0, t1
+      hwWSCALE x0, t2, t3
       ...
       // COMPUTE: 16th set of 16 rows of activations:
       // load scaling factors (4 loads, hwASCALE, hwWSCALE)
