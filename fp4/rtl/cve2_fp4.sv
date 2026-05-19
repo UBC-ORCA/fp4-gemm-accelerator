@@ -110,17 +110,91 @@ module cve2_fp4 import cve2_pkg::*; #(
   endfunction
 
   // ------------------------------------------------------------
+  // int_to_fp4
+  //
+  // Converts a shifted INT16 value into a 4-bit FP4 value 
+  //
+  // INPUTS:
+  //   val — a signed 16-bit integer whose magnitude represents a quantity in
+  //         units of 0.5.  That is, the integer 1 means 0.5, integer 2 means
+  //         1.0, integer 8 means 4.0, integer 12 means 6.0, and so on.
+  //         This is the natural result after setAMAC's right-shift step.
+  //
+  // OUTPUT:
+  //   4-bit FP4:  bit[3]   = sign (1 = negative)
+  //               bits[2:0] = magnitude encoding
+  //                 000 = 0.0,  001 = 0.5,  010 = 1.0,  011 = 1.5
+  //                 100 = 2.0,  101 = 3.0,  110 = 4.0,  111 = 6.0
+  //
+  // ROUNDING:
+  //   Truncation (round toward zero): the largest FP4 magnitude that is
+  //   <= the actual magnitude is chosen.  So 1.7 → 1.5 (not 2.0).
+  //   Values exceeding 6.0 clamp to 6.0 (the FP4 maximum).
+  // ------------------------------------------------------------
+  function automatic logic [3:0] int_to_fp4(
+      input logic signed [15:0] val
+  );
+      logic        sign;
+      logic [15:0] abs_val;
+      logic [2:0]  fp4_mag;
+
+      // extract the sign bit.
+      sign = val[15];
+
+      // compute unsigned absolute value
+      // For positive val, abs_val is the value itself (bit 15 is already 0)
+      // For negative val, negate using two's complement: ~val + 1
+      abs_val = sign ? 16'(-val) : 16'(val);
+
+      // map the absolute value to the nearest FP4 magnitude <= abs_val.
+      // Comparison thresholds are the FP4 magnitudes expressed in "half-units"
+      if      (abs_val >= 16'd12) fp4_mag = 3'b111; // 6.0
+      else if (abs_val >= 16'd8)  fp4_mag = 3'b110; // 4.0
+      else if (abs_val >= 16'd6)  fp4_mag = 3'b101; // 3.0
+      else if (abs_val >= 16'd4)  fp4_mag = 3'b100; // 2.0
+      else if (abs_val >= 16'd3)  fp4_mag = 3'b011; // 1.5
+      else if (abs_val >= 16'd2)  fp4_mag = 3'b010; // 1.0
+      else if (abs_val >= 16'd1)  fp4_mag = 3'b001; // 0.5
+      else                        fp4_mag = 3'b000; // 0.0
+
+      // Step 4: pack sign and magnitude into the 4-bit FP4 encoding.
+      return {sign, fp4_mag};
+
+  endfunction
+
+  // ------------------------------------------------------------
   // Combinational next-state logic
   // ------------------------------------------------------------
 
   always_comb begin
 
-    // Defaults
+    // ----------------------------------------------------------
+    //
+    //   shift_amt : the 5-bit right-shift amount read directly
+    //
+    //   val_lo    : lower INT16 of op_a_i after the shift is applied.
+    //               This becomes A[2*rd] after FP4 conversion
+    //
+    //   val_hi    : upper INT16 of op_a_i after the shift is applied.
+    //               This becomes A[2*rd+1] after FP4 conversion
+    //
+    //   col_lo    : computed A array index for val_lo  (= 2 * rd).
+    //   col_hi    : computed A array index for val_hi  (= 2 * rd + 1).
+    // ----------------------------------------------------------
+    logic [4:0]         shift_amt;
+    logic signed [15:0] val_lo;
+    logic signed [15:0] val_hi;
+    int                 col_lo;
+    int                 col_hi;
+
+
     t_d           = t_q;
     a_d           = a_q;
+    w_d           = w_q; 
 
     t_we          = 'b1;
     a_we          = 1'b0;
+    w_we          = 1'b0; 
 
     valid_o       = fp4_en_i;
 
@@ -191,12 +265,115 @@ module cve2_fp4 import cve2_pkg::*; #(
           end
         end
         
-      end 
+      end
+
+      // ========================================================
+      // setWMAC  rd, rs1
+      //
+      // PURPOSE:
+      //   Loads the W (weight) register array with 8 FP4 values that
+      //   were packed side-by-side into the 32-bit source register rs1
+      //
+      // OPERANDS:
+      //   op_a_i      (rs1 contents)  — 32-bit value holding 8 FP4 values
+      //
+      //   op_dst_spec (rd field)      — 5-bit group index selecting which
+      //                 block of 8 weight slots to fill.
+      //                 rd=0 → W[0..7], rd=1 → W[8..15], etc.
+      //                 For the default tile (TILE_ROWS=8) only rd=0 is valid
+      //
+      // RESULT:
+      //   w_d[rd*8 + k] = op_a_i[k*4 +: 4]  for k = 0..7
+      //   w_we = 1  so the always_ff block commits w_d to w_q next cycle.
+      //
+      // GUARD:
+      //   If rd*8+7 >= TILE_ROWS the write is silently skipped (safe no-op).
+      // ========================================================
+
+      FP4_SETWMAC: begin
+
+        // Only proceed if the full group of 8 fits inside the weight array.
+        if ((int'(op_dst_spec) * 8 + 7) < TILE_ROWS) begin
+
+          w_we = 1'b1;
+
+          // Unpack all 8 FP4 values from the 32-bit source register.
+          // Each FP4 is 4 bits wide; the k-th value occupies bits [k*4+3 : k*4].
+          // The +: operator is a fixed-width slice: op_a_i[k*4 +: 4] reads
+          // 4 bits starting at bit k*4, which is exactly one FP4 field.
+          for (int k = 0; k < 8; k++) begin
+            w_d[op_dst_spec * 8 + k] = op_a_i[k*4 +: 4];
+          end
+
+        end
+
+      end
+
+      // ========================================================
+      // setAMAC  rd, rs1, rs2
+      //
+      // PURPOSE:
+      //   Loads TWO adjacent A (activation) register slots from the
+      //   lower and upper INT16 halves of rs1.  Before storing, each
+      //   INT16 is scaled down by an arithmetic right-shift, then
+      //   quantised to the nearest FP4 value <= the result (truncation)
+      //
+      // OPERANDS:
+      //   op_a_i      (rs1 contents)  — 32-bit value = two packed INT16s:
+      //                 bits [15: 0] → lower INT16 → will become A[2*rd]
+      //                 bits [31:16] → upper INT16 → will become A[2*rd+1]
+      //
+      //   op_b_spec   (rs2 FIELD, not rs2 register contents!) — 5-bit
+      //                 immediate shift amount (0–10).  The actual register
+      //                 value op_b_i is intentionally ignored here; the
+      //                 shift amount is encoded directly in the instruction
+      //
+      //   op_dst_spec (rd field)      — 5-bit pair index selecting which
+      //                 two adjacent A slots to fill:
+      //                 rd=0 → A[0] and A[1]
+      //                 rd=1 → A[2] and A[3]
+      //                 rd=n → A[2n] and A[2n+1]
+      //
+      // RESULT:
+      //   a_d[2*rd]   = int_to_fp4( op_a_i[15: 0] >>> op_b_spec )
+      //   a_d[2*rd+1] = int_to_fp4( op_a_i[31:16] >>> op_b_spec )
+      //   a_we = 1  so the always_ff block commits a_d to a_q next cycle.
+      //
+      // GUARD:
+      //   If 2*rd+1 >= TILE_COLS the write is silently skipped (safe no-op).
+      // ========================================================
+
+      FP4_SETAMAC: begin
+
+        // Read the shift amount directly from the rs2 instruction field.
+        shift_amt = op_b_spec[4:0];
+
+        // Compute the two A-array indices for this rd value.
+        // Multiplying by 2 steps over pairs: rd=0→cols 0,1  rd=1→cols 2,3 etc.
+        col_lo = int'(op_dst_spec) * 2;
+        col_hi = int'(op_dst_spec) * 2 + 1;
+
+        // Guard: only proceed if both column indices fall within the A array.
+        if (col_hi < TILE_COLS) begin
+
+          a_we = 1'b1;
+
+          // Step 1: arithmetic right-shift each INT16 half by shift_amt bits.
+          val_lo = $signed(op_a_i[15: 0]) >>> shift_amt;
+          val_hi = $signed(op_a_i[31:16]) >>> shift_amt;
+
+          // Step 2: convert each shifted value to FP4 and store it.
+          a_d[col_lo] = int_to_fp4(val_lo);
+          a_d[col_hi] = int_to_fp4(val_hi);
+
+        end
+
+      end
 
       // ========================================================
       // ad2MAC64
       //
-      // Add two packed int16 bias values T[i][2*j] += rs1[15:0] 
+      // Add two packed int16 bias values T[i][2*j] += rs1[15:0]
       // and T[i][2*j+1] += rs1[31:16]
       // ========================================================
 
@@ -360,30 +537,52 @@ module cve2_fp4 import cve2_pkg::*; #(
 
     if (!rst_ni) begin
 
-      for (int r = 0; r < 8; r++) begin
-        for (int c = 0; c < 8; c++) begin
+      // BUG FIX 1: loop bounds were hardcoded to 8, which left upper
+      //   rows/columns of T uninitialised for tile sizes > 8.
+      //   Changed to use the TILE_ROWS and TILE_COLS parameters.
+      //
+      // BUG FIX 2: a_q is a 1-D array declared as [TILE_COLS], not 2-D,
+      //   so it cannot be indexed as a_q[r][c].  The original code treated
+      //   it as 2-D inside the same nested loop as t_q, which is a type
+      //   error.  Split into a separate loop over columns only.
+      //
+      // ADDED: w_q must also be zeroed on reset.  It was not touched at all
+      //   in the original reset block, so W would have contained X values
+      //   after reset, causing X-propagation into every hwMAC result.
 
+      // Zero the entire accumulator tile T.
+      for (int r = 0; r < TILE_ROWS; r++) begin
+        for (int c = 0; c < TILE_COLS; c++) begin
           t_q[r][c] <= 16'sd0;
-          a_q[r][c] <= 4'd0;
-
         end
       end
 
+      // Zero all activation (A) register slots.
+      for (int c = 0; c < TILE_COLS; c++) begin
+        a_q[c] <= 4'sd0;
+      end
+
+      // Zero all weight (W) register slots.
+      for (int r = 0; r < TILE_ROWS; r++) begin
+        w_q[r] <= 4'sd0;
+      end
+
     end else begin
-      
+
       /* Row-grained t_q select. */
       for (int i = 0; i < MAX_ROWS; ++i) begin
-        if (t_we[i]) begin 
+        if (t_we[i]) begin
           t_q[i] <= t_d[i];
         end
       end
 
       if (a_we)
         a_q <= a_d;
+      if (w_we)
+        w_q <= w_d;
 
     end
 
   end
 
 endmodule
-

@@ -203,6 +203,14 @@ package cve2_pkg;
     FP4_MAXMAC,
     FP4_HWMAC,
 
+    // setWMAC: unpacks 8 FP4 values from a 32-bit register and stores them
+    //          into a group of 8 consecutive weight (W) register slots.
+    // setAMAC: takes two INT16 values packed in a 32-bit register, shifts each
+    //          right by a 5-bit immediate, converts the result to FP4, and stores
+    //          the two FP4 values into a pair of adjacent activation (A) register slots.
+    FP4_SETWMAC,
+    FP4_SETAMAC,
+
     /* Stale...? */
     FP4_AD2MAC64,
 
@@ -750,4 +758,3 @@ package cve2_pkg;
 
 
 endpackage
-
