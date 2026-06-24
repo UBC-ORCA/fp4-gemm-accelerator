@@ -1,6 +1,4 @@
 // MLP inference on x86, Gen 3
-// 8x8 MAC tile, int16 within K-block of 16, bfloat16 output
-// per-block scale factors duplicated from per-tensor
 
 #include <stdio.h>
 #include <stdint.h>
@@ -27,13 +25,11 @@ static const int8_t code_to_int[16] = {
     0, 1, 2, 3, 4, 6, 8, 12,  0,-1,-2,-3,-4,-6,-8,-12
 };
 
-// fp4 magnitude LUT, indexed by |value * 4| clamped to 15 (round-to-nearest even)
+// fp4 magnitude LUT
 static const uint8_t fp4_mag_lut[16] = {
 //  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
     0, 1, 2, 3, 4, 4, 5, 6, 6, 6, 6, 7, 7, 7, 7, 7
 };
-
-// bias1/bias2/bias3 (decoded ints) come from weights_int16_t.h
 
 // float cast to bfloat16
 static inline float to_bf16(float v) {
@@ -126,17 +122,17 @@ static void tile_mac(int16_t T_out[8][BATCH],
                      const int16_t* A_s,
                      int k_count) {
     zzMAC();
-    for (int K1 = 0; K1 < k_count; K1++) {
-        setWMAC(&W_t[K1 * 8]);
-        setAMAC(&A_s[K1 * BATCH]);
+    for (int K = 0; K < k_count; K++) {
+        setWMAC(&W_t[K * 8]);
+        setAMAC(&A_s[K * BATCH]);
         vhwMAC();
     }
     st2MAC(T_out);
 }
 
 // gemm: F[i][j] = bias[i] + sum_k W[i][k] * A[k][j]
-// W is pre-transposed into K1-strips (bias pulled out, padding baked in)
-// A is [in_dim][BATCH] FP4, F is [out_dim][BATCH] bf16, bias is decoded ints
+// W is pre-transposed, already in FP4
+// A is [in_dim][BATCH] FP4, F is [out_dim][BATCH] bf16
 // T accumulates a block in int16, U accumulates across K-blocks in bf16
 void gemm(const int16_t* A, const int16_t* W, const int16_t* bias,
           float* F, int in_dim, int out_dim, int layer_bias) {
@@ -191,25 +187,25 @@ void gemm(const int16_t* A, const int16_t* W, const int16_t* bias,
     }
 }
 
-// hardtanh clamp. values are integers scaled by 4, so [-1, 1] becomes [-4, 4]
-static inline int hardtanh(int v) {
-    if (v >  4) return  4;
-    if (v < -4) return -4;
-    return v;
+// hardtanh
+static inline int hardtanh(int a) {
+    if (a >  4) return  4;
+    if (a < -4) return -4;
+    return a;
 }
 
 // quantize to FP4 codes, and clamp with hardtanh
-static void quantize_activation(const float* U, int16_t* codes, int dim) {
+static void quantize_activation(const float* A, int16_t* codes, int dim) {
     int n = dim * BATCH;
     for (int i = 0; i < n; i++) {
-        float u = U[i];
+        float a = A[i];
         // scale by 4 and round to nearest int (ties away from zero)
-        int v = (int)(u * 4.0f + (u >= 0.0f ? 0.5f : -0.5f));
-        v = hardtanh(v);
+        int z = (int)(a * 4.0f + (a >= 0.0f ? 0.5f : -0.5f));
+        z = hardtanh(z);
 
         // get magnitude
-        int sign = (v < 0);
-        int abs_v = sign ? -v : v;
+        int sign = (z < 0);
+        int abs_v = sign ? -z : z;
         uint8_t mag = fp4_mag_lut[abs_v];
         codes[i] = mag == 0 ? 0 : (int16_t)(sign ? (0x8 | mag) : mag);
     }
@@ -245,7 +241,7 @@ int main(void) {
     static int16_t image_batch[IN_DIM * BATCH];
     int preds[BATCH];
 
-    // weights are pre-transposed
+    // ensure weights are of correct format
     validate_fp4(w1_fp4, sizeof(w1_fp4)/sizeof(w1_fp4[0]), "w1_fp4");
     validate_fp4(w2_fp4, sizeof(w2_fp4)/sizeof(w2_fp4[0]), "w2_fp4");
     validate_fp4(w3_fp4, sizeof(w3_fp4)/sizeof(w3_fp4[0]), "w3_fp4");
