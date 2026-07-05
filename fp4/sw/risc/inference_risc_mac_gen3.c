@@ -1,7 +1,7 @@
 // MLP inference on CVE2, Gen 3
 
-#include "weights_int16_t.h"
-#include "test_data_10.h"
+#include "../../../Software/headers/weights_int16_t.h"
+#include "../../../Software/headers/test_batches.h"
 
 // MLP Dimensions: 784 -> 128 -> 96 -> 10
 #define IN_DIM    784
@@ -14,6 +14,9 @@
 
 #define K1_STEP   16   // K elements per inner block
 #define K2_SPAN  256   // K elements per K3 step (16 inner blocks)
+
+// write 1 to halt the simulator
+#define DEV_HALT ((volatile int *) 0x20008)
 
 // UART putchar
 extern void putchar_uart(char c);
@@ -88,13 +91,35 @@ static inline uint32_t pack_fp4x8(const int16_t* codes) {
     return w;
 }
 
+// extract the power-of-two exponent (exp field - 7) from each of 8 packed E4M3 scales
+static void extract_e4m3_exp(const uint32_t* words, int shift[8]) {
+    for (int i = 0; i < 8; i++) {
+        uint8_t byte = (uint8_t)(words[i / 4] >> (8 * (i % 4)));  // lane i lives in byte i
+        shift[i] = (int)((byte >> 3) & 0xF) - 7;                  // exp field - bias(7)
+    }
+}
+
+// multiply x by 2^e by adding e to the float exponent field
+static inline float scale_pow2(float x, int e) {
+    if (x == 0.0f) return 0.0f;
+    union { float f; uint32_t u; } v;
+    v.f = x;
+    uint32_t exp = ((v.u >> 23) & 0xFF) + (uint32_t)e;   // shift the exponent
+    v.u = (v.u & 0x807FFFFF) | (exp << 23);              // keep sign + mantissa
+    return v.f;
+}
+
+// macWs: load 8 per-row weight shifts;  macAs: load 8 per-col activation shifts
+static inline void macWs(const uint32_t* words, int row_shift[8]) { extract_e4m3_exp(words, row_shift); }
+static inline void macAs(const uint32_t* words, int col_shift[8]) { extract_e4m3_exp(words, col_shift); }
+
 // compute a tile of 8 output rows x BATCH columns
 static void tile_mac(int16_t T_out[8][BATCH],
                      const int16_t* W_t,
                      const int16_t* A_s,
                      int k_count,
                      const int16_t* bias_row) {
-    mac_zz();
+    mac_zz();                                   // was zzMAC()
     if (bias_row) mac_add_bias(bias_row);
     for (int K = 0; K < k_count; K++) {
         // rs1 = W column (output rows i), rs2 = A row (batch cols j)
@@ -108,11 +133,22 @@ static void tile_mac(int16_t T_out[8][BATCH],
 // W is pre-transposed, already in FP4
 // A is [in_dim][BATCH] FP4, F is [out_dim][BATCH] bf16
 // T accumulates a block in int16, U accumulates across K-blocks in bf16
-void gemm(const int16_t* A, const int16_t* W, const int16_t* bias,
-          float* F, int in_dim, int out_dim, int layer_bias) {
-    // real_product = w_int * a_int * per_block_scale
-    float per_block_scale = 1.0f / (float)(1 << (layer_bias + 4));
+void gemm(const int16_t* A, const int16_t* W, const int16_t* bias, float* F,
+          int in_dim, int out_dim,
+          const uint32_t* wscale_words, const uint32_t* ascale_words) {
     int num_K_blocks = (in_dim + K1_STEP - 1) / K1_STEP;
+
+    // decode the per-block scales once (uniform per layer for now)
+    // scale = 2^wshift[i] * 2^ashift[j] = 2^(wshift[i]+ashift[j])  (powers of two -> a shift)
+    int wshift[8], ashift[8];
+    macWs(wscale_words, wshift);   // per-row  weight  shifts
+    macAs(ascale_words, ashift);   // per-col  activation shifts
+
+    // combine per-row + per-col shifts once; the accumulate then does one exponent add
+    int shift[8][BATCH];
+    for (int i = 0; i < 8; i++)
+        for (int j = 0; j < BATCH; j++)
+            shift[i][j] = wshift[i] + ashift[j];
 
     // step through the output rows in chunks of 8
     for (int I = 0; I < out_dim; I += 8) {
@@ -124,7 +160,6 @@ void gemm(const int16_t* A, const int16_t* W, const int16_t* bias,
         // U init to zero
         for (int i = 0; i < 8; i++)
             for (int j = 0; j < BATCH; j++) U[i][j] = 0.0f;
-
         // k accumulation
         for (int K3 = 0; K3 < in_dim; K3 += K2_SPAN) {
             for (int K2 = 0; K2 < K2_SPAN && (K3 + K2) < in_dim; K2 += K1_STEP) {
@@ -146,7 +181,7 @@ void gemm(const int16_t* A, const int16_t* W, const int16_t* bias,
                 // accumulate into U
                 for (int i = 0; i < 8 && (I + i) < out_dim; i++) {
                     for (int j = 0; j < BATCH; j++) {
-                        U[i][j] = to_bf16(U[i][j] + (float)T[i][j] * per_block_scale);
+                        U[i][j] = to_bf16(U[i][j] + scale_pow2((float)T[i][j], shift[i][j]));
                     }
                 }
             }
@@ -191,13 +226,13 @@ void inference_batch(const int16_t* inputs, int* preds) {
     static float h1[H1_DIM * BATCH], h2[H2_DIM * BATCH], logits[OUT_DIM * BATCH];
     static int16_t h1_codes[H1_DIM * BATCH], h2_codes[H2_DIM * BATCH];
 
-    gemm(inputs, w1_fp4, bias1, h1, IN_DIM, H1_DIM, LAYER1_BIAS);
+    gemm(inputs, w1_fp4, bias1, h1, IN_DIM, H1_DIM, wscale1, ascale1);
     quantize_activation(h1, h1_codes, H1_DIM);
 
-    gemm(h1_codes, w2_fp4, bias2, h2, H1_DIM, H2_DIM, LAYER2_BIAS);
+    gemm(h1_codes, w2_fp4, bias2, h2, H1_DIM, H2_DIM, wscale2, ascale2);
     quantize_activation(h2, h2_codes, H2_DIM);
 
-    gemm(h2_codes, w3_fp4, bias3, logits, H2_DIM, OUT_DIM, LAYER3_BIAS);
+    gemm(h2_codes, w3_fp4, bias3, logits, H2_DIM, OUT_DIM, wscale3, ascale3);
 
     // argmax
     for (int j = 0; j < BATCH; j++) {
@@ -215,10 +250,11 @@ int main(void) {
     static int16_t image_batch[IN_DIM * BATCH];
     int preds[BATCH];
 
-    // pred | truth per sample
-    print_str("P|T\n");
+    // pred | truth | mptorch reference, per sample
+    print_str("P|T|M\n");
 
     int correct = 0;
+    int match = 0;      // hw prediction vs mptorch reference
 
     for (int s = 0; s < N_SAMPLES; s += BATCH) {
         int n = N_SAMPLES - s;
@@ -235,15 +271,24 @@ int main(void) {
 
         for (int j = 0; j < n; j++) {
             if (preds[j] == test_labels[s + j]) correct++;
+            if (preds[j] == test_preds[s + j]) match++;
             putdec(preds[j]);
             print_str("|");
             putdec(test_labels[s + j]);
+            print_str("|");
+            putdec(test_preds[s + j]);
             print_str("\n");
         }
     }
 
     print_str("\nACCURACY: ");
     putdec(correct);
+    putchar_uart('/');
+    putdec(N_SAMPLES);
+    print_str("\n");
+
+    print_str("MATCH (vs mptorch): ");
+    putdec(match);
     putchar_uart('/');
     putdec(N_SAMPLES);
     print_str("\n");
