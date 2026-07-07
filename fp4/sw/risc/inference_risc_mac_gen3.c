@@ -1,6 +1,6 @@
 // MLP inference on CVE2, Gen 3
 
-#include "../../../Software/headers/weights_int16_t.h"
+#include "../../../Software/headers/weights_blk32_pkgINT16.h"
 #include "../../../Software/headers/test_batches.h"
 
 // MLP Dimensions: 784 -> 128 -> 96 -> 10
@@ -12,8 +12,8 @@
 // number of MNIST samples solved in parallel (J dimension of A)
 #define BATCH      8
 
-#define K1_STEP   16   // K elements per inner block
-#define K2_SPAN  256   // K elements per K3 step (16 inner blocks)
+#define K1_STEP    K1_STEP_HDR   // K elements per inner block
+#define K2_SPAN    256           // K elements per K3 step (16 inner blocks)
 
 // write 1 to halt the simulator
 #define DEV_HALT ((volatile int *) 0x20008)
@@ -73,21 +73,12 @@ int16_t fp4_quantize(float value) {
     return (int16_t)(sign ? (0x8 | mag) : mag);
 }
 
-// fp4 MAC instructions (defined in matmul8_vec.S)
-//  mac_zz()              -> zzMAC64          clear the hardware tile
-//  mac_hw(a, b)          -> hwMAC64 rs1,rs2  T[i][j] += Aq[i] * Bq[j]
-//  mac_st2_readback(out) -> 32x mv2MAC64     read full 8x8 tile -> out, clears tile
-//  mac_add_bias(bias)    -> 8x addMAC64      T[i][all] += bias[i]<<2, add bias to tile
-extern void mac_zz(void);
-extern void mac_hw(uint32_t a, uint32_t b);
-extern void mac_st2_readback(void *out);
-extern void mac_add_bias(const int16_t *bias_row);
-
 // pack 8 fp4 nibble codes into a 32-bit word
 static inline uint32_t pack_fp4x8(const int16_t* codes) {
     uint32_t w = 0;
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < 8; i++) {
         w |= (uint32_t)(codes[i] & 0xF) << (4 * i);
+    }
     return w;
 }
 
@@ -109,24 +100,62 @@ static inline float scale_pow2(float x, int e) {
     return v.f;
 }
 
-// macWs: load 8 per-row weight shifts;  macAs: load 8 per-col activation shifts
-static inline void macWs(const uint32_t* words, int row_shift[8]) { extract_e4m3_exp(words, row_shift); }
-static inline void macAs(const uint32_t* words, int col_shift[8]) { extract_e4m3_exp(words, col_shift); }
+// fp4 MAC instructions (defined in matmul8_vec.S)
+//  mac_zz()              -> zzMAC64          clear the hardware tile
+//  mac_hw(a, b)          -> hwMAC64 rs1,rs2  T[i][j] += Aq[i] * Bq[j]
+//  mac_st2_readback(out) -> 32x mv2MAC64     read full 8x8 tile -> out, clears tile
+//  mac_add_bias(bias)    -> 8x addMAC64      T[i][all] += bias[i]<<2, add bias to tile (unused)
+extern void mac_zz(void);
+extern void mac_hw(uint32_t a, uint32_t b);
+extern void mac_st2_readback(void *out);
 
-// compute a tile of 8 output rows x BATCH columns
-static void tile_mac(int16_t T_out[8][BATCH],
-                     const int16_t* W_t,
-                     const int16_t* A_s,
-                     int k_count,
-                     const int16_t* bias_row) {
-    mac_zz();                                   // was zzMAC()
-    if (bias_row) mac_add_bias(bias_row);
-    for (int K = 0; K < k_count; K++) {
-        // rs1 = W column (output rows i), rs2 = A row (batch cols j)
-        mac_hw(pack_fp4x8(&W_t[K * 8]),
-               pack_fp4x8(&A_s[K * BATCH]));
+// emulated vector register
+typedef struct { uint32_t w[K1_STEP]; } vreg_t;
+
+// vle_fp4: load + pack bs k-steps x 8 activation lanes into a vector reg
+static inline void vle_fp4(vreg_t* v, const int16_t* A_v, int bs) {
+    for (int k = 0; k < bs; k++) {
+        v->w[k] = pack_fp4x8(&A_v[k * BATCH]);
     }
-    mac_st2_readback(T_out);
+}
+
+// macWs: load 8 per-row weight shifts
+static inline void macWs(const uint32_t* words, int row_shift[8]) { 
+    extract_e4m3_exp(words, row_shift); 
+}
+
+// macAs: load 8 per-col activation shifts
+static inline void macAs(const uint32_t* words, int col_shift[8]) { 
+    extract_e4m3_exp(words, col_shift); 
+}
+
+// vmac64: block MAC over bs k-steps, T[i][j] += sum_k W[k][i] * v[k][j]
+static inline void vmac64(const int16_t* W_v, const vreg_t* v, int bs) {
+    for (int k = 0; k < bs; k++) {
+        // rs1 = W column (output rows i), rs2 = A row (batch cols j)
+        mac_hw(pack_fp4x8(&W_v[k * 8]), v->w[k]);
+    }
+}
+
+// macAcc: read the tile, scale each entry (block shift), accumulate into U as bf16
+static void macAcc(float U[8][BATCH], const int shift[8][BATCH]) {
+    int16_t T[8][BATCH];
+    mac_st2_readback(T);                            // read the tile out (and clear it)
+    for (int i = 0; i < 8; i++) {                   // padding rows discarded at the F write
+        for (int j = 0; j < BATCH; j++) {
+            U[i][j] = to_bf16(U[i][j] + scale_pow2((float)T[i][j], shift[i][j]));
+        }
+    }
+}
+
+// fill the 8x8 tile
+static void tile_mac(const int16_t* W_t,
+                     const int16_t* A_s,
+                     int k_count) {
+    mac_zz();
+    vreg_t va;
+    vle_fp4(&va, A_s, k_count);     // load activations into a vector reg
+    vmac64(W_t, &va, k_count);      // block MAC over k_count k-steps
 }
 
 // F[i][j] = bias[i] + sum_k W[i][k] * A[k][j]
@@ -138,17 +167,19 @@ void gemm(const int16_t* A, const int16_t* W, const int16_t* bias, float* F,
           const uint32_t* wscale_words, const uint32_t* ascale_words) {
     int num_K_blocks = (in_dim + K1_STEP - 1) / K1_STEP;
 
-    // decode the per-block scales once (uniform per layer for now)
+    // decode the per-block scales once
     // scale = 2^wshift[i] * 2^ashift[j] = 2^(wshift[i]+ashift[j])  (powers of two -> a shift)
     int wshift[8], ashift[8];
-    macWs(wscale_words, wshift);   // per-row  weight  shifts
-    macAs(ascale_words, ashift);   // per-col  activation shifts
+    macWs(wscale_words, wshift);   // per-row weight shifts
+    macAs(ascale_words, ashift);   // per-col activation shifts
 
-    // combine per-row + per-col shifts once; the accumulate then does one exponent add
+    // combine shift for activations and weights
     int shift[8][BATCH];
-    for (int i = 0; i < 8; i++)
-        for (int j = 0; j < BATCH; j++)
+    for (int i = 0; i < 8; i++) {
+        for (int j = 0; j < BATCH; j++) {
             shift[i][j] = wshift[i] + ashift[j];
+        }
+    }
 
     // step through the output rows in chunks of 8
     for (int I = 0; I < out_dim; I += 8) {
@@ -157,33 +188,28 @@ void gemm(const int16_t* A, const int16_t* W, const int16_t* bias, float* F,
         // U holds running totals for these 8 rows across all BATCH columns
         float U[8][BATCH];
 
-        // U init to zero
-        for (int i = 0; i < 8; i++)
-            for (int j = 0; j < BATCH; j++) U[i][j] = 0.0f;
+        // init U with the bias for these 8 rows, scaled by the per-row weight shift
+        for (int i = 0; i < 8; i++) {
+            float b = (I + i < out_dim) ? to_bf16(scale_pow2((float)bias[I + i], wshift[i])) : 0.0f;
+            for (int j = 0; j < BATCH; j++) {
+                U[i][j] = b;
+            }
+        }
+        
         // k accumulation
         for (int K3 = 0; K3 < in_dim; K3 += K2_SPAN) {
             for (int K2 = 0; K2 < K2_SPAN && (K3 + K2) < in_dim; K2 += K1_STEP) {
 
+                // clamp the last K-block if it runs past in_dim
                 int k1_end = K1_STEP;
                 if (K3 + K2 + k1_end > in_dim) k1_end = in_dim - K3 - K2;
 
+                // point at this K-block's weight strip
                 int K_block = (K3 + K2) / K1_STEP;
-                const int16_t* W_strip =
-                    &W[(I_tile * num_K_blocks + K_block) * K1_STEP * 8];
+                const int16_t* W_strip = &W[(I_tile * num_K_blocks + K_block) * K1_STEP * 8];
 
-                // bias only on the first K-block of each output tile
-                const int16_t* tile_bias =
-                    (K3 == 0 && K2 == 0) ? &bias[I] : (const int16_t*)0;
-
-                int16_t T[8][BATCH];
-                tile_mac(T, W_strip, &A[(K3 + K2) * BATCH], k1_end, tile_bias);
-
-                // accumulate into U
-                for (int i = 0; i < 8 && (I + i) < out_dim; i++) {
-                    for (int j = 0; j < BATCH; j++) {
-                        U[i][j] = to_bf16(U[i][j] + scale_pow2((float)T[i][j], shift[i][j]));
-                    }
-                }
+                tile_mac(W_strip, &A[(K3 + K2) * BATCH], k1_end);  // fill tile
+                macAcc(U, shift);                                  // drain -> U
             }
         }
 
