@@ -109,93 +109,15 @@ static inline float scale_pow2(float x, int e) {
 }
 
 // real MAC64 hardware instructions (matmul8_vec.S)
-//  vset8()                   -> vsetvli          vl=8, e32 (one call per gemm)
 //  mac_zz()                  -> zzMAC64          clear the 8x8 tile
 //  load_vN(ptr)              -> vle32.v vN,(ptr) load 8 packed activation words into vN
 //  vmac_vN(ptr)              -> VMAC64 vN,0,(ptr) vN x packed weight block -> tile
 //  mac_out(row, pair, mode)  -> mv (mode 2=pair) read {tile[row][2p+1],tile[row][2p]}
-extern void     vset8(void);
 extern void     mac_zz(void);
 extern uint32_t mac_out(uint32_t row, uint32_t pair, uint32_t mode);
 
-extern void load_v0(uint32_t *ptr);  extern void vmac_v0(uint32_t *ptr);
-// extern void load_v1(uint32_t *ptr);  extern void vmac_v1(uint32_t *ptr);
-// extern void load_v2(uint32_t *ptr);  extern void vmac_v2(uint32_t *ptr);
-// extern void load_v3(uint32_t *ptr);  extern void vmac_v3(uint32_t *ptr);
-// extern void load_v4(uint32_t *ptr);  extern void vmac_v4(uint32_t *ptr);
-// extern void load_v5(uint32_t *ptr);  extern void vmac_v5(uint32_t *ptr);
-// extern void load_v6(uint32_t *ptr);  extern void vmac_v6(uint32_t *ptr);
-// extern void load_v7(uint32_t *ptr);  extern void vmac_v7(uint32_t *ptr);
-// extern void load_v8(uint32_t *ptr);  extern void vmac_v8(uint32_t *ptr);
-// extern void load_v9(uint32_t *ptr);  extern void vmac_v9(uint32_t *ptr);
-// extern void load_v10(uint32_t *ptr); extern void vmac_v10(uint32_t *ptr);
-// extern void load_v11(uint32_t *ptr); extern void vmac_v11(uint32_t *ptr);
-// extern void load_v12(uint32_t *ptr); extern void vmac_v12(uint32_t *ptr);
-// extern void load_v13(uint32_t *ptr); extern void vmac_v13(uint32_t *ptr);
-// extern void load_v14(uint32_t *ptr); extern void vmac_v14(uint32_t *ptr);
-// extern void load_v15(uint32_t *ptr); extern void vmac_v15(uint32_t *ptr);
-// extern void load_v16(uint32_t *ptr); extern void vmac_v16(uint32_t *ptr);
-// extern void load_v17(uint32_t *ptr); extern void vmac_v17(uint32_t *ptr);
-// extern void load_v18(uint32_t *ptr); extern void vmac_v18(uint32_t *ptr);
-// extern void load_v19(uint32_t *ptr); extern void vmac_v19(uint32_t *ptr);
-// extern void load_v20(uint32_t *ptr); extern void vmac_v20(uint32_t *ptr);
-// extern void load_v21(uint32_t *ptr); extern void vmac_v21(uint32_t *ptr);
-// extern void load_v22(uint32_t *ptr); extern void vmac_v22(uint32_t *ptr);
-// extern void load_v23(uint32_t *ptr); extern void vmac_v23(uint32_t *ptr);
-// extern void load_v24(uint32_t *ptr); extern void vmac_v24(uint32_t *ptr);
-// extern void load_v25(uint32_t *ptr); extern void vmac_v25(uint32_t *ptr);
-// extern void load_v26(uint32_t *ptr); extern void vmac_v26(uint32_t *ptr);
-// extern void load_v27(uint32_t *ptr); extern void vmac_v27(uint32_t *ptr);
-// extern void load_v28(uint32_t *ptr); extern void vmac_v28(uint32_t *ptr);
-// extern void load_v29(uint32_t *ptr); extern void vmac_v29(uint32_t *ptr);
-// extern void load_v30(uint32_t *ptr); extern void vmac_v30(uint32_t *ptr);
-// extern void load_v31(uint32_t *ptr); extern void vmac_v31(uint32_t *ptr);
-
-// load block index into its vector register
-static void load_block(int b, uint32_t *ptr) {
-    switch (b) {
-        case 0:  load_v0(ptr);  break;
-        // only v0 works
-        // case 1:  load_v1(ptr);  break;
-        // case 2:  load_v2(ptr);  break;  case 3:  load_v3(ptr);  break;
-        // case 4:  load_v4(ptr);  break;  case 5:  load_v5(ptr);  break;
-        // case 6:  load_v6(ptr);  break;  case 7:  load_v7(ptr);  break;
-        // case 8:  load_v8(ptr);  break;  case 9:  load_v9(ptr);  break;
-        // case 10: load_v10(ptr); break;  case 11: load_v11(ptr); break;
-        // case 12: load_v12(ptr); break;  case 13: load_v13(ptr); break;
-        // case 14: load_v14(ptr); break;  case 15: load_v15(ptr); break;
-        // case 16: load_v16(ptr); break;  case 17: load_v17(ptr); break;
-        // case 18: load_v18(ptr); break;  case 19: load_v19(ptr); break;
-        // case 20: load_v20(ptr); break;  case 21: load_v21(ptr); break;
-        // case 22: load_v22(ptr); break;  case 23: load_v23(ptr); break;
-        // case 24: load_v24(ptr); break;  case 25: load_v25(ptr); break;
-        // case 26: load_v26(ptr); break;  case 27: load_v27(ptr); break;
-        // case 28: load_v28(ptr); break;  case 29: load_v29(ptr); break;
-        // case 30: load_v30(ptr); break;  case 31: load_v31(ptr); break;
-    }
-}
-static void vmac_block(int b, uint32_t *ptr) {
-    switch (b) {
-        case 0:  vmac_v0(ptr);  break;
-        // only v0 works in hardware (VMAC64 vs1 index not wired); v1..v31 disabled.
-        // case 1:  vmac_v1(ptr);  break;
-        // case 2:  vmac_v2(ptr);  break;  case 3:  vmac_v3(ptr);  break;
-        // case 4:  vmac_v4(ptr);  break;  case 5:  vmac_v5(ptr);  break;
-        // case 6:  vmac_v6(ptr);  break;  case 7:  vmac_v7(ptr);  break;
-        // case 8:  vmac_v8(ptr);  break;  case 9:  vmac_v9(ptr);  break;
-        // case 10: vmac_v10(ptr); break;  case 11: vmac_v11(ptr); break;
-        // case 12: vmac_v12(ptr); break;  case 13: vmac_v13(ptr); break;
-        // case 14: vmac_v14(ptr); break;  case 15: vmac_v15(ptr); break;
-        // case 16: vmac_v16(ptr); break;  case 17: vmac_v17(ptr); break;
-        // case 18: vmac_v18(ptr); break;  case 19: vmac_v19(ptr); break;
-        // case 20: vmac_v20(ptr); break;  case 21: vmac_v21(ptr); break;
-        // case 22: vmac_v22(ptr); break;  case 23: vmac_v23(ptr); break;
-        // case 24: vmac_v24(ptr); break;  case 25: vmac_v25(ptr); break;
-        // case 26: vmac_v26(ptr); break;  case 27: vmac_v27(ptr); break;
-        // case 28: vmac_v28(ptr); break;  case 29: vmac_v29(ptr); break;
-        // case 30: vmac_v30(ptr); break;  case 31: vmac_v31(ptr); break;
-    }
-}
+extern void load_v0(uint32_t *ptr);  extern void vmac64_v0(uint32_t *ptr);
+//extern void load_v1(uint32_t *ptr);  extern void vmac64_v1(uint32_t *ptr);
 
 // macWs: load 8 per-row weight shifts
 static inline void macWs(const uint32_t* words, int row_shift[8]) {
@@ -254,8 +176,6 @@ void gemm(const uint32_t* A, const uint32_t* W, const int16_t* bias, float* F,
         }
     }
 
-    vset8();   // vl=8, e32 for every load_vN / vmac_vN below
-
     // init F with bias for all output tiles, scaled by the per-row weight shift
     for (int It = 0; It < num_I_tiles; It++) {
         for (int i = 0; i < 8; i++) {
@@ -279,8 +199,8 @@ void gemm(const uint32_t* A, const uint32_t* W, const int16_t* bias, float* F,
                 int K_block = K3 / K1_STEP + b;
                 const uint32_t* W_strip = &W[(It * num_K_blocks + K_block) * K1_STEP];
                 // v0-only: reload activations into v0 for each block
-                load_block(0, (uint32_t *)&A[K3 + b * K1_STEP]);   // v0 <- 8 packed act words
-                vmac_block(0, (uint32_t *)W_strip);                // v0 x packed weights -> tile
+                load_v0((uint32_t *)&A[K3 + b * K1_STEP]);   // v0 <- 8 packed act words
+                vmac64_v0((uint32_t *)W_strip);              // v0 x packed weights -> tile
             }
             // read + scale the tile, accumulate onto F's 8 rows for this tile
             macAcc((float(*)[BATCH])&F[It * 8 * BATCH], shift);
