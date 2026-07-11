@@ -31,7 +31,7 @@ run_inference.sh - launch a CVE2 FP4 MNIST inference build under Verilator
   ./run_inference.sh <version> [dataset] [options]
 
   version : baseline | software | hardware   (required)
-  dataset : 80 | 10k                          (default: 80)
+  dataset : 80 | 10k                         (default: 80 | ensure this change is made in the .c as well)
 
 Versions:
   baseline   FP4 read as signed int4, no accel (inaccurate, speed reference)
