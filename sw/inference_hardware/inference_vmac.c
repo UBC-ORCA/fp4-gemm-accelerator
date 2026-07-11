@@ -111,12 +111,57 @@ static inline float scale_pow2(float x, int e) {
 // real MAC64 hardware instructions (matmul8_vec.S)
 //  mac_zz()                  -> zzMAC64          clear the 8x8 tile
 //  load_vN(ptr)              -> vle32.v vN,(ptr) load 8 packed activation words into vN
-//  vmac_vN(ptr)              -> VMAC64 vN,0,(ptr) vN x packed weight block -> tile
+//  vmac64_vN(base)           -> VMAC64 vN,N*32,(base) vN x weight block N -> tile (N*32 encoded in instruction)
 //  mac_out(row, pair, mode)  -> mv (mode 2=pair) read {tile[row][2p+1],tile[row][2p]}
 extern void     mac_zz(void);
 extern uint32_t mac_out(uint32_t row, uint32_t pair, uint32_t mode);
 
+extern void load_v0 (uint32_t *ptr);  extern void vmac64_v0 (uint32_t *ptr);
+extern void load_v1 (uint32_t *ptr);  extern void vmac64_v1 (uint32_t *ptr);
+extern void load_v2 (uint32_t *ptr);  extern void vmac64_v2 (uint32_t *ptr);
+extern void load_v3 (uint32_t *ptr);  extern void vmac64_v3 (uint32_t *ptr);
+extern void load_v4 (uint32_t *ptr);  extern void vmac64_v4 (uint32_t *ptr);
+extern void load_v5 (uint32_t *ptr);  extern void vmac64_v5 (uint32_t *ptr);
+extern void load_v6 (uint32_t *ptr);  extern void vmac64_v6 (uint32_t *ptr);
+extern void load_v7 (uint32_t *ptr);  extern void vmac64_v7 (uint32_t *ptr);
+extern void load_v8 (uint32_t *ptr);  extern void vmac64_v8 (uint32_t *ptr);
+extern void load_v9 (uint32_t *ptr);  extern void vmac64_v9 (uint32_t *ptr);
+extern void load_v10(uint32_t *ptr);  extern void vmac64_v10(uint32_t *ptr);
+extern void load_v11(uint32_t *ptr);  extern void vmac64_v11(uint32_t *ptr);
+extern void load_v12(uint32_t *ptr);  extern void vmac64_v12(uint32_t *ptr);
+extern void load_v13(uint32_t *ptr);  extern void vmac64_v13(uint32_t *ptr);
+extern void load_v14(uint32_t *ptr);  extern void vmac64_v14(uint32_t *ptr);
+extern void load_v15(uint32_t *ptr);  extern void vmac64_v15(uint32_t *ptr);
+extern void load_v16(uint32_t *ptr);  extern void vmac64_v16(uint32_t *ptr);
+extern void load_v17(uint32_t *ptr);  extern void vmac64_v17(uint32_t *ptr);
+extern void load_v18(uint32_t *ptr);  extern void vmac64_v18(uint32_t *ptr);
+extern void load_v19(uint32_t *ptr);  extern void vmac64_v19(uint32_t *ptr);
+extern void load_v20(uint32_t *ptr);  extern void vmac64_v20(uint32_t *ptr);
+extern void load_v21(uint32_t *ptr);  extern void vmac64_v21(uint32_t *ptr);
+extern void load_v22(uint32_t *ptr);  extern void vmac64_v22(uint32_t *ptr);
+extern void load_v23(uint32_t *ptr);  extern void vmac64_v23(uint32_t *ptr);
+extern void load_v24(uint32_t *ptr);  extern void vmac64_v24(uint32_t *ptr);
+extern void load_v25(uint32_t *ptr);  extern void vmac64_v25(uint32_t *ptr);
+extern void load_v26(uint32_t *ptr);  extern void vmac64_v26(uint32_t *ptr);
+extern void load_v27(uint32_t *ptr);  extern void vmac64_v27(uint32_t *ptr);
 extern void load_v28(uint32_t *ptr);  extern void vmac64_v28(uint32_t *ptr);
+extern void load_v29(uint32_t *ptr);  extern void vmac64_v29(uint32_t *ptr);
+extern void load_v30(uint32_t *ptr);  extern void vmac64_v30(uint32_t *ptr);
+extern void load_v31(uint32_t *ptr);  extern void vmac64_v31(uint32_t *ptr);
+
+// index a vector register by block number
+static void (*const load_fn[32])(uint32_t *) = {
+    load_v0,  load_v1,  load_v2,  load_v3,  load_v4,  load_v5,  load_v6,  load_v7,
+    load_v8,  load_v9,  load_v10, load_v11, load_v12, load_v13, load_v14, load_v15,
+    load_v16, load_v17, load_v18, load_v19, load_v20, load_v21, load_v22, load_v23,
+    load_v24, load_v25, load_v26, load_v27, load_v28, load_v29, load_v30, load_v31
+};
+static void (*const vmac_fn[32])(uint32_t *) = {
+    vmac64_v0,  vmac64_v1,  vmac64_v2,  vmac64_v3,  vmac64_v4,  vmac64_v5,  vmac64_v6,  vmac64_v7,
+    vmac64_v8,  vmac64_v9,  vmac64_v10, vmac64_v11, vmac64_v12, vmac64_v13, vmac64_v14, vmac64_v15,
+    vmac64_v16, vmac64_v17, vmac64_v18, vmac64_v19, vmac64_v20, vmac64_v21, vmac64_v22, vmac64_v23,
+    vmac64_v24, vmac64_v25, vmac64_v26, vmac64_v27, vmac64_v28, vmac64_v29, vmac64_v30, vmac64_v31
+};
 
 // macWs: load 8 per-row weight shifts
 static inline void macWs(const uint32_t* words, int row_shift[8]) {
@@ -129,7 +174,6 @@ static inline void macAs(const uint32_t* words, int col_shift[8]) {
 }
 
 // read the 8x8 hardware tile via mac_out
-// the tile is transposed vs ours (hw row = batch, col = output), so T[i][j] = tile[j][i].
 static void read_tile(int16_t T[8][BATCH]) {
     for (int j = 0; j < 8; j++) {                 // hardware row = batch sample
         for (int pair = 0; pair < 4; pair++) {    // each pair = two output neurons
@@ -144,7 +188,7 @@ static void read_tile(int16_t T[8][BATCH]) {
 static void macAcc(float U[8][BATCH], const int shift[8][BATCH]) {
     int16_t T[8][BATCH];
     read_tile(T);                                   // 32x mac_out from the HW tile
-    for (int i = 0; i < 8; i++) {                   // padding rows discarded at the F write
+    for (int i = 0; i < 8; i++) {                   // padding (0) rows written to F are ignored
         for (int j = 0; j < BATCH; j++) {
             U[i][j] = to_bf16(U[i][j] + scale_pow2((float)T[i][j], shift[i][j]));
         }
@@ -153,15 +197,15 @@ static void macAcc(float U[8][BATCH], const int shift[8][BATCH]) {
 
 // F[i][j] = bias[i] + sum_k W[i][k] * A[k][j]
 // W is pre-transposed and pre-packed: one uint32 per (block, k-step) = 8 output rows
-// A is pre-packed: one uint32 per k-step (8 batch lanes); 
+// A is pre-packed: one uint32 per k-step (8 batch lanes)
 // F [out_dim][BATCH] has bf16 bias, then each scaled tile is accumulated onto it
 void gemm(const uint32_t* A, const uint32_t* W, const int16_t* bias, float* F,
           int in_dim, int out_dim,
           const uint32_t* wscale_words, const uint32_t* ascale_words) {
     int num_K_blocks = (in_dim + K1_STEP - 1) / K1_STEP;
-    int num_I_tiles  = (out_dim + 7) / 8;
+    int num_I_tiles  = (out_dim + 7) / 8;   // number of 8-row output tiles
 
-    // decode the per-block scales once
+    // decode the scaling factors once
     // scale = 2^wshift[i] * 2^ashift[j] = 2^(wshift[i]+ashift[j])
     int wshift[8], ashift[8];
     macWs(wscale_words, wshift);   // per-row weight shifts
@@ -176,9 +220,9 @@ void gemm(const uint32_t* A, const uint32_t* W, const int16_t* bias, float* F,
     }
 
     // init F with bias for all output tiles, scaled by the per-row weight shift
-    for (int It = 0; It < num_I_tiles; It++) {
+    for (int o = 0; o < num_I_tiles; o++) {
         for (int i = 0; i < 8; i++) {
-            int I = It * 8 + i;
+            int I = o * 8 + i;
             float b = (I < out_dim) ? to_bf16(scale_pow2((float)bias[I], wshift[i])) : 0.0f;
             for (int j = 0; j < BATCH; j++) {
                 F[I * BATCH + j] = b;
@@ -187,22 +231,28 @@ void gemm(const uint32_t* A, const uint32_t* W, const int16_t* bias, float* F,
     }
 
     // K accumulation
+    // load each chunk's activation blocks into v0..v(n_blk-1) once
     for (int K3 = 0; K3 < in_dim; K3 += K2_SPAN) {
-        // number of K-blocks in this chunk
+        // number of K-blocks in this chunk (<= 32, one per vector register)
         int n_blk = 0;
         for (int K2 = 0; K2 < K2_SPAN && (K3 + K2) < in_dim; K2 += K1_STEP) n_blk++;
 
-        for (int It = 0; It < num_I_tiles; It++) {
-            mac_zz();                                     // clear the tile for this chunk
+        // load this chunk's activations into v0..v(n_blk-1), once
+        for (int b = 0; b < n_blk; b++) {
+            load_fn[b]((uint32_t *)&A[K3 + b * K1_STEP]);
+        }
+
+        // reuse the loaded activations across all output tiles
+        for (int o = 0; o < num_I_tiles; o++) {
+            // clear the 8x8 tile before output tile o
+            mac_zz();   
+
+            const uint32_t* W_base = &W[(o * num_K_blocks + K3 / K1_STEP) * K1_STEP];
             for (int b = 0; b < n_blk; b++) {
-                int K_block = K3 / K1_STEP + b;
-                const uint32_t* W_strip = &W[(It * num_K_blocks + K_block) * K1_STEP];
-                load_v28((uint32_t *)&A[K3 + b * K1_STEP]);   // v2 <- 8 packed act words
-                // base off by 2 blocks so (W_strip - 2*K1_STEP) + 64B lands on W_strip.
-                vmac64_v28((uint32_t *)(W_strip - 28 * K1_STEP));  // v2 x packed weights -> tile
+                vmac_fn[b]((uint32_t *)W_base);
             }
             // read + scale the tile, accumulate onto F's 8 rows for this tile
-            macAcc((float(*)[BATCH])&F[It * 8 * BATCH], shift);
+            macAcc((float(*)[BATCH])&F[o * 8 * BATCH], shift);
         }
     }
 }
@@ -237,8 +287,7 @@ static void quantize_activation(const float* A, uint32_t* packed, int dim) {
 // forward pass on a batch of BATCH samples
 // 2 hidden layers with hardtanh activation function
 void inference_batch(const uint32_t* inputs, int* preds) {
-    // logits padded to a whole number of 8-row tiles (OUT_DIM=10 -> 2 tiles = 16 rows):
-    // gemm writes all num_I_tiles*8 rows into the U spill, padding rows past OUT_DIM stay 0.
+    // gemm writes all num_I_tiles*8 rows into U, padding rows stay 0
     static float h1[H1_DIM * BATCH], h2[H2_DIM * BATCH], logits[16 * BATCH];
     static uint32_t h1_packed[H1_DIM], h2_packed[H2_DIM];
 
@@ -271,18 +320,18 @@ int main(void) {
     // pred | truth | mptorch reference, per sample
     print_str("P|T|M\n");
 
-    int correct = 0;
-    int match = 0;      // sw prediction vs mptorch reference
+    int correct = 0;    // prediction vs ground truth
+    int match = 0;      // prediction vs mptorch reference
 
     for (int s = 0; s < N_SAMPLES; s += BATCH) {
         int n = N_SAMPLES - s;
         if (n > BATCH) n = BATCH;
         int truth[BATCH], ref[BATCH];
 
-        // pack the batch of images: nibble j of image_packed[p] = pixel p of sample j
+        // pack the batch of images
         for (int p = 0; p < IN_DIM; p++) image_packed[p] = 0;   // unused lanes stay 0
         for (int j = 0; j < n; j++) {
-            *IMG_LOAD = s + j;                 // TB stages this image into DMEM
+            *IMG_LOAD = s + j;
             for (int p = 0; p < IN_DIM; p++) {
                 uint32_t code = (uint32_t)(fp4_quantize((float)IMG_STAGE[p] / 255.0f) & 0xF);
                 image_packed[p] |= code << (4 * j);
