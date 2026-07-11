@@ -833,9 +833,9 @@ end
 // --- [end] ---
 
   // Feed responses back only to the selected master
-  assign data_gnt_lsu     = data_gnt_i    & ~sel_vec_data;
-  assign data_rvalid_lsu  = data_rvalid_i & ~sel_vec_data;
-  assign data_err_lsu     = data_err_i    & ~sel_vec_data;
+  assign data_gnt_lsu     = data_gnt_i    & ~sel_vec_data & ~sel_cf_data;
+  assign data_rvalid_lsu  = data_rvalid_i & ~sel_vec_data & ~sel_cf_data;
+  assign data_err_lsu     = data_err_i    & ~sel_vec_data & ~sel_cf_data;
   assign data_rdata_lsu   = data_rdata_i;
 
   assign vec_data_gnt     = data_gnt_i    & sel_vec_data;

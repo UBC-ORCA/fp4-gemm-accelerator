@@ -2,7 +2,7 @@ ENTRY(_start)
 
 MEMORY
 {
-  RAM (rwx) : ORIGIN = 0x00000000, LENGTH = 512K
+  RAM (rwx) : ORIGIN = 0x00000000, LENGTH = 128K
 }
 
 SECTIONS
@@ -20,19 +20,19 @@ SECTIONS
     *(.data*)
   } > RAM
 
-  .mat_a 0x00060000 (NOLOAD) : ALIGN(4) {
+  .mat_a 0x00010000 (NOLOAD) : ALIGN(4) {
     KEEP(*(.mat_a))
   } > RAM
 
-  .mat_bt 0x00061000 (NOLOAD) : ALIGN(4) {
+  .mat_bt 0x00012000 (NOLOAD) : ALIGN(4) {
     KEEP(*(.mat_bt))
   } > RAM
 
-  .mat_c 0x00062000 (NOLOAD) : ALIGN(4) {
+  .mat_c 0x00013000 (NOLOAD) : ALIGN(4) {
     KEEP(*(.mat_c))
   } > RAM
 
-  .tmp_prod 0x00063000 (NOLOAD) : ALIGN(4) {
+  .tmp_prod 0x00014000 (NOLOAD) : ALIGN(4) {
     KEEP(*(.tmp_prod))
   } > RAM
 
@@ -44,7 +44,7 @@ SECTIONS
   . = ALIGN(8);
   _stack_top = ORIGIN(RAM) + LENGTH(RAM);
 
-  ASSERT(SIZEOF(.mat_a)    <= 256, ".mat_a exceeds 8x8 words")
+  ASSERT(SIZEOF(.mat_a)    <= 8192, ".mat_a exceeds TTxBSxNVREG, TT=8, BS=8, NVREG=32")
   ASSERT(SIZEOF(.mat_bt)   <= 256, ".mat_bt exceeds 8x8 words")
   ASSERT(SIZEOF(.mat_c)    <= 256, ".mat_c exceeds 8x8 words")
   ASSERT(SIZEOF(.tmp_prod) <=  32, ".tmp_prod exceeds 8 words")

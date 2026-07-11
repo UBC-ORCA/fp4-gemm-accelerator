@@ -1,6 +1,6 @@
 // MLP inference on CVE2, Gen 1 + Vector Instruction (a.k.a. Gen 3 W.I.P.)
 
-#include "../headers/weights_blk8_pkgUINT32_scaleE8M0.h"
+#include "../../../Software/headers/weights_blk8_pkgUINT32_scaleE8M0.h"
 
 // Samples
 #define N_SAMPLES 80
@@ -116,8 +116,7 @@ static inline float scale_pow2(float x, int e) {
 extern void     mac_zz(void);
 extern uint32_t mac_out(uint32_t row, uint32_t pair, uint32_t mode);
 
-extern void load_v0(uint32_t *ptr);  extern void vmac64_v0(uint32_t *ptr);
-//extern void load_v1(uint32_t *ptr);  extern void vmac64_v1(uint32_t *ptr);
+extern void load_v28(uint32_t *ptr);  extern void vmac64_v28(uint32_t *ptr);
 
 // macWs: load 8 per-row weight shifts
 static inline void macWs(const uint32_t* words, int row_shift[8]) {
@@ -198,9 +197,9 @@ void gemm(const uint32_t* A, const uint32_t* W, const int16_t* bias, float* F,
             for (int b = 0; b < n_blk; b++) {
                 int K_block = K3 / K1_STEP + b;
                 const uint32_t* W_strip = &W[(It * num_K_blocks + K_block) * K1_STEP];
-                // v0-only: reload activations into v0 for each block
-                load_v0((uint32_t *)&A[K3 + b * K1_STEP]);   // v0 <- 8 packed act words
-                vmac64_v0((uint32_t *)W_strip);              // v0 x packed weights -> tile
+                load_v28((uint32_t *)&A[K3 + b * K1_STEP]);   // v2 <- 8 packed act words
+                // base off by 2 blocks so (W_strip - 2*K1_STEP) + 64B lands on W_strip.
+                vmac64_v28((uint32_t *)(W_strip - 28 * K1_STEP));  // v2 x packed weights -> tile
             }
             // read + scale the tile, accumulate onto F's 8 rows for this tile
             macAcc((float(*)[BATCH])&F[It * 8 * BATCH], shift);
