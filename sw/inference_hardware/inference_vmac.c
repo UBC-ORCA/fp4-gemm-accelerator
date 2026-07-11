@@ -1,6 +1,6 @@
 // MLP inference on CVE2, Gen 1 + Vector Instruction (a.k.a. Gen 3 W.I.P.)
 
-#include "../sw/headers/weights_blk8_pkgUINT32_scaleE8M0.h"
+#include "../headers/weights_blk8_pkgUINT32_scaleE8M0.h"
 
 // Samples
 #define N_SAMPLES 80

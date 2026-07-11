@@ -2,7 +2,7 @@
 // no acceleration, incorrect results
 // FP4 codes reinterpreted as signed int4 and multiplied directly in scalar C
 
-#include "../../../Software/headers/weights_blk32_pkgINT16_scaleE8M0.h"
+#include "../headers/weights_blk8_pkgINT16_scaleE8M0.h"
 
 // number of streamed MNIST samples (must match the .bin passed to the TB)
 #define N_SAMPLES 10000

@@ -2,7 +2,7 @@
 // same as inference_fp4mac/inference.c, but the MAC64 tile is modeled in C
 // instead of the matmul8_vec.S hardware instructions
 
-#include "../headers/weights_blk32_pkgINT16_scaleE8M0.h"
+#include "../headers/weights_blk8_pkgINT16_scaleE8M0.h"
 
 // Samples
 #define N_SAMPLES 80
@@ -187,21 +187,7 @@ static inline void vmac64(const int16_t* W_v, const vreg_t* v, int bs) {
 static void macAcc(float U[8][BATCH], const int shift[8][BATCH]) {
     int16_t T[8][BATCH];
     mac_st2_readback(T);
-    // static int dbg_tile = 0;
-    // if (dbg_tile < 50) {
-    //     print_str("[FW TILE]\n");
-    //     for (int i = 0; i < 8; i++) {
-    //         for (int j = 0; j < BATCH; j++) {
-    //             int v = T[i][j];
-    //             if (v < 0) { putchar_uart('-'); v = -v; }
-    //             putdec((uint32_t)v);
-    //             putchar_uart(' ');
-    //         }
-    //         putchar_uart('\n');
-    //     }
-    //     dbg_tile++;
-    // }
-    // read the tile out (and clear it)
+    // scale each entry (block shift) and accumulate into U as bf16
     for (int i = 0; i < 8; i++) {                   // padding rows discarded at the F write
         for (int j = 0; j < BATCH; j++) {
             U[i][j] = to_bf16(U[i][j] + scale_pow2((float)T[i][j], shift[i][j]));
@@ -228,7 +214,7 @@ void gemm(const int16_t* A, const int16_t* W, const int16_t* bias, float* F,
           const uint32_t* wscale_words, const uint32_t* ascale_words) {
     int num_K_blocks = (in_dim + K1_STEP - 1) / K1_STEP;
 
-    // decode the per-block scales once
+    // decode the scaling factors once
     // scale = 2^wshift[i] * 2^ashift[j] = 2^(wshift[i]+ashift[j])  (powers of two -> a shift)
     int wshift[8], ashift[8];
     macWs(wscale_words, wshift);   // per-row weight shifts
