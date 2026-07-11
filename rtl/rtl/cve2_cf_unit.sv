@@ -83,6 +83,7 @@ module cve2_cf_unit (
                 op_q    <= cf_req_op_i;
 
 // --- [stev] ---
+`ifdef CPU_DEBUG
             $display("========== [CF] LATCH ==========");
             $display("req_instr_i = %08h", req_instr_i);
             $display("req_rs1_i   = %08h", req_rs1_i);
@@ -93,6 +94,7 @@ module cve2_cf_unit (
             $display("pair(rs2)   = %0d", req_instr_i[24:20]);
         $display("mv_data        = 0x%08h", mv_data);
             $display("===============================");
+`endif
 
 // --- [end] ---
 
@@ -145,6 +147,7 @@ module cve2_cf_unit (
         scalar_wdata_o= mv_data;
 
 // --- [stev] ---
+`ifdef CPU_DEBUG
     if (state == S_EXEC &&
        ((op_q == cve2_pkg::OP_MVE) ||
         (op_q == cve2_pkg::OP_MVO) ||
@@ -163,6 +166,7 @@ module cve2_cf_unit (
         $display("rd             = %0d", scalar_waddr_o);
         $display("========== [cve2_cf_unit] ===================");
     end
+`endif
 
 // --- [end] ---
 
@@ -205,6 +209,7 @@ module cve2_cf_unit (
     end
 
 // --- [stev] ---
+`ifdef CPU_DEBUG
 always_comb begin
     if (mv_en_i) begin
         $display("\n========== [CF -> MAC] ==========");
@@ -239,6 +244,7 @@ always_comb begin
         $display("==================================");
     end
 end
+`endif
 
 
 
@@ -290,6 +296,7 @@ end
 
 
 // --- [stev] ---
+`ifdef CPU_DEBUG
 always_ff @(posedge clk_i) begin
     if (mv_en_i) begin
         $display("========== [cve2_cf_unit] CF <- MAC ==========");
@@ -322,6 +329,7 @@ always_ff @(posedge clk_i) begin
 
     $display("================================");
 end
+`endif
 
 // --- [end] ---
 

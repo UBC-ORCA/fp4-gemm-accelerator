@@ -16,7 +16,27 @@ SHELL := /bin/bash
 
 CVE2_CONFIG ?= small
 
-TB_CPP := ../../../../sw/tb/matrix_tb/min_tb_matmul8.cpp
+# RTL debug $display gating (each OFF by default -> silent, fast; needs a rebuild).
+#   VEC_DEBUG=1    VMAC64 datapath: MAC_VRF / MAC_MEM / MAC_LOAD_RETURN
+#   MV_DEBUG=1     mv readback:     MAC_MV / tile-move + scalar writeback
+#   TILE_DEBUG=1   full 8x8 MAC tile dump every cycle (very verbose)
+#   CPU_DEBUG=1    CPU-side custom-function dispatch: [CF] / [ID->WB] / [REGFILE]
+# e.g.:  make -f sim.mk build-sim MV_DEBUG=1
+VL_DEFINES :=
+ifeq ($(VEC_DEBUG),1)
+VL_DEFINES += +define+VEC_DEBUG
+endif
+ifeq ($(MV_DEBUG),1)
+VL_DEFINES += +define+MV_DEBUG
+endif
+ifeq ($(TILE_DEBUG),1)
+VL_DEFINES += +define+TILE_DEBUG
+endif
+ifeq ($(CPU_DEBUG),1)
+VL_DEFINES += +define+CPU_DEBUG
+endif
+
+TB_CPP := ../../../../sw/tb/inference_tb/min_tb_inference.cpp
 
 TOP_MODULE := cve2_top
 
@@ -83,6 +103,7 @@ build-sim:
 	verilator -f $(VC_PATCHED) \
 		-Wall \
 		-Wno-fatal \
+		$(VL_DEFINES) \
 		--cc --exe --build \
 		--top-module $(TOP_MODULE) \
 		-LDFLAGS "-lelf" \

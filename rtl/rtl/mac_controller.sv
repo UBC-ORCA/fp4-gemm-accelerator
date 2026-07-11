@@ -318,11 +318,13 @@ logic [4:0] scalar_waddr_q;
     //----------------------------------------------------------
     // Debug Trace Tasks
     //----------------------------------------------------------
+`ifdef VEC_DEBUG
     always_ff @(posedge clk_i) begin
         if (rst_ni && data_rvalid_i && (state_q == EXEC)) begin
             $display("[MAC_LOAD_RETURN] addr=%08x data=%08x count=%0d",
                      data_addr_o, data_rdata_i, count_q);
         end
     end
+`endif
 
 endmodule

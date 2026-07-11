@@ -201,7 +201,7 @@ end
 //============================================================
 // Simulation monitor
 //============================================================
-//`ifndef SYNTHESIS
+`ifdef TILE_DEBUG
 
 integer rr, cc;
 
@@ -229,7 +229,7 @@ always_ff @(posedge clk) begin
 
 end
 
-//`endif
+`endif
 // --- [end] ---
 
 endmodule

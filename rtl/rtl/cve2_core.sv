@@ -656,6 +656,7 @@ cve2_pkg::mac_op_e cf_req_op_int;
 // ------------------------------------------------------------
 // CF writeback leaving ID stage
 // ------------------------------------------------------------
+`ifdef CPU_DEBUG
 always_ff @(posedge clk_i) begin
   if (cf_scalar_we || rf_we_id || rf_we_wb) begin
     $display("========== [ID -> WB] ==========");
@@ -673,6 +674,7 @@ always_ff @(posedge clk_i) begin
     $display("================================");
   end
 end
+`endif
 
 // --- [end] ---
 
@@ -1093,6 +1095,7 @@ end
 
 
 // --- [stev] ---
+`ifdef CPU_DEBUG
 always_ff @(posedge clk_i) begin
   if (rf_we_wb) begin
     $display("========== [REGFILE WRITE] ==========");
@@ -1101,6 +1104,7 @@ always_ff @(posedge clk_i) begin
     $display("=====================================");
   end
 end
+`endif
 
 // --- [end] ---
 

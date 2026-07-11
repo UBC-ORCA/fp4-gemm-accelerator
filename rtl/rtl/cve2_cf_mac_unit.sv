@@ -254,7 +254,7 @@ assign data_wdata_o = mem_wdata;
 //------------------------------------------------------------
 // Debug: MAC VRF read port
 //------------------------------------------------------------
-//`ifdef VEC_DEBUG
+`ifdef VEC_DEBUG
 always_ff @(posedge clk_i) begin
     if (rst_ni) begin
         $display("[MAC_VRF] addr=v%0d elem=%0d data=%08x",
@@ -298,11 +298,13 @@ always_ff @(posedge clk_i) begin
                  mac_en);
     end
 end
+`endif
 
 
 //------------------------------------------------------------
 // Debug: MAC Move / Scalar Writeback
 //------------------------------------------------------------
+`ifdef MV_DEBUG
 always_ff @(posedge clk_i) begin
     if (rst_ni) begin
         $display("[%0t] [MAC_MV] op=%0d mv_en=%0b mode=%0d row=%0d even_col=%0d odd_col=%0d",
@@ -332,6 +334,7 @@ always_ff @(posedge clk_i) begin
         end
     end
 end
+`endif
 
 // --- [end] ---
 
