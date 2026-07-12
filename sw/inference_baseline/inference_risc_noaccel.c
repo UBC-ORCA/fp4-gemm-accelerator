@@ -5,7 +5,7 @@
 #include "../headers/weights_blk8_pkgINT16_scaleE8M0.h"
 
 // number of streamed MNIST samples (must match the .bin passed to the TB)
-#define N_SAMPLES 10000
+#define N_SAMPLES 80
 
 // test-data streaming, same MMIO ports as the accelerated builds; writing s
 // to IMG_LOAD makes the TB stage image s into DMEM starting at IMG_STAGE
