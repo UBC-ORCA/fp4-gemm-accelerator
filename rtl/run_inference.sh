@@ -48,6 +48,7 @@ Options:
   --no-uart         do not write uart_out.txt (still prints to stdout)
   --build           rebuild the version's inference.hex before running
   --save [FILE]     tee stdout to FILE (default: <version>_<dataset>.log)
+  -y, --yes         skip the dataset / N_SAMPLES confirmation prompt
   -h, --help        show this help
 EOF
 }
@@ -63,6 +64,7 @@ NO_UART=0
 BUILD=0
 SAVE=0
 LOGFILE=""
+YES=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -77,6 +79,7 @@ while [[ $# -gt 0 ]]; do
     --no-uart)     NO_UART=1 ;;
     --max-cycles)  shift; MAX_CYCLES="${1:?--max-cycles needs a value}" ;;
     --build)       BUILD=1 ;;
+    -y|--yes)      YES=1 ;;
     --save)        SAVE=1
                    # optional filename may follow (not another flag / positional)
                    if [[ ${2:-} && ${2:0:1} != "-" ]]; then LOGFILE="$2"; shift; fi ;;
@@ -94,6 +97,14 @@ fi
 DIR="${VDIR[$VERSION]}"
 HEX="../sw/$DIR/inference.hex"
 DATA="../sw/headers/test_${DATASET}.bin"
+
+if [[ $YES -eq 0 && -t 0 ]]; then
+  case "$DATASET" in 80) N=80 ;; 10k) N=10000 ;; *) N="$DATASET" ;; esac
+  echo "version: $VERSION"
+  echo "dataset size (check c code): $N"
+  read -rp "confirm [y/n] " ans
+  [[ "$ans" == [yY] || "$ans" == [yY][eE][sS] ]] || { echo "aborted"; exit 1; }
+fi
 
 if [[ $BUILD -eq 1 ]]; then
   echo "[run] building $DIR ..."
