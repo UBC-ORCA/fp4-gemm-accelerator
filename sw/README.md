@@ -23,6 +23,8 @@ weights_blk[BLOCK_SIZE/K1_STEP_SIZE]_pkg[PACKAGE_FORMAT]_scale[SCALE_FACTOR_FORM
 
 Do note that due to training limitations, the same scale factor is reused per block.
 
+The one exception to the header files is `test_batches.h`, which contains 80 test images or 8 images from each category.
+
 
 # Building
 To generate the .elf, .map, and .hex files, CD to the directory of the version you want to build and run:
