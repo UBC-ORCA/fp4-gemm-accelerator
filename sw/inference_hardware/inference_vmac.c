@@ -24,8 +24,7 @@
 // number of MNIST samples solved in parallel (J dimension of A)
 #define BATCH      8
 
-#define K1_STEP    K1_STEP_HDR   // K elements per inner block
-#define K2_SPAN    256           // K elements per K3 step (32 inner blocks)
+#define BLK_SIZE         K1_STEP_HDR   // K elements per inner block
 
 // write 1 to halt the simulator
 #define DEV_HALT ((volatile int *) 0x20008)
@@ -43,19 +42,6 @@ void putdec(uint32_t n) {
     if (n == 0) { putchar_uart('0'); return; }
     while (n > 0) { buf[i++] = '0' + (n % 10); n /= 10; }
     while (i--) putchar_uart(buf[i]);
-}
-
-void* memcpy(void* dst, const void* src, int n) {
-    char* d = (char*)dst;
-    const char* s = (const char*)src;
-    for (int i = 0; i < n; i++) d[i] = s[i];
-    return dst;
-}
-
-void* memset(void* dst, int c, int n) {
-    char* d = (char*)dst;
-    for (int i = 0; i < n; i++) d[i] = (char)c;
-    return dst;
 }
 
 // fp4 magnitude LUT
@@ -200,10 +186,12 @@ static void macAcc(float U[8][BATCH], const int shift[8][BATCH]) {
 // A is pre-packed: one uint32 per k-step (8 batch lanes)
 // F [out_dim][BATCH] has bf16 bias, then each scaled tile is accumulated onto it
 void gemm(const uint32_t* A, const uint32_t* W, const int16_t* bias, float* F,
-          int in_dim, int out_dim,
-          const uint32_t* wscale_words, const uint32_t* ascale_words) {
-    int num_K_blocks = (in_dim + K1_STEP - 1) / K1_STEP;
-    int num_I_tiles  = (out_dim + 7) / 8;   // number of 8-row output tiles
+          int in_dim, int out_dim, const uint32_t* wscale_words, const uint32_t* ascale_words) {
+    const int NVREG = 32;     // vector registers v0..v31
+    const int TT = 8;         // tile dimension (8x8 MACs)
+
+    int num_K_blocks = (in_dim + BLK_SIZE - 1) / BLK_SIZE;
+    int num_I_tiles  = (out_dim + TT - 1) / TT;   // number of 8-row output tiles
 
     // decode the scaling factors once
     // scale = 2^wshift[i] * 2^ashift[j] = 2^(wshift[i]+ashift[j])
@@ -211,18 +199,12 @@ void gemm(const uint32_t* A, const uint32_t* W, const int16_t* bias, float* F,
     macWs(wscale_words, wshift);   // per-row weight shifts
     macAs(ascale_words, ashift);   // per-col activation shifts
 
-    // combine shift for activations and weights
     int shift[8][BATCH];
-    for (int i = 0; i < 8; i++) {
-        for (int j = 0; j < BATCH; j++) {
-            shift[i][j] = wshift[i] + ashift[j];
-        }
-    }
 
     // init F with bias for all output tiles, scaled by the per-row weight shift
     for (int o = 0; o < num_I_tiles; o++) {
-        for (int i = 0; i < 8; i++) {
-            int I = o * 8 + i;
+        for (int i = 0; i < TT; i++) {
+            int I = o * TT + i;
             float b = (I < out_dim) ? to_bf16(scale_pow2((float)bias[I], wshift[i])) : 0.0f;
             for (int j = 0; j < BATCH; j++) {
                 F[I * BATCH + j] = b;
@@ -232,27 +214,34 @@ void gemm(const uint32_t* A, const uint32_t* W, const int16_t* bias, float* F,
 
     // K accumulation
     // load each chunk's activation blocks into v0..v(n_blk-1) once
-    for (int K3 = 0; K3 < in_dim; K3 += K2_SPAN) {
+    for (int K = 0; K < in_dim; K += NVREG * BLK_SIZE) {
         // number of K-blocks in this chunk (<= 32, one per vector register)
         int n_blk = 0;
-        for (int K2 = 0; K2 < K2_SPAN && (K3 + K2) < in_dim; K2 += K1_STEP) n_blk++;
+        for (int b = 0; b < NVREG && (K + b * BLK_SIZE) < in_dim; b++) n_blk++;
 
         // load this chunk's activations into v0..v(n_blk-1), once
         for (int b = 0; b < n_blk; b++) {
-            load_fn[b]((uint32_t *)&A[K3 + b * K1_STEP]);
+            load_fn[b]((uint32_t *)&A[K + b * BLK_SIZE]);
         }
 
         // reuse the loaded activations across all output tiles
-        for (int o = 0; o < num_I_tiles; o++) {
+        for (int J = 0; J < out_dim; J += TT) {
+            int o = J / TT;
             // clear the 8x8 tile before output tile o
-            mac_zz();   
+            mac_zz();
 
-            const uint32_t* W_base = &W[(o * num_K_blocks + K3 / K1_STEP) * K1_STEP];
+            const uint32_t* W_base = &W[(o * num_K_blocks + K / BLK_SIZE) * BLK_SIZE];
             for (int b = 0; b < n_blk; b++) {
                 vmac_fn[b]((uint32_t *)W_base);
+                macAs(ascale_words, ashift);   // apply activation scaling factors
+                macWs(wscale_words, wshift);   // apply weight scaling factors
             }
+            // combine shift for activations and weights
+            for (int i = 0; i < 8; i++)
+                for (int j = 0; j < BATCH; j++)
+                    shift[i][j] = wshift[i] + ashift[j];
             // read + scale the tile, accumulate onto F's 8 rows for this tile
-            macAcc((float(*)[BATCH])&F[o * 8 * BATCH], shift);
+            macAcc((float(*)[BATCH])&F[J * BATCH], shift);
         }
     }
 }
