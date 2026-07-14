@@ -22,6 +22,9 @@
 
 #define K1_STEP   K1_STEP_HDR   // K elements per inner block
 
+// performance counters: define PERF_COUNTERS to enable
+#define PERF_COUNTERS 1
+
 // UART putchar provided by uart.c
 extern void putchar_uart(char c);
 
@@ -29,13 +32,57 @@ static void print_str(const char *s) {
     while (*s) putchar_uart(*s++);
 }
 
-void putdec(uint32_t n) {
+static void putdec(uint32_t n) {
     char buf[11];
     int i = 0;
     if (n == 0) { putchar_uart('0'); return; }
     while (n > 0) { buf[i++] = '0' + (n % 10); n /= 10; }
     while (i--) putchar_uart(buf[i]);
 }
+
+#ifdef PERF_COUNTERS
+// read the machine cycle counter; enable zicsr just for this read since the
+// base march is rv32im (no CSR ops)
+static inline uint32_t rdcyc(void) {
+    uint32_t c;
+    __asm__ volatile (".option push\n\t"
+                      ".option arch, +zicsr\n\t"
+                      "csrr %0, mcycle\n\t"
+                      ".option pop" : "=r"(c));
+    return c;
+}
+
+// accumulated cycles per region
+static uint64_t pc_imgq;       // per-sample pixel load
+static uint64_t pc_gemm[3];    // gemm, per layer
+static uint64_t pc_relu[2];    // relu, per hidden layer
+
+// TIME adds a statement's cycles to acc
+#define TIME(acc, stmt) do { uint32_t _t = rdcyc(); stmt; (acc) += (uint32_t)(rdcyc() - _t); } while (0)
+
+static void putdec64(uint64_t n) {   // totals can exceed 32 bits over a full run
+    char buf[21]; int i = 0;
+    if (n == 0) { putchar_uart('0'); return; }
+    while (n > 0) { buf[i++] = '0' + (int)(n % 10); n /= 10; }
+    while (i--) putchar_uart(buf[i]);
+}
+
+static void pc_line(const char *name, uint64_t v) {
+    print_str("  "); print_str(name); print_str(" "); putdec64(v); print_str("\n");
+}
+
+static void pc_report(void) {
+    print_str("\n[PERF] cycles over run\n");
+    pc_line("imgq ", pc_imgq);
+    pc_line("gemm1", pc_gemm[0]); pc_line("gemm2", pc_gemm[1]); pc_line("gemm3", pc_gemm[2]);
+    pc_line("relu1", pc_relu[0]); pc_line("relu2", pc_relu[1]);
+    pc_line("gemm ", pc_gemm[0] + pc_gemm[1] + pc_gemm[2]);
+    pc_line("relu ", pc_relu[0] + pc_relu[1]);
+}
+#else
+#define TIME(acc, stmt) do { stmt; } while (0)
+#define pc_report()     ((void)0)
+#endif
 
 void* memcpy(void* dst, const void* src, int n) {
     char* d = (char*)dst;
@@ -93,13 +140,13 @@ static void relu(int16_t* a, int dim) {
 int inference(const int16_t* image) {
     int16_t h1[H1_DIM], h2[H2_DIM], logits[OUT_DIM];
 
-    gemm(image, w1_fp4, bias1, h1, IN_DIM, H1_DIM);
-    relu(h1, H1_DIM);
+    TIME(pc_gemm[0], gemm(image, w1_fp4, bias1, h1, IN_DIM, H1_DIM));
+    TIME(pc_relu[0], relu(h1, H1_DIM));
 
-    gemm(h1, w2_fp4, bias2, h2, H1_DIM, H2_DIM);
-    relu(h2, H2_DIM);
+    TIME(pc_gemm[1], gemm(h1, w2_fp4, bias2, h2, H1_DIM, H2_DIM));
+    TIME(pc_relu[1], relu(h2, H2_DIM));
 
-    gemm(h2, w3_fp4, bias3, logits, H2_DIM, OUT_DIM);
+    TIME(pc_gemm[2], gemm(h2, w3_fp4, bias3, logits, H2_DIM, OUT_DIM));
 
     int best = 0;
     for (int i = 1; i < OUT_DIM; i++) {
@@ -118,11 +165,13 @@ int main(void) {
     int correct = 0;
     int match = 0;      // baseline prediction vs mptorch reference
     for (int s = 0; s < N_SAMPLES; s++) {
-        *IMG_LOAD = s;                         // TB stages image s into DMEM at IMG_STAGE
-        // raw pixels uint8 [0,255] cast to int16 (baseline uses raw pixels, no FP4)
-        for (int p = 0; p < IN_DIM; p++) {
-            image[p] = (int16_t)IMG_STAGE[p];
-        }
+        TIME(pc_imgq, {
+            *IMG_LOAD = s;                         // TB stages image s into DMEM at IMG_STAGE
+            // raw pixels uint8 [0,255] cast to int16 (baseline uses raw pixels, no FP4)
+            for (int p = 0; p < IN_DIM; p++) {
+                image[p] = (int16_t)IMG_STAGE[p];
+            }
+        });
         int truth = *IMG_LABEL;
         int ref   = *IMG_PRED;
 
@@ -149,6 +198,8 @@ int main(void) {
     putchar_uart('/');
     putdec(N_SAMPLES);
     print_str("\n");
+
+    pc_report();
 
     return 0;
 }

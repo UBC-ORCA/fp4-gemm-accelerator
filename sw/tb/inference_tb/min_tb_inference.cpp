@@ -14,14 +14,6 @@
 #define DONE_MMIO_ADDR 0xFFFF0000u
 #endif
 
-#ifndef PERF_START_MMIO_ADDR
-#define PERF_START_MMIO_ADDR 0xFFFF0004u
-#endif
-
-#ifndef PERF_END_MMIO_ADDR
-#define PERF_END_MMIO_ADDR 0xFFFF0008u
-#endif
-
 #ifndef UART_MMIO_ADDR
 #define UART_MMIO_ADDR 0x10000000u
 #endif
@@ -236,10 +228,6 @@ int main(int argc, char** argv) {
 
   bool done_seen        = false;
   uint64_t done_cycle   = 0;
-  bool perf_start_seen  = false;
-  bool perf_end_seen    = false;
-  uint64_t perf_start_cycle = 0;
-  uint64_t perf_end_cycle   = 0;
   uint64_t uart_chars   = 0;
 
   // wall-clock timing of the run loop (reference only, not for evaluation)
@@ -323,12 +311,6 @@ int main(int argc, char** argv) {
           std::cout << uc << std::flush;
           if (uart_file) uart_log << uc << std::flush;
           uart_chars++;
-        } else if (d_resp_addr == PERF_START_MMIO_ADDR) {
-          perf_start_seen  = true;
-          perf_start_cycle = cyc;
-        } else if (d_resp_addr == PERF_END_MMIO_ADDR) {
-          perf_end_seen  = true;
-          perf_end_cycle = cyc;
         } else if (d_resp_addr == DONE_MMIO_ADDR) {
           done_seen  = true;
           done_cycle = cyc;
@@ -385,8 +367,6 @@ int main(int argc, char** argv) {
 
   std::cout << "\n";
   std::cout << "[TB] ELAPSED=" << wall_s << " s (wall clock, reference only)\n";
-  if (perf_start_seen && perf_end_seen && perf_end_cycle >= perf_start_cycle)
-    std::cout << "[TB] KERNEL_CYCLES=" << (perf_end_cycle - perf_start_cycle) << "\n";
 
   if (done_seen)
     std::cout << "[TB] DONE at cycle " << done_cycle << "\n";

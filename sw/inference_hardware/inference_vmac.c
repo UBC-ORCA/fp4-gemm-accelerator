@@ -11,10 +11,6 @@
 #define IMG_PRED  ((volatile unsigned int  *) 0xFFFF0018)
 #define IMG_STAGE ((volatile unsigned char *) 0x80070000)
 
-// Perf markers to measure GEMM speed
-#define PERF_START ((volatile unsigned int *) 0xFFFF0004)
-#define PERF_END   ((volatile unsigned int *) 0xFFFF0008)
-
 // MLP Dimensions: 784 -> 128 -> 96 -> 10
 #define IN_DIM    784
 #define H1_DIM    128
@@ -26,8 +22,8 @@
 
 #define BLK_SIZE         K1_STEP_HDR   // K elements per inner block
 
-// write 1 to halt the simulator
-#define DEV_HALT ((volatile int *) 0x20008)
+// performance counters: define PERF_COUNTERS to enable
+#define PERF_COUNTERS 1
 
 // UART putchar
 extern void putchar_uart(char c);
@@ -36,13 +32,63 @@ static void print_str(const char *s) {
   while (*s) putchar_uart(*s++);
 }
 
-void putdec(uint32_t n) {
+static void putdec(uint32_t n) {
     char buf[11];
     int i = 0;
     if (n == 0) { putchar_uart('0'); return; }
     while (n > 0) { buf[i++] = '0' + (n % 10); n /= 10; }
     while (i--) putchar_uart(buf[i]);
 }
+
+#ifdef PERF_COUNTERS
+// read the machine cycle counter; enable zicsr just for this read since the
+// base march is rv32im (no CSR ops)
+static inline uint32_t rdcyc(void) {
+    uint32_t c;
+    __asm__ volatile (".option push\n\t"
+                      ".option arch, +zicsr\n\t"
+                      "csrr %0, mcycle\n\t"
+                      ".option pop" : "=r"(c));
+    return c;
+}
+
+// accumulated cycles per region
+static uint64_t pc_imgq;       // image quantize + pack
+static uint64_t pc_gemm[3];    // gemm, per layer
+static uint64_t pc_qact[2];    // quantize_activation, per layer
+static uint64_t pc_macc[3];    // macAcc inside gemm, per layer
+static int      pc_layer;      // which layer the running gemm feeds
+
+// PC_LAYER selects the macAcc slot; TIME adds a statement's cycles to acc
+#define PC_LAYER(n)     (pc_layer = (n))
+#define TIME(acc, stmt) do { uint32_t _t = rdcyc(); stmt; (acc) += (uint32_t)(rdcyc() - _t); } while (0)
+
+static void putdec64(uint64_t n) {   // totals can exceed 32 bits over a full run
+    char buf[21]; int i = 0;
+    if (n == 0) { putchar_uart('0'); return; }
+    while (n > 0) { buf[i++] = '0' + (int)(n % 10); n /= 10; }
+    while (i--) putchar_uart(buf[i]);
+}
+
+static void pc_line(const char *name, uint64_t v) {
+    print_str("  "); print_str(name); print_str(" "); putdec64(v); print_str("\n");
+}
+
+static void pc_report(void) {
+    print_str("\n[PERF] cycles over run\n");
+    pc_line("imgq ", pc_imgq);
+    pc_line("gemm1", pc_gemm[0]); pc_line("gemm2", pc_gemm[1]); pc_line("gemm3", pc_gemm[2]);
+    pc_line("qact1", pc_qact[0]); pc_line("qact2", pc_qact[1]);
+    pc_line("macc1", pc_macc[0]); pc_line("macc2", pc_macc[1]); pc_line("macc3", pc_macc[2]);
+    pc_line("gemm ", pc_gemm[0] + pc_gemm[1] + pc_gemm[2]);
+    pc_line("qact ", pc_qact[0] + pc_qact[1]);
+    pc_line("macc ", pc_macc[0] + pc_macc[1] + pc_macc[2]);
+}
+#else
+#define PC_LAYER(n)     ((void)0)
+#define TIME(acc, stmt) do { stmt; } while (0)
+#define pc_report()     ((void)0)
+#endif
 
 // fp4 magnitude LUT
 static const uint8_t fp4_mag_lut[16] = {
@@ -69,6 +115,15 @@ int16_t fp4_quantize(float value) {
 
     if (mag == 0) return 0;
     return (int16_t)(sign ? (0x8 | mag) : mag);
+}
+
+// pixel byte (0..255) -> FP4 code, precomputed since inputs are uint8
+static uint8_t pix_to_fp4[256];
+
+static void build_pix_lut(void) {
+    for (int v = 0; v < 256; v++) {
+        pix_to_fp4[v] = (uint8_t)(fp4_quantize((float)v / 255.0f) & 0xF);
+    }
 }
 
 // extract the per-lane power-of-two shift from 8 packed scales (2 words)
@@ -241,7 +296,7 @@ void gemm(const uint32_t* A, const uint32_t* W, const int16_t* bias, float* F,
                 for (int j = 0; j < BATCH; j++)
                     shift[i][j] = wshift[i] + ashift[j];
             // read + scale the tile, accumulate onto F's 8 rows for this tile
-            macAcc((float(*)[BATCH])&F[J * BATCH], shift);
+            TIME(pc_macc[pc_layer], macAcc((float(*)[BATCH])&F[J * BATCH], shift));
         }
     }
 }
@@ -280,15 +335,16 @@ void inference_batch(const uint32_t* inputs, int* preds) {
     static float h1[H1_DIM * BATCH], h2[H2_DIM * BATCH], logits[16 * BATCH];
     static uint32_t h1_packed[H1_DIM], h2_packed[H2_DIM];
 
-    *PERF_START = 1;    // begin timed region -> TB reports KERNEL_CYCLES
-    gemm(inputs, w1_fp4, bias1, h1, IN_DIM, H1_DIM, wscale1, ascale1);
-    *PERF_END = 1;      // end timed region
-    quantize_activation(h1, h1_packed, H1_DIM);
+    PC_LAYER(0);
+    TIME(pc_gemm[0], gemm(inputs, w1_fp4, bias1, h1, IN_DIM, H1_DIM, wscale1, ascale1));
+    TIME(pc_qact[0], quantize_activation(h1, h1_packed, H1_DIM));
 
-    gemm(h1_packed, w2_fp4, bias2, h2, H1_DIM, H2_DIM, wscale2, ascale2);
-    quantize_activation(h2, h2_packed, H2_DIM);
+    PC_LAYER(1);
+    TIME(pc_gemm[1], gemm(h1_packed, w2_fp4, bias2, h2, H1_DIM, H2_DIM, wscale2, ascale2));
+    TIME(pc_qact[1], quantize_activation(h2, h2_packed, H2_DIM));
 
-    gemm(h2_packed, w3_fp4, bias3, logits, H2_DIM, OUT_DIM, wscale3, ascale3);
+    PC_LAYER(2);
+    TIME(pc_gemm[2], gemm(h2_packed, w3_fp4, bias3, logits, H2_DIM, OUT_DIM, wscale3, ascale3));
 
     // argmax
     for (int j = 0; j < BATCH; j++) {
@@ -306,6 +362,8 @@ int main(void) {
     static uint32_t image_packed[IN_DIM];   // one word per pixel, 8 batch lanes packed
     int preds[BATCH];
 
+    build_pix_lut();
+
     // pred | truth | mptorch reference, per sample
     print_str("P|T|M\n");
 
@@ -318,16 +376,18 @@ int main(void) {
         int truth[BATCH], ref[BATCH];
 
         // pack the batch of images
-        for (int p = 0; p < IN_DIM; p++) image_packed[p] = 0;   // unused lanes stay 0
-        for (int j = 0; j < n; j++) {
-            *IMG_LOAD = s + j;
-            for (int p = 0; p < IN_DIM; p++) {
-                uint32_t code = (uint32_t)(fp4_quantize((float)IMG_STAGE[p] / 255.0f) & 0xF);
-                image_packed[p] |= code << (4 * j);
+        TIME(pc_imgq, {
+            for (int p = 0; p < IN_DIM; p++) image_packed[p] = 0;   // unused lanes stay 0
+            for (int j = 0; j < n; j++) {
+                *IMG_LOAD = s + j;
+                for (int p = 0; p < IN_DIM; p++) {
+                    uint32_t code = pix_to_fp4[IMG_STAGE[p]];
+                    image_packed[p] |= code << (4 * j);
+                }
+                truth[j] = *IMG_LABEL;
+                ref[j]   = *IMG_PRED;
             }
-            truth[j] = *IMG_LABEL;
-            ref[j]   = *IMG_PRED;
-        }
+        });
 
         inference_batch(image_packed, preds);
 
@@ -354,6 +414,8 @@ int main(void) {
     putchar_uart('/');
     putdec(N_SAMPLES);
     print_str("\n");
+
+    pc_report();
 
     return 0;
 }

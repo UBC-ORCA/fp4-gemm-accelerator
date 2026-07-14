@@ -25,8 +25,8 @@
 #define K1_STEP    K1_STEP_HDR   // K elements per inner block
 #define K2_SPAN    256           // K elements per K3 step
 
-// write 1 to halt the simulator
-#define DEV_HALT ((volatile int *) 0x20008)
+// performance counters: define PERF_COUNTERS to enable
+#define PERF_COUNTERS 1
 
 // UART putchar
 extern void putchar_uart(char c);
@@ -35,13 +35,63 @@ static void print_str(const char *s) {
   while (*s) putchar_uart(*s++);
 }
 
-void putdec(uint32_t n) {
+static void putdec(uint32_t n) {
     char buf[11];
     int i = 0;
     if (n == 0) { putchar_uart('0'); return; }
     while (n > 0) { buf[i++] = '0' + (n % 10); n /= 10; }
     while (i--) putchar_uart(buf[i]);
 }
+
+#ifdef PERF_COUNTERS
+// read the machine cycle counter; enable zicsr just for this read since the
+// base march is rv32im (no CSR ops)
+static inline uint32_t rdcyc(void) {
+    uint32_t c;
+    __asm__ volatile (".option push\n\t"
+                      ".option arch, +zicsr\n\t"
+                      "csrr %0, mcycle\n\t"
+                      ".option pop" : "=r"(c));
+    return c;
+}
+
+// accumulated cycles per region
+static uint64_t pc_imgq;       // image quantize + pack
+static uint64_t pc_gemm[3];    // gemm, per layer
+static uint64_t pc_qact[2];    // quantize_activation, per layer
+static uint64_t pc_macc[3];    // macAcc inside gemm, per layer
+static int      pc_layer;      // which layer the running gemm feeds
+
+// PC_LAYER selects the macAcc slot; TIME adds a statement's cycles to acc
+#define PC_LAYER(n)     (pc_layer = (n))
+#define TIME(acc, stmt) do { uint32_t _t = rdcyc(); stmt; (acc) += (uint32_t)(rdcyc() - _t); } while (0)
+
+static void putdec64(uint64_t n) {   // totals can exceed 32 bits over a full run
+    char buf[21]; int i = 0;
+    if (n == 0) { putchar_uart('0'); return; }
+    while (n > 0) { buf[i++] = '0' + (int)(n % 10); n /= 10; }
+    while (i--) putchar_uart(buf[i]);
+}
+
+static void pc_line(const char *name, uint64_t v) {
+    print_str("  "); print_str(name); print_str(" "); putdec64(v); print_str("\n");
+}
+
+static void pc_report(void) {
+    print_str("\n[PERF] cycles over run\n");
+    pc_line("imgq ", pc_imgq);
+    pc_line("gemm1", pc_gemm[0]); pc_line("gemm2", pc_gemm[1]); pc_line("gemm3", pc_gemm[2]);
+    pc_line("qact1", pc_qact[0]); pc_line("qact2", pc_qact[1]);
+    pc_line("macc1", pc_macc[0]); pc_line("macc2", pc_macc[1]); pc_line("macc3", pc_macc[2]);
+    pc_line("gemm ", pc_gemm[0] + pc_gemm[1] + pc_gemm[2]);
+    pc_line("qact ", pc_qact[0] + pc_qact[1]);
+    pc_line("macc ", pc_macc[0] + pc_macc[1] + pc_macc[2]);
+}
+#else
+#define PC_LAYER(n)     ((void)0)
+#define TIME(acc, stmt) do { stmt; } while (0)
+#define pc_report()     ((void)0)
+#endif
 
 void* memcpy(void* dst, const void* src, int n) {
     char* d = (char*)dst;
@@ -81,6 +131,15 @@ int16_t fp4_quantize(float value) {
 
     if (mag == 0) return 0;
     return (int16_t)(sign ? (0x8 | mag) : mag);
+}
+
+// pixel byte (0..255) -> FP4 code, precomputed since inputs are uint8
+static uint8_t pix_to_fp4[256];
+
+static void build_pix_lut(void) {
+    for (int v = 0; v < 256; v++) {
+        pix_to_fp4[v] = (uint8_t)(fp4_quantize((float)v / 255.0f) & 0xF);
+    }
 }
 
 // pack 8 fp4 nibble codes into a 32-bit word
@@ -256,7 +315,7 @@ void gemm(const int16_t* A, const int16_t* W, const int16_t* bias, float* F,
                 const int16_t* W_strip = &W[(I_tile * num_K_blocks + K_block) * K1_STEP * 8];
 
                 tile_mac(W_strip, &A[(K3 + K2) * BATCH], k1_end);  // fill tile
-                macAcc(U, shift);                                  // drain -> U
+                TIME(pc_macc[pc_layer], macAcc(U, shift));         // drain -> U
             }
         }
 
@@ -299,13 +358,16 @@ void inference_batch(const int16_t* inputs, int* preds) {
     static float h1[H1_DIM * BATCH], h2[H2_DIM * BATCH], logits[OUT_DIM * BATCH];
     static int16_t h1_codes[H1_DIM * BATCH], h2_codes[H2_DIM * BATCH];
 
-    gemm(inputs, w1_fp4, bias1, h1, IN_DIM, H1_DIM, wscale1, ascale1);
-    quantize_activation(h1, h1_codes, H1_DIM);
+    PC_LAYER(0);
+    TIME(pc_gemm[0], gemm(inputs, w1_fp4, bias1, h1, IN_DIM, H1_DIM, wscale1, ascale1));
+    TIME(pc_qact[0], quantize_activation(h1, h1_codes, H1_DIM));
 
-    gemm(h1_codes, w2_fp4, bias2, h2, H1_DIM, H2_DIM, wscale2, ascale2);
-    quantize_activation(h2, h2_codes, H2_DIM);
+    PC_LAYER(1);
+    TIME(pc_gemm[1], gemm(h1_codes, w2_fp4, bias2, h2, H1_DIM, H2_DIM, wscale2, ascale2));
+    TIME(pc_qact[1], quantize_activation(h2, h2_codes, H2_DIM));
 
-    gemm(h2_codes, w3_fp4, bias3, logits, H2_DIM, OUT_DIM, wscale3, ascale3);
+    PC_LAYER(2);
+    TIME(pc_gemm[2], gemm(h2_codes, w3_fp4, bias3, logits, H2_DIM, OUT_DIM, wscale3, ascale3));
 
     // argmax
     for (int j = 0; j < BATCH; j++) {
@@ -323,6 +385,8 @@ int main(void) {
     static int16_t image_batch[IN_DIM * BATCH];
     int preds[BATCH];
 
+    build_pix_lut();
+
     // pred | truth | mptorch reference, per sample
     print_str("P|T|M\n");
 
@@ -334,18 +398,19 @@ int main(void) {
         if (n > BATCH) n = BATCH;
         int truth[BATCH], ref[BATCH];
 
-        for (int j = 0; j < BATCH; j++) {
-            if (j < n) {
-                *IMG_LOAD = s + j;                 // TB stages this image into DMEM
-                for (int p = 0; p < IN_DIM; p++)
-                    image_batch[p * BATCH + j] =
-                        fp4_quantize((float)IMG_STAGE[p] / 255.0f);
-                truth[j] = *IMG_LABEL;
-                ref[j]   = *IMG_PRED;
-            } else {
-                for (int p = 0; p < IN_DIM; p++) image_batch[p * BATCH + j] = 0;
+        TIME(pc_imgq, {
+            for (int j = 0; j < BATCH; j++) {
+                if (j < n) {
+                    *IMG_LOAD = s + j;                 // TB stages this image into DMEM
+                    for (int p = 0; p < IN_DIM; p++)
+                        image_batch[p * BATCH + j] = pix_to_fp4[IMG_STAGE[p]];
+                    truth[j] = *IMG_LABEL;
+                    ref[j]   = *IMG_PRED;
+                } else {
+                    for (int p = 0; p < IN_DIM; p++) image_batch[p * BATCH + j] = 0;
+                }
             }
-        }
+        });
 
         inference_batch(image_batch, preds);
 
@@ -372,6 +437,8 @@ int main(void) {
     putchar_uart('/');
     putdec(N_SAMPLES);
     print_str("\n");
+
+    pc_report();
 
     return 0;
 }
