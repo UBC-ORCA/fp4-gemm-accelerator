@@ -92,6 +92,17 @@ CFLAGS := \
 	-nostdlib \
 	-ffreestanding
 
+###############################################################################
+# FPGA Flags
+#
+# FPGA = 1 uses -DFPGA to use auto-incrementing pointer.
+# FPGA = 0 uses default simulator method.
+###############################################################################
+FPGA ?= 0
+ifeq ($(FPGA),1)
+CFLAGS += -DFPGA
+endif
+
 LDFLAGS := \
 	-I ../generic \
 	-I ../headers \
