@@ -52,8 +52,9 @@ MAP_FILE := inference.map
 #   Main test program (scalar, no-acceleration baseline).
 ###############################################################################
 SRCS := \
-	start.S \
-	uart.c \
+	../generic/start.S \
+	../generic/uart.c \
+	../generic/image.c \
 	inference_risc_noaccel.c
 
 ###############################################################################
@@ -89,6 +90,8 @@ CFLAGS := \
 	-ffreestanding
 
 LDFLAGS := \
+	-I ../generic \
+	-I ../headers \
 	-T $(LINKER_SCRIPT) \
 	-Wl,-Map=$(MAP_FILE)
 

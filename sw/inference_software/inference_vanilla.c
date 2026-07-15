@@ -2,16 +2,8 @@
 // same as inference_fp4mac/inference.c, but the MAC64 tile is modeled in C
 // instead of the matmul8_vec.S hardware instructions
 
-#include "../headers/weights_blk8_pkgINT16_scaleE8M0.h"
-
-// Samples
-#define N_SAMPLES 80
-
-// Test data loading
-#define IMG_LOAD  ((volatile unsigned int  *) 0xFFFF0010)
-#define IMG_LABEL ((volatile unsigned int  *) 0xFFFF0014)
-#define IMG_PRED  ((volatile unsigned int  *) 0xFFFF0018)
-#define IMG_STAGE ((volatile unsigned char *) 0x80070000)
+#include "image.h"
+#include "weights_blk8_pkgINT16_scaleE8M0.h"
 
 // MLP Dimensions: 784 -> 128 -> 96 -> 10
 #define IN_DIM    784
@@ -401,7 +393,7 @@ int main(void) {
         TIME(pc_imgq, {
             for (int j = 0; j < BATCH; j++) {
                 if (j < n) {
-                    *IMG_LOAD = s + j;                 // TB stages this image into DMEM
+                    image_load(s + j);                 // TB stages this image into DMEM
                     for (int p = 0; p < IN_DIM; p++)
                         image_batch[p * BATCH + j] = pix_to_fp4[IMG_STAGE[p]];
                     truth[j] = *IMG_LABEL;

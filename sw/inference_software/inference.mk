@@ -55,8 +55,9 @@ MAP_FILE := inference.map
 #   Hand-written vector/matrix multiplication assembly.
 ###############################################################################
 SRCS := \
-	start.S \
-	uart.c \
+	../generic/start.S \
+	../generic/uart.c \
+	../generic/image.c \
 	inference_vanilla.c 
 
 ###############################################################################
@@ -92,6 +93,8 @@ CFLAGS := \
 	-ffreestanding
 
 LDFLAGS := \
+	-I ../generic \
+	-I ../headers \
 	-T $(LINKER_SCRIPT) \
 	-Wl,-Map=$(MAP_FILE)
 

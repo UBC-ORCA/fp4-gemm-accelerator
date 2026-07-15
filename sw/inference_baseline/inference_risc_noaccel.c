@@ -2,17 +2,8 @@
 // no acceleration, incorrect results
 // FP4 codes reinterpreted as signed int4 and multiplied directly in scalar C
 
-#include "../headers/weights_blk8_pkgINT16_scaleE8M0.h"
-
-// number of streamed MNIST samples (must match the .bin passed to the TB)
-#define N_SAMPLES 80
-
-// test-data streaming, same MMIO ports as the accelerated builds; writing s
-// to IMG_LOAD makes the TB stage image s into DMEM starting at IMG_STAGE
-#define IMG_LOAD  ((volatile unsigned int  *) 0xFFFF0010)
-#define IMG_LABEL ((volatile unsigned int  *) 0xFFFF0014)
-#define IMG_PRED  ((volatile unsigned int  *) 0xFFFF0018)
-#define IMG_STAGE ((volatile unsigned char *) 0x80070000)
+#include "image.h"
+#include "weights_blk8_pkgINT16_scaleE8M0.h"
 
 // MLP Dimensions: 784 -> 128 -> 96 -> 10
 #define IN_DIM    784
@@ -166,7 +157,7 @@ int main(void) {
     int match = 0;      // baseline prediction vs mptorch reference
     for (int s = 0; s < N_SAMPLES; s++) {
         TIME(pc_imgq, {
-            *IMG_LOAD = s;                         // TB stages image s into DMEM at IMG_STAGE
+            image_load(s);                         // TB stages image s into DMEM at IMG_STAGE
             // raw pixels uint8 [0,255] cast to int16 (baseline uses raw pixels, no FP4)
             for (int p = 0; p < IN_DIM; p++) {
                 image[p] = (int16_t)IMG_STAGE[p];

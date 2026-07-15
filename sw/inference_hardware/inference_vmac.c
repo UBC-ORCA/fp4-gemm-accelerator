@@ -1,15 +1,7 @@
 // MLP inference on CVE2, Gen 1 + Vector Instruction (a.k.a. Gen 3 W.I.P.)
 
-#include "../headers/weights_blk8_pkgUINT32_scaleE8M0.h"
-
-// Samples
-#define N_SAMPLES 80
-
-// Test data loading
-#define IMG_LOAD  ((volatile unsigned int  *) 0xFFFF0010)
-#define IMG_LABEL ((volatile unsigned int  *) 0xFFFF0014)
-#define IMG_PRED  ((volatile unsigned int  *) 0xFFFF0018)
-#define IMG_STAGE ((volatile unsigned char *) 0x80070000)
+#include "image.h"
+#include "weights_blk8_pkgUINT32_scaleE8M0.h"
 
 // MLP Dimensions: 784 -> 128 -> 96 -> 10
 #define IN_DIM    784
@@ -379,7 +371,7 @@ int main(void) {
         TIME(pc_imgq, {
             for (int p = 0; p < IN_DIM; p++) image_packed[p] = 0;   // unused lanes stay 0
             for (int j = 0; j < n; j++) {
-                *IMG_LOAD = s + j;
+                image_load(s + j); 
                 for (int p = 0; p < IN_DIM; p++) {
                     uint32_t code = pix_to_fp4[IMG_STAGE[p]];
                     image_packed[p] |= code << (4 * j);
