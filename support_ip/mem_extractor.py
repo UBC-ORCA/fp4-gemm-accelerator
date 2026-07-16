@@ -28,8 +28,22 @@ with open(infile, 'r') as hexdump:
             hexarr[fileaddr] = hexbyte
             fileaddr += 1
 
+ctr = 0
+builder = ''
 with open(outfile, 'w') as hexout:
+    # export all words in array
     for hexbyte in hexarr:
-        hexout.write(hexbyte + " ")
+        builder = hexbyte + builder
+        ctr += 1
+        if ctr % 4 == 0:
+            hexout.write(f"{builder} ")
+            builder = ''
+    # export any remaining partial words
+    if builder != '':
+        print("Warning: output data size not a multiple of 4")
+        while ctr % 4 != 0:
+            builder = '00' + builder
+            hexout.write(f"{builder} ")
+
         
 

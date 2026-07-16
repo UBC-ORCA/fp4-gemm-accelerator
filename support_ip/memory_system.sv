@@ -9,7 +9,8 @@
 
 module memory_system#(
   parameter PROGRAM_SIZE = 32'h00080000,
-  parameter MMIO_SIZE =    32'h00008000
+  parameter MMIO_SIZE =    32'h00008000,
+  parameter MMIO_START =   32'h10000000
 )(
   // CVE2 Instruction memory interface
   input  logic                         instr_req_o,
@@ -62,10 +63,8 @@ module memory_system#(
   input logic axi_resetn
 );
 
-localparam MMIO_OFFSET = 32'h10000000;
-
-logic [31:0] program_ram[PROGRAM_SIZE/4];
-logic [31:0] mmio_ram[MMIO_SIZE/4];
+(* ram_decomp="power" *) logic [31:0] program_ram[PROGRAM_SIZE/4];
+(* ram_decomp="power" *) logic [31:0] mmio_ram[MMIO_SIZE/4];
 
 logic        program_a_en;
 logic [31:0] program_a_addr;
@@ -125,16 +124,16 @@ assign instr_rdata_i = program_a_rdata;
 assign instr_err_i = program_a_error;
 
 // CVE2 data bus
-assign program_b_en = data_req_o & ~(data_addr_o & MMIO_OFFSET);
+assign program_b_en = data_req_o & (data_addr_o < MMIO_START);
 assign program_b_wen = data_we_o;
 assign program_b_addr = data_addr_o;
 assign program_b_wdata = data_wdata_o;
 assign program_b_ben = data_be_o;
 assign program_b_resetn = cve2_resetn;
 
-assign mmio_b_en = data_req_o & ~(data_addr_o & MMIO_OFFSET);
+assign mmio_b_en = data_req_o && ((data_addr_o >= MMIO_START) & (data_addr_o < MMIO_START + MMIO_SIZE));
 assign mmio_b_wen = data_we_o;
-assign mmio_b_addr = data_addr_o & ~MMIO_OFFSET;
+assign mmio_b_addr = data_addr_o - MMIO_START;
 assign mmio_b_wdata = data_wdata_o;
 assign mmio_b_ben = data_be_o;
 assign mmio_b_resetn = cve2_resetn;
@@ -176,48 +175,56 @@ assign s_axi_rresp = (axi_buffer_full ? axi_buffer_error : mmio_a_error) ? 2'b10
 assign s_axi_rvalid = axi_buffer_full | mmio_a_rvalid;
 
 // program BRAM Behavior
+logic program_a_error_comb;
+logic program_b_error_comb;
 always @(posedge clk) begin
   program_a_rvalid <= program_a_en;
   if(~program_a_resetn) begin
     program_a_rvalid <= '0;
-  end else if(program_a_en & ~program_b_error) begin
+  end else if(program_a_en) begin
     program_a_rdata <= program_ram[program_a_addr/4];
+    program_a_error <= program_a_error_comb;
   end 
 
   program_b_rvalid <= program_b_en;
   if(~program_b_resetn) begin
     program_a_rvalid <= '0;
-  end else if(program_b_en & ~program_b_error) begin
+  end else if(program_b_en) begin
     program_b_rdata <= program_ram[program_b_addr/4];
+    program_b_error <= program_b_error_comb;
     for(ittvar = 0; ittvar < 4; ittvar++) begin
       if(program_b_wen && program_b_ben[ittvar]) program_ram[program_b_addr/4][8*ittvar+:8] <= program_b_wdata[8*ittvar+:8];
     end 
   end 
 end
-assign program_a_error = (program_a_addr % 4) && !(program_a_addr > MMIO_SIZE-4);
-assign program_b_error = (program_b_addr % 4) && !(program_b_addr > MMIO_SIZE-4);
+assign program_a_error_comb = (program_a_addr % 4) | (program_a_addr >= PROGRAM_SIZE);
+assign program_b_error_comb = (program_b_addr % 4) | (program_b_addr >= PROGRAM_SIZE);
 
 // mmio BRAM Behavior
+logic mmio_a_error_comb;
+logic mmio_b_error_comb;
 always @(posedge clk) begin
   mmio_a_rvalid <= mmio_a_en;
   if(~mmio_a_resetn) begin
     mmio_a_rvalid <= '0;
-  end else if(mmio_a_en & ~mmio_b_error) begin
+  end else if(mmio_a_en) begin
     mmio_a_rdata <= mmio_ram[mmio_a_addr/4];
+    mmio_a_error <= mmio_a_error_comb;
   end 
 
   mmio_b_rvalid <= mmio_b_en;
   if(~mmio_b_resetn) begin
     mmio_a_rvalid <= '0;
-  end else if(mmio_b_en & ~mmio_b_error) begin
+  end else if(mmio_b_en) begin
     mmio_b_rdata <= mmio_ram[mmio_b_addr/4];
+    mmio_b_error <= mmio_b_error_comb;
     for(ittvar = 0; ittvar < 4; ittvar++) begin
       if(mmio_b_wen && mmio_b_ben[ittvar]) mmio_ram[mmio_b_addr/4][8*ittvar+:8] <= mmio_b_wdata[8*ittvar+:8];
     end 
   end 
 end
-assign mmio_a_error = (mmio_a_addr % 4) && !(mmio_a_addr > MMIO_SIZE-4);
-assign mmio_b_error = (mmio_b_addr % 4) && !(mmio_b_addr > MMIO_SIZE-4);
+assign mmio_a_error_comb = (mmio_a_addr % 4) | (mmio_a_addr >= MMIO_SIZE);
+assign mmio_b_error_comb = (mmio_b_addr % 4) | (mmio_b_addr >= MMIO_SIZE);
 
 // AXI write logic (this should never be used)
 logic write_addr_req;
