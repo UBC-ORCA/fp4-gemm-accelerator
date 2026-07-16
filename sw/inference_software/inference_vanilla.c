@@ -72,10 +72,15 @@ static void pc_line(const char *name, uint64_t v) {
 static void pc_report(void) {
     print_str("\n[PERF] cycles over run\n");
     pc_line("imgq ", pc_imgq);
-    pc_line("gemm1", pc_gemm[0]); pc_line("gemm2", pc_gemm[1]); pc_line("gemm3", pc_gemm[2]);
-    pc_line("qact1", pc_qact[0]); pc_line("qact2", pc_qact[1]);
-    pc_line("macc1", pc_macc[0]); pc_line("macc2", pc_macc[1]); pc_line("macc3", pc_macc[2]);
-    pc_line("gemm ", pc_gemm[0] + pc_gemm[1] + pc_gemm[2]);
+    pc_line("gemm1", pc_gemm[0] - pc_macc[0]); 
+    pc_line("gemm2", pc_gemm[1] - pc_macc[1]); 
+    pc_line("gemm3", pc_gemm[2] - pc_macc[2]);
+    pc_line("qact1", pc_qact[0]); 
+    pc_line("qact2", pc_qact[1]);
+    pc_line("macc1", pc_macc[0]); 
+    pc_line("macc2", pc_macc[1]); 
+    pc_line("macc3", pc_macc[2]);
+    pc_line("gemm ", pc_gemm[0] + pc_gemm[1] + pc_gemm[2] - (pc_macc[0] + pc_macc[1] + pc_macc[2]));
     pc_line("qact ", pc_qact[0] + pc_qact[1]);
     pc_line("macc ", pc_macc[0] + pc_macc[1] + pc_macc[2]);
 }
@@ -110,6 +115,25 @@ static inline float to_bf16(float v) {
     x.f = v;
     x.u = (x.u + 0x8000) & 0xFFFF0000;
     return x.f;
+}
+
+// float -> bf16 bit pattern (round half up); integer-only, no soft-float
+static inline uint16_t f_to_bf16_bits(float f) {
+    union { float f; uint32_t u; } x; x.f = f;
+    return (uint16_t)((x.u + 0x8000) >> 16);
+}
+
+// bf16 bit pattern -> int32 fixed point (value * 2^ACC_SHIFT), integer-only.
+// Lets the bf16 accumulator hand off to the integer activation without soft-float.
+#define ACC_SHIFT 15
+#define QSHIFT    (ACC_SHIFT - 2)   // divide-by-4-in-fixed -> round to nearest int
+static inline int32_t bf16_to_fixed(uint16_t h) {
+    int e = (h >> 7) & 0xFF;
+    if (e == 0) return 0;
+    int32_t m  = 0x80 | (h & 0x7F);
+    int     sh = e - 134 + ACC_SHIFT;
+    int32_t v  = (sh >= 0) ? (m << sh) : (m >> (-sh));
+    return (h & 0x8000) ? -v : v;
 }
 
 // convert input float to its nearest FP4 code
@@ -256,11 +280,12 @@ static void tile_mac(const int16_t* W_t,
     vmac64(W_t, &va, k_count);      // block MAC over k_count k-steps
 }
 
-// F[i][j] = bias[i] + sum_k W[i][k] * A[k][j]
+// out[i][j] = bias[i] + sum_k W[i][k] * A[k][j]
 // W is pre-transposed, already in FP4
-// A is [in_dim][BATCH] FP4, F is [out_dim][BATCH] bf16
-// T accumulates a block in int16, U accumulates across K-blocks in bf16
-void gemm(const int16_t* A, const int16_t* W, const int16_t* bias, float* F,
+// A is [in_dim][BATCH] FP4
+// T accumulates a block in int16, U accumulates across K-blocks in bf16, then U is
+// written out as int32 fixed point so the shared integer activation can consume it.
+void gemm(const int16_t* A, const int16_t* W, const int16_t* bias, int32_t* out,
           int in_dim, int out_dim,
           const uint32_t* wscale_words, const uint32_t* ascale_words) {
     int num_K_blocks = (in_dim + K1_STEP - 1) / K1_STEP;
@@ -294,7 +319,10 @@ void gemm(const int16_t* A, const int16_t* W, const int16_t* bias, float* F,
             }
         }
 
-        // k accumulation
+        // k accumulation -- timed as gemm (excludes bias seed / output write)
+#ifdef PERF_COUNTERS
+        uint32_t _gt0 = rdcyc();
+#endif
         for (int K3 = 0; K3 < in_dim; K3 += K2_SPAN) {
             for (int K2 = 0; K2 < K2_SPAN && (K3 + K2) < in_dim; K2 += K1_STEP) {
 
@@ -310,11 +338,15 @@ void gemm(const int16_t* A, const int16_t* W, const int16_t* bias, float* F,
                 TIME(pc_macc[pc_layer], macAcc(U, shift));         // drain -> U
             }
         }
+#ifdef PERF_COUNTERS
+        pc_gemm[pc_layer] += (uint32_t)(rdcyc() - _gt0);
+#endif
 
-        // write to the final output matrix F
+        // write the bf16 result out as int32 fixed point (U is bf16-valued, so both
+        // conversions are exact and integer-only) to match the hardware build's path
         for (int i = 0; i < 8 && (I + i) < out_dim; i++) {
             for (int j = 0; j < BATCH; j++) {
-                F[(I + i) * BATCH + j] = U[i][j];
+                out[(I + i) * BATCH + j] = bf16_to_fixed(f_to_bf16_bits(U[i][j]));
             }
         }
     }
@@ -327,13 +359,15 @@ static inline int hardtanh(int a) {
     return a;
 }
 
-// quantize to FP4 codes, and clamp with hardtanh
-static void quantize_activation(const float* A, int16_t* codes, int dim) {
+// quantize to FP4 codes, and clamp with hardtanh.
+// A is int32 fixed point (value * 2^ACC_SHIFT); the round is integer-only.
+static void quantize_activation(const int32_t* A, int16_t* codes, int dim) {
     int n = dim * BATCH;
     for (int i = 0; i < n; i++) {
-        float a = A[i];
-        // scale by 4 and round to nearest int (ties away from zero)
-        int z = (int)(a * 4.0f + (a >= 0.0f ? 0.5f : -0.5f));
+        int32_t a = A[i];
+        // scale by 4 and round to nearest int (ties away from zero), all integer
+        int z = (a >= 0) ? (int)(( a + (1 << (QSHIFT - 1))) >> QSHIFT)
+                         : -(int)((-a + (1 << (QSHIFT - 1))) >> QSHIFT);
         z = hardtanh(z);
 
         // get magnitude
@@ -347,26 +381,27 @@ static void quantize_activation(const float* A, int16_t* codes, int dim) {
 // forward pass on a batch of BATCH samples
 // 2 hidden layers with hardtanh activation function
 void inference_batch(const int16_t* inputs, int* preds) {
-    static float h1[H1_DIM * BATCH], h2[H2_DIM * BATCH], logits[OUT_DIM * BATCH];
+    static int32_t h1[H1_DIM * BATCH], h2[H2_DIM * BATCH], logits[OUT_DIM * BATCH];
     static int16_t h1_codes[H1_DIM * BATCH], h2_codes[H2_DIM * BATCH];
 
+    // gemm times its own k accumulation internally into pc_gemm[pc_layer]
     PC_LAYER(0);
-    TIME(pc_gemm[0], gemm(inputs, w1_fp4, bias1, h1, IN_DIM, H1_DIM, wscale1, ascale1));
+    gemm(inputs, w1_fp4, bias1, h1, IN_DIM, H1_DIM, wscale1, ascale1);
     TIME(pc_qact[0], quantize_activation(h1, h1_codes, H1_DIM));
 
     PC_LAYER(1);
-    TIME(pc_gemm[1], gemm(h1_codes, w2_fp4, bias2, h2, H1_DIM, H2_DIM, wscale2, ascale2));
+    gemm(h1_codes, w2_fp4, bias2, h2, H1_DIM, H2_DIM, wscale2, ascale2);
     TIME(pc_qact[1], quantize_activation(h2, h2_codes, H2_DIM));
 
     PC_LAYER(2);
-    TIME(pc_gemm[2], gemm(h2_codes, w3_fp4, bias3, logits, H2_DIM, OUT_DIM, wscale3, ascale3));
+    gemm(h2_codes, w3_fp4, bias3, logits, H2_DIM, OUT_DIM, wscale3, ascale3);
 
-    // argmax
+    // argmax -- integer compare on the fixed point logits (monotonic, no float)
     for (int j = 0; j < BATCH; j++) {
         int best = 0;
-        float best_v = logits[0 * BATCH + j];
+        int32_t best_v = logits[0 * BATCH + j];
         for (int i = 1; i < OUT_DIM; i++) {
-            float v = logits[i * BATCH + j];
+            int32_t v = logits[i * BATCH + j];
             if (v > best_v) { best_v = v; best = i; }
         }
         preds[j] = best;
