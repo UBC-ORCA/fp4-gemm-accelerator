@@ -165,7 +165,7 @@ always @(posedge clk) begin
 end
 
 assign mmio_a_en = s_axi_arready & s_axi_arvalid;
-assign mmio_a_addr = s_axi_araddr;
+assign mmio_a_addr = s_axi_araddr & (MMIO_SIZE-1) & ~32'b11;
 assign mmio_a_resetn = axi_resetn;
 
 assign s_axi_arready = ~axi_buffer_full | (s_axi_rvalid & s_axi_rready);
@@ -188,7 +188,7 @@ always @(posedge clk) begin
 
   program_b_rvalid <= program_b_en;
   if(~program_b_resetn) begin
-    program_a_rvalid <= '0;
+    program_b_rvalid <= '0;
   end else if(program_b_en) begin
     program_b_rdata <= program_ram[program_b_addr/4];
     program_b_error <= program_b_error_comb;
@@ -214,7 +214,7 @@ always @(posedge clk) begin
 
   mmio_b_rvalid <= mmio_b_en;
   if(~mmio_b_resetn) begin
-    mmio_a_rvalid <= '0;
+    mmio_b_rvalid <= '0;
   end else if(mmio_b_en) begin
     mmio_b_rdata <= mmio_ram[mmio_b_addr/4];
     mmio_b_error <= mmio_b_error_comb;

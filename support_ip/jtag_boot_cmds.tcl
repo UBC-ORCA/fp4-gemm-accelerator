@@ -9,7 +9,7 @@ rst -srst
 exec sleep 1
 
 targets -set -nocase -filter {name =~ "*PS TAP*"}
-fpga /local/disk2/blankp1/mataccel/fp4-gemm-accelerator/rtl/build/openhwgroup_cve2_cve2_top_0.1/default-vivado/openhwgroup_cve2_cve2_top_0.1.runs/impl_1/ps_wrapper.bit
+fpga /local/disk2/blankp1/mataccel/fp4-gemm-accelerator/rtl/build/openhwgroup_cve2_cve2_top_0.1/default-vivado/openhwgroup_cve2_cve2_top_0.1.runs/impl_1/accelerator_top.bit
 exec sleep 1
 
 # Write pmufw
@@ -38,7 +38,7 @@ psu_ps_pl_isolation_removal
 after 500
 
 #download fsbl
-targets -set -nocase -filter {name =~ "*Cortex-A53 #0*"}
-dow /local/disk2/blankp1/vitis/mataccel/export/mataccel/sw/mataccel/boot/fsbl.elf
-con
-exec sleep 1
+# targets -set -nocase -filter {name =~ "*Cortex-A53 #0*"}
+# dow /local/disk2/blankp1/vitis/mataccel/export/mataccel/sw/mataccel/boot/fsbl.elf
+# con
+# exec sleep 1
