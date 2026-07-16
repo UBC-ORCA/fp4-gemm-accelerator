@@ -52,7 +52,6 @@ MAP_FILE := inference.map
 #   Main test program (scalar, no-acceleration baseline).
 ###############################################################################
 SRCS := \
-	../generic/start.S \
 	../generic/uart.c \
 	../generic/image.c \
 	inference_risc_noaccel.c
@@ -98,6 +97,9 @@ CFLAGS := \
 FPGA ?= 0
 ifeq ($(FPGA),1)
 CFLAGS += -DFPGA
+SRCS += ../generic/start_fpga.S
+else
+SRCS += ../generic/start.S
 endif
 
 LDFLAGS := \

@@ -8,8 +8,8 @@
 // * [0x00000000 + MMIO_SIZE] mmio memory
 
 module memory_system#(
-  parameter PROGRAM_SIZE = 32'd00080000,
-  parameter MMIO_SIZE =    32'd00010000
+  parameter PROGRAM_SIZE = 32'h00080000,
+  parameter MMIO_SIZE =    32'h00008000
 )(
   // CVE2 Instruction memory interface
   input  logic                         instr_req_o,
@@ -61,6 +61,8 @@ module memory_system#(
   input logic cve2_resetn,
   input logic axi_resetn
 );
+
+localparam MMIO_OFFSET = 32'h10000000;
 
 logic [31:0] program_ram[PROGRAM_SIZE/4];
 logic [31:0] mmio_ram[MMIO_SIZE/4];
@@ -123,16 +125,16 @@ assign instr_rdata_i = program_a_rdata;
 assign instr_err_i = program_a_error;
 
 // CVE2 data bus
-assign program_b_en = data_req_o & ~(data_addr_o & 32'h10000000);
+assign program_b_en = data_req_o & ~(data_addr_o & MMIO_OFFSET);
 assign program_b_wen = data_we_o;
 assign program_b_addr = data_addr_o;
 assign program_b_wdata = data_wdata_o;
 assign program_b_ben = data_be_o;
 assign program_b_resetn = cve2_resetn;
 
-assign mmio_b_en = data_req_o & ~(data_addr_o & 32'h10000000);
+assign mmio_b_en = data_req_o & ~(data_addr_o & MMIO_OFFSET);
 assign mmio_b_wen = data_we_o;
-assign mmio_b_addr = data_addr_o & ~32'h10000000;
+assign mmio_b_addr = data_addr_o & ~MMIO_OFFSET;
 assign mmio_b_wdata = data_wdata_o;
 assign mmio_b_ben = data_be_o;
 assign mmio_b_resetn = cve2_resetn;

@@ -55,7 +55,6 @@ MAP_FILE := inference.map
 #   Hand-written vector/matrix multiplication assembly.
 ###############################################################################
 SRCS := \
-	../generic/start.S \
 	../generic/uart.c \
 	../generic/image.c \
 	inference_vanilla.c 
@@ -101,6 +100,9 @@ CFLAGS := \
 FPGA ?= 0
 ifeq ($(FPGA),1)
 CFLAGS += -DFPGA
+SRCS += ../generic/start_fpga.S
+else
+SRCS += ../generic/start.S
 endif
 
 LDFLAGS := \
