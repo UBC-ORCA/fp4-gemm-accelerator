@@ -386,12 +386,14 @@ int main(void) {
         for (int j = 0; j < n; j++) {
             if (preds[j] == truth[j]) correct++;
             if (preds[j] == ref[j])   match++;
+#ifndef FPGA
             putdec(preds[j]);
             print_str("|");
             putdec(truth[j]);
             print_str("|");
             putdec(ref[j]);
             print_str("\n");
+#endif
         }
     }
 

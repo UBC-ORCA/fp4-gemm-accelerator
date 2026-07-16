@@ -4,8 +4,8 @@
 #include <stdint.h>
 
 //#define IMAGE_MODE_MMIO
-#define IMAGE_BIN_FILE "test_80.bin"
-#define N_SAMPLES 80
+#define IMAGE_BIN_FILE "test_400.bin"
+#define N_SAMPLES 400
 
 #ifdef IMAGE_MODE_MMIO
 #define IMG_LOAD  ((volatile unsigned int  *) 0xFFFF0010)

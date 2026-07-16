@@ -9,7 +9,7 @@
 
 module memory_system#(
   parameter PROGRAM_SIZE = 32'h00080000,
-  parameter MMIO_SIZE =    32'h00008000,
+  parameter MMIO_SIZE =    32'h00001000,
   parameter MMIO_START =   32'h10000000
 )(
   // CVE2 Instruction memory interface

@@ -6,7 +6,7 @@ _start:
   call main
 
   # Write DONE flag for testbench (last word in mmio)
-  li   t0, 0x10007FFC
+  li   t0, 0x10000FFC
   li   t1, 1
   sw   t1, 0(t0)
 
