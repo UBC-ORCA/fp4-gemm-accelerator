@@ -16,12 +16,26 @@ SHELL := /bin/bash
 
 CVE2_CONFIG ?= small
 
-TB_CPP := ../../../../sw/tb/matrix_tb/min_tb_matmul8.cpp
+#TB_CPP := ../../../../sw/tb/matrix_tb/min_tb_matmul8.cpp
+TB_CPP := ../../../../sw/tb/inference_tb/min_tb_inference.cpp
 
 TOP_MODULE := cve2_top
 
 VC_NAME := openhwgroup_cve2_cve2_top_0.1.vc
 VC_PATCHED := openhwgroup_cve2_cve2_top_0.1_patched.vc
+
+###############################################################################
+# RTL simulation-debug displays (all OFF by default -> clean inference runs)
+# Enable a subsystem's $display dumps by setting its var, e.g.:
+#   make -f sim.mk run MAC_DEBUG=1 BRAM_DEBUG=1
+# Subsystems: MAC (mac unit/array/controller/mac8x8), BRAM (accumulator bram),
+#             CF (cf dispatch unit), ADDER (bf16 adder), CPU (core/alu trace)
+###############################################################################
+DBG_DEFINES := $(if $(MAC_DEBUG),+define+MAC_DEBUG) \
+               $(if $(BRAM_DEBUG),+define+BRAM_DEBUG) \
+               $(if $(CF_DEBUG),+define+CF_DEBUG) \
+               $(if $(ADDER_DEBUG),+define+ADDER_DEBUG) \
+               $(if $(CPU_DEBUG),+define+CPU_DEBUG)
 
 ###############################################################################
 # Default
@@ -81,6 +95,7 @@ build-sim:
 	echo "Building simulator in $$VC_DIR"; \
 	cd "$$VC_DIR" && \
 	verilator -f $(VC_PATCHED) \
+		$(DBG_DEFINES) \
 		-Wall \
 		-Wno-fatal \
 		--cc --exe --build \

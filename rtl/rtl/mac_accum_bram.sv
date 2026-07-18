@@ -104,6 +104,7 @@ module mac_accum_bram (
     //----------------------------------
     // Simulation Debug Dumps
     //----------------------------------
+`ifdef BRAM_DEBUG
     always_ff @(posedge clk_i) begin
         if (rst_ni) begin
             if (rd_en_q) begin
@@ -181,4 +182,5 @@ always_ff @(posedge clk_i) begin
 
     //end
 end
+`endif
 endmodule

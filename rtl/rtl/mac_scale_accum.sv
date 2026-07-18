@@ -38,6 +38,7 @@ import mx_pkg::*;
 //------------------------------------------------------------
 // MAC Scale Accum Internal Debug
 //------------------------------------------------------------
+`ifdef MAC_DEBUG
 always_comb begin
 
     $display("");
@@ -206,5 +207,6 @@ always_comb begin
     $display("");
 
 end
+`endif
 
 endmodule

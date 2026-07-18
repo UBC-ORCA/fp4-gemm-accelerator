@@ -395,6 +395,7 @@ module mac_controller #(
     endgenerate
 
     // simulation debugging hooks
+`ifdef MAC_DEBUG
     always_ff @(posedge clk_i) begin
         if (rst_ni && (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i) begin
             $display(
@@ -404,5 +405,6 @@ module mac_controller #(
             );
         end
     end
+`endif
 
 endmodule

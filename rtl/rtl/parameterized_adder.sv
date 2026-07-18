@@ -165,6 +165,7 @@ import mx_pkg::*;
     // ---------------------------------------------------------------------
     // This block triggers whenever the output changes, printing the full 
     // internal state of the unpack, shift, math, and rounding stages.
+`ifdef ADDER_DEBUG
     always @(sum) begin
         // Only print valid operations (skipping initial/X states in simulation)
         if (^a !== 1'bx && ^b !== 1'bx) begin
@@ -196,6 +197,7 @@ import mx_pkg::*;
             $display("----------------------------------------------------------------\n");
         end
     end
+`endif
 // --- [end] ---
 
 endmodule

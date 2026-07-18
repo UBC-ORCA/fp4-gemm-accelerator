@@ -203,7 +203,7 @@ end
 //============================================================
 // Simulation monitor
 //============================================================
-//`ifndef SYNTHESIS
+`ifdef MAC_DEBUG
 
 integer rr, cc;
 
@@ -231,7 +231,7 @@ always_ff @(posedge clk) begin
 
 end
 
-//`endif
+`endif
 // --- [end] ---
 
 endmodule

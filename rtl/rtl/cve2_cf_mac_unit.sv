@@ -502,6 +502,7 @@ end
 
 
 
+`ifdef MAC_DEBUG
 always_ff @(posedge clk_i) begin
 
     if(rst_ni && scale_write) begin
@@ -856,6 +857,7 @@ always_ff @(posedge clk_i) begin
 
 end
 //DEBUG_end
+`endif
 
 
 endmodule
