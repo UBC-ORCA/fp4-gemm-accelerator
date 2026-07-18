@@ -5,8 +5,8 @@ _start:
   la   sp, _stack_top
   call main
 
-  # Write DONE flag for testbench (MMIO at 0xFFFF0000)
-  li   t0, 0xFFFF0000
+  # Write DONE flag for testbench (last word in mmio)
+  li   t0, 0x10007FFC
   li   t1, 1
   sw   t1, 0(t0)
 

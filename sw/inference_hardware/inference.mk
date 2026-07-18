@@ -62,8 +62,8 @@ MAP_FILE := $(NAME).map
 #   Hand-written vector/matrix multiplication assembly.
 ###############################################################################
 SRCS := \
-	start.S \
-	uart.c \
+	../generic/uart.c \
+	../generic/image.c \
 	$(MAIN_SRC) \
 	matmul8_vec.S
 
@@ -99,7 +99,19 @@ CFLAGS := \
 	-nostdlib \
 	-ffreestanding
 
+# FPGA=1 uses start_fpga.S + auto-incrementing UART pointer; FPGA=0 (default)
+# uses the simulator start.S / UART.
+FPGA ?= 0
+ifeq ($(FPGA),1)
+CFLAGS += -DFPGA
+SRCS += ../generic/start_fpga.S
+else
+SRCS += ../generic/start.S
+endif
+
 LDFLAGS := \
+	-I ../generic \
+	-I ../headers \
 	-T $(LINKER_SCRIPT) \
 	-Wl,-Map=$(MAP_FILE)
 

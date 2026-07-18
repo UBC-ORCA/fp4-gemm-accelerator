@@ -2,13 +2,7 @@
 // no acceleration, incorrect results
 // FP4 codes reinterpreted as signed int4 and multiplied directly in scalar C
 #include "../headers/weights_blk32_pkgINT16_scaleE8M0.h"
-
-#define IMG_LOAD  ((volatile unsigned int  *) 0xFFFF0010)
-#define IMG_LABEL ((volatile unsigned int  *) 0xFFFF0014)
-#define IMG_PRED  ((volatile unsigned int  *) 0xFFFF0018)
-#define IMG_STAGE ((volatile unsigned char *) 0x80070000)
-
-#define N_SAMPLES 80
+#include "image.h"
 
 #define IN_DIM    784
 #define L1_DIM    128
@@ -171,7 +165,7 @@ int main(void) {
     int match = 0;      
     for (int s = 0; s < N_SAMPLES; s++) {
         TIME(pc_imgq, {
-            *IMG_LOAD = s;
+            image_load(s);
             for (int p = 0; p < IN_DIM; p++) {
                 image[p] = (int16_t)IMG_STAGE[p];
             }
