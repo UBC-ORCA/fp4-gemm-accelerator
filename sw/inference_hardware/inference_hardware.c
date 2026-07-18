@@ -31,10 +31,10 @@
 #define QSHIFT (ACC_SHIFT - 2)    // Shift value to divide by four and round
 
 // Enable performance counters
-#define PERF_COUNTERS 1
+#define PERF_COUNTERS
 
 // Enable intermediate UART prints (P|T|M results)
-#define PTM_PRINTS    1
+#define PTM_PRINTS
 
 // =======================================
 // UART output helpers

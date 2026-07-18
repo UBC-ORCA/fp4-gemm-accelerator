@@ -17,9 +17,9 @@
 
 #define K1_STEP   K1_STEP_HDR   
 
-#define PERF_COUNTERS 1
+#define PERF_COUNTERS
 
-#define PTM_PRINTS    1
+#define PTM_PRINTS
 
 extern void putchar_uart(char c);
 
