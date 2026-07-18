@@ -1,0 +1,861 @@
+`timescale 1ns/1ps
+
+module cve2_cf_mac_unit
+(
+    output logic                        scalar_we_o,
+    output logic [4:0]                  scalar_waddr_o,
+    output logic [31:0]                 scalar_wdata_o,
+
+    output logic                        data_req_o,
+    input  logic                        data_gnt_i,
+    output logic [31:0]                 data_addr_o,
+    output logic                        data_we_o,
+    output logic [3:0]                  data_be_o,
+    output logic [31:0]                 data_wdata_o,
+
+    input  logic [31:0]                 data_rdata_i,
+    input  logic                        data_rvalid_i,
+    input  logic                        data_err_i,
+
+    input  logic                        clk_i,
+    input  logic                        rst_ni,
+
+    input  logic                        req_valid_i,
+    input  cve2_pkg::mac_op_e            cf_req_op_i,
+    input  logic [31:0]                 req_instr_i,
+    input  logic [31:0]                 req_rs1_i,
+    input  logic [31:0]                 req_rs2_i,
+
+    output logic                        req_ready_o,
+    output logic                        busy_o,
+    output logic                        done_o,
+
+    output logic [4:0]                  mac_vrf_raddr_o,
+    output logic [4:0]                  mac_vrf_relem_o,
+    input  logic [31:0]                 mac_vrf_rdata_i
+);
+
+    localparam int TT = 8;
+
+    logic [4:0]  vs1;
+    logic unsigned [11:0] imm12;
+    logic [31:0] weight_base;
+    logic [31:0] weight_addr;
+
+    assign vs1         = req_instr_i[11:7];
+    assign imm12       = req_instr_i[31:20];
+    assign weight_base = req_rs1_i;
+    assign weight_addr = weight_base + imm12;
+
+    logic [4:0]  mv_row;
+    logic [4:0]  mv_pair;
+    assign mv_row  = req_instr_i[19:15];
+    assign mv_pair = req_instr_i[24:20];
+
+    logic        map_mv_en;
+    logic [1:0]  mv_mode;   
+    logic [2:0]  mv_even_col_idx;
+    logic [2:0]  mv_odd_col_idx;
+    logic [2:0]  mv_row_idx;
+    logic [31:0] mv_data;
+    // BRAM_RD returns the accumulator read pair; MV ops return the raw tile.
+    assign scalar_wdata_o = (cf_req_op_i == cve2_pkg::OP_BRAM_RD) ? bram_rd_data : mv_data;
+
+    logic [4:0]  scalar_waddr;
+    assign scalar_waddr = req_instr_i[11:7];
+
+    logic [2:0] scale_col;
+    logic [1:0] scale_row_group; 
+
+    logic signed [15:0] scale_tile_value [0:1]; 
+
+    logic [31:0] act_scale_lo, act_scale_hi;
+    logic [31:0] weight_scale_lo, weight_scale_hi;
+    logic        act_scale_ready, weight_scale_ready;
+    logic        snapshot_valid;
+
+    logic signed [15:0] tile_snapshot [0:TT-1][0:TT-1];
+
+    logic                snapshot_valid_q;
+    logic                act_scale_valid_q;
+    logic                weight_scale_valid_q;
+
+    // Inbound staged registers (Pending context holding)
+    logic [31:0]        ctx_act_scale_lo;
+    logic [31:0]        ctx_act_scale_hi;
+    logic [31:0]        ctx_weight_scale_lo;
+    logic [31:0]        ctx_weight_scale_hi;
+    logic signed [15:0] ctx_tile_snapshot [0:TT-1][0:TT-1];
+
+    // Execution isolated registers (Active scale datapath context)
+    logic [31:0]        scale_act_lo_q;
+    logic [31:0]        scale_act_hi_q;
+    logic [31:0]        scale_weight_lo_q;
+    logic [31:0]        scale_weight_hi_q;
+    logic signed [15:0] scale_tile_snapshot_q [0:TT-1][0:TT-1];
+
+    logic                context_ready;
+    logic                context_accept;
+    logic                scale_busy;
+    logic                scale_write;
+    logic                scale_done;
+
+    assign context_ready = snapshot_valid_q && act_scale_valid_q && weight_scale_valid_q;
+
+    // Staging Context Logic (Tightened capture mechanics)
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            snapshot_valid_q     <= 1'b0;
+            act_scale_valid_q    <= 1'b0;
+            weight_scale_valid_q <= 1'b0;
+            ctx_act_scale_lo     <= '0;
+            ctx_act_scale_hi     <= '0;
+            ctx_weight_scale_lo  <= '0;
+            ctx_weight_scale_hi  <= '0;
+            ctx_tile_snapshot    <= '{default: '{default: '0}};
+        end else begin
+            if (snapshot_valid && !snapshot_valid_q) begin
+                snapshot_valid_q  <= 1'b1;
+                ctx_tile_snapshot <= tile_snapshot;
+            end
+            if (act_scale_ready && !act_scale_valid_q) begin
+                act_scale_valid_q <= 1'b1;
+                ctx_act_scale_lo  <= act_scale_lo;
+                ctx_act_scale_hi  <= act_scale_hi;
+            end
+            if (weight_scale_ready && !weight_scale_valid_q) begin
+                weight_scale_valid_q <= 1'b1;
+                ctx_weight_scale_lo  <= weight_scale_lo;
+                ctx_weight_scale_hi  <= weight_scale_hi;
+            end
+            if (context_accept) begin
+                snapshot_valid_q     <= 1'b0;
+                act_scale_valid_q    <= 1'b0;
+                weight_scale_valid_q <= 1'b0;
+            end
+        end
+    end
+
+    // Frozen target bank for the in-flight fold (latched when the fold starts),
+    // so a later accBank cannot redirect this fold's tail writes.
+    logic [4:0] scale_tile_q;
+
+    // Scaler Private Isolated Context Latching
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            scale_act_lo_q        <= '0;
+            scale_act_hi_q        <= '0;
+            scale_weight_lo_q     <= '0;
+            scale_weight_hi_q     <= '0;
+            scale_tile_snapshot_q <= '{default: '{default: '0}};
+            scale_tile_q          <= 5'b0;
+        end else if (context_accept) begin
+            scale_act_lo_q        <= ctx_act_scale_lo;
+            scale_act_hi_q        <= ctx_act_scale_hi;
+            scale_weight_lo_q     <= ctx_weight_scale_lo;
+            scale_weight_hi_q     <= ctx_weight_scale_hi;
+            scale_tile_snapshot_q <= ctx_tile_snapshot;
+            scale_tile_q          <= current_tile_q;   // freeze the bank for this fold
+        end
+    end
+
+    //------------------------------------------------------------
+    // Accumulator Block RAM Interconnect Signals
+    //------------------------------------------------------------
+    logic        bram_rd_en;
+    logic [4:0]  bram_rd_tile;
+    logic [2:0]  bram_rd_row;
+    logic [2:0]  bram_rd_col;
+    logic [31:0] bram_rd_data; 
+
+    logic        bram_wr_en;
+    logic [4:0]  bram_wr_tile;
+    logic [2:0]  bram_wr_row;
+    logic [2:0]  bram_wr_col;
+    logic [31:0] bram_wr_data;
+    logic        bram_wr_pair;   // 1 = paired (scale) write, 0 = single-cell (bias) write
+
+    logic        ctrl_accum_rd_en;
+    logic [4:0]  ctrl_accum_rd_tile;
+    logic [2:0]  ctrl_accum_rd_row;
+    logic [2:0]  ctrl_accum_rd_col;
+
+    logic        ctrl_accum_wr_en;
+    logic [4:0]  ctrl_accum_wr_tile;
+    logic [2:0]  ctrl_accum_wr_row;
+    logic [2:0]  ctrl_accum_wr_col;
+    logic [15:0] ctrl_accum_wr_data;
+
+    logic [15:0] scale_accum_in  [0:1];
+    logic [15:0] scale_accum_out [0:1];
+
+    // Current accumulator tile/bank selected by accBank(T). Persists until the
+    // next accBank. NOTE: this can change while a previous fold is still draining,
+    // so the fold uses the FROZEN copy scale_tile_q (latched at context_accept),
+    // not current_tile_q directly.
+    logic [4:0] current_tile_q;
+    always_ff @(posedge clk_i) begin
+        if (!rst_ni)
+            current_tile_q <= 5'b0;
+        else if (req_valid_i && req_ready_o && (cf_req_op_i == cve2_pkg::OP_ACC_BANK))
+            current_tile_q <= req_rs1_i[4:0];
+    end
+
+    always_comb begin
+        if (scale_busy) begin
+            bram_rd_en   = 1'b1;
+            bram_rd_tile = scale_tile_q;
+            bram_rd_row  = {scale_row_group, 1'b0};
+            bram_rd_col  = scale_col;
+
+            bram_wr_en   = scale_write;
+            bram_wr_tile = scale_tile_q;
+            bram_wr_row  = {scale_row_group, 1'b0};
+            bram_wr_col  = scale_col;
+            bram_wr_data = {scale_accum_out[1], scale_accum_out[0]};
+            bram_wr_pair = 1'b1;   // scale fold writes a row pair
+        end else begin
+            bram_rd_en   = ctrl_accum_rd_en;
+            bram_rd_tile = ctrl_accum_rd_tile;
+            bram_rd_row  = ctrl_accum_rd_row;
+            bram_rd_col  = ctrl_accum_rd_col;
+
+            bram_wr_en   = ctrl_accum_wr_en;
+            bram_wr_tile = ctrl_accum_wr_tile;
+            bram_wr_row  = ctrl_accum_wr_row;
+            bram_wr_col  = ctrl_accum_wr_col;
+            bram_wr_data = {16'b0, ctrl_accum_wr_data};
+            bram_wr_pair = 1'b0;   // bias writes a single cell (any row)
+        end
+    end
+
+    //------------------------------------------------------------
+    // Submodule Core Instantiations
+    //------------------------------------------------------------
+    logic        mac_en;
+    logic        clear;
+    logic [3:0]  act_vector [0:TT-1];
+    logic [3:0]  weight_vector [0:TT-1];
+    
+    logic        mem_req;
+    logic [31:0] mem_addr;
+    logic        mem_we;
+    logic [3:0]  mem_be;
+    logic [31:0] mem_wdata;
+
+    assign data_req_o    = mem_req;
+    assign data_addr_o   = mem_addr;
+    assign data_we_o     = mem_we;
+    assign data_be_o     = mem_be;
+    assign data_wdata_o  = mem_wdata;
+
+    mac_controller #(
+        .VL(32),
+        .TT(TT)
+    ) u_ctrl (
+        .clk_i                (clk_i),
+        .rst_ni               (rst_ni),
+        .req_valid_i          (req_valid_i),
+        .cf_req_op_i          (cf_req_op_i),
+        .rs1_i                (req_rs1_i),
+        .rs2_i                (req_rs2_i),
+        .mac_en_o             (mac_en),
+        .clear_o              (clear),
+        .vs1_i                (vs1),
+        .weight_blk_i         (5'b0),
+        .base_i               (weight_addr),
+        .mac_vrf_raddr_o      (mac_vrf_raddr_o),
+        .mac_vrf_relem_o      (mac_vrf_relem_o),
+        .data_req_o           (mem_req),
+        .data_gnt_i           (data_gnt_i),
+        .data_addr_o          (mem_addr),
+        .data_we_o            (mem_we),
+        .data_be_o            (mem_be),
+        .data_wdata_o         (mem_wdata),
+        .data_rvalid_i        (data_rvalid_i),
+        .data_rdata_i         (data_rdata_i),
+        .data_err_i           (data_err_i),
+        .act_vector_o         (act_vector),
+        .weight_vector_o      (weight_vector),
+        .mac_vrf_rdata_i      (mac_vrf_rdata_i),
+        .mv_en_o              (map_mv_en),
+        .mv_mode_o            (mv_mode),
+        .mv_even_col_idx_o    (mv_even_col_idx),
+        .mv_odd_col_idx_o     (mv_odd_col_idx),
+        .mv_row_idx_o         (mv_row_idx),
+        .mv_row_i             (mv_row),
+        .mv_pair_i            (mv_pair),
+        .scalar_waddr_i       (scalar_waddr),
+        .scalar_waddr_o       (scalar_waddr_o),
+        .scalar_we_o          (scalar_we_o),
+        .act_scale_lo_o       (act_scale_lo),
+        .act_scale_hi_o       (act_scale_hi),
+        .weight_scale_lo_o    (weight_scale_lo),
+        .weight_scale_hi_o    (weight_scale_hi),
+        .act_scale_ready_o    (act_scale_ready),
+        .weight_scale_ready_o (weight_scale_ready),
+        .mac_snapshot_valid_o (snapshot_valid),
+        .scale_busy_i         (scale_busy),
+        .scale_done_i         (scale_done),
+        .req_ready_o          (req_ready_o),
+        .busy_o               (busy_o),
+        .done_o               (done_o),
+        
+        .accum_rd_en_o        (ctrl_accum_rd_en),
+        .accum_rd_tile_o      (ctrl_accum_rd_tile),
+        .accum_rd_row_o       (ctrl_accum_rd_row),
+        .accum_rd_col_o       (ctrl_accum_rd_col),
+        .accum_rd_data_i      (bram_rd_data[15:0]), 
+        .accum_wr_en_o        (ctrl_accum_wr_en),
+        .accum_wr_tile_o      (ctrl_accum_wr_tile),
+        .accum_wr_row_o       (ctrl_accum_wr_row),
+        .accum_wr_col_o       (ctrl_accum_wr_col),
+        .accum_wr_data_o      (ctrl_accum_wr_data)
+    );
+
+    mac_array #(
+        .TT(TT)
+    ) u_array (
+        .clk                  (clk_i),
+        .rst_n                (rst_ni),
+        .mac_en_i             (mac_en),
+        .clear_i              (clear),
+        .act_i                (act_vector),
+        .wt_i                 (weight_vector),
+        .accum_o              (tile_snapshot),
+        .mv_en_i              (map_mv_en),
+        .mv_mode_i            (mv_mode),
+        .mv_even_col_idx_i    (mv_even_col_idx),
+        .mv_odd_col_idx_i     (mv_odd_col_idx),
+        .mv_row_idx_i         (mv_row_idx)
+    );
+
+    mac_accum_bram u_accum_bram (
+        .clk_i                (clk_i),
+        .rst_ni               (rst_ni),
+        .rd_en_i              (bram_rd_en),
+        .rd_tile_i            (bram_rd_tile),
+        .rd_row_i             (bram_rd_row),
+        .rd_col_i             (bram_rd_col),
+        .rd_data_o            (bram_rd_data),
+        .wr_en_i              (bram_wr_en),
+        .wr_tile_i            (bram_wr_tile),
+        .wr_row_i             (bram_wr_row),
+        .wr_col_i             (bram_wr_col),
+        .wr_data_i            (bram_wr_data),
+        .wr_pair_i            (bram_wr_pair)
+    );
+
+    assign mv_data = {
+        tile_snapshot[mv_row_idx][mv_odd_col_idx],
+        tile_snapshot[mv_row_idx][mv_even_col_idx]
+    };
+
+    mac_scale_fsm #(
+        .NUM_GROUPS(32)
+    ) u_scale_fsm (
+        .clk_i                (clk_i),
+        .rst_ni               (rst_ni),
+        .context_ready_i      (context_ready),
+        .context_accept_o     (context_accept),
+        .act_scale_lo_i       (ctx_act_scale_lo),
+        .act_scale_hi_i       (ctx_act_scale_hi),
+        .weight_scale_lo_i    (ctx_weight_scale_lo),
+        .weight_scale_hi_i    (ctx_weight_scale_hi),
+        .tile_snapshot_i      (ctx_tile_snapshot),
+        .scale_busy_o         (scale_busy),
+        .scale_write_o        (scale_write),
+        .scale_done_o         (scale_done),
+        .scale_col_o          (scale_col),
+        .scale_row_group_o    (scale_row_group) 
+    );
+
+    // Active scale datapath logic using decoupled scale registers
+    always_comb begin
+
+ 	//scale_tile_value[0] = scale_tile_snapshot_q[{scale_row_group,1'b0}][scale_col];
+    	//scale_tile_value[1] = scale_tile_snapshot_q[{scale_row_group,1'b0}+1][scale_col];
+
+ 	scale_tile_value[0] = ctx_tile_snapshot[{scale_row_group,1'b0}][scale_col];
+    	scale_tile_value[1] = ctx_tile_snapshot[{scale_row_group,1'b0}+1][scale_col];
+    end
+
+    logic [7:0]  scaleA          [0:1];
+    logic [7:0]  scaleB          [0:1];
+
+    mac_scale_accum u_scale_accum0 (
+        .tile_value(scale_tile_value[0]),
+        .scaleA(scaleA[0]),
+        .scaleB(scaleB[0]),
+        .accumulator(scale_accum_in[0]),
+        .accumulator_out(scale_accum_out[0])
+    );
+
+    mac_scale_accum u_scale_accum1 (
+        .tile_value(scale_tile_value[1]),
+        .scaleA(scaleA[1]),
+        .scaleB(scaleB[1]),
+        .accumulator(scale_accum_in[1]),
+        .accumulator_out(scale_accum_out[1])
+    );
+
+//SCALE
+always_comb begin
+
+    case(scale_row_group)
+
+        2'd0: begin
+            // rows 0,1
+            scaleA[0] = ctx_act_scale_lo[7:0];
+            scaleA[1] = ctx_act_scale_lo[15:8];
+        end
+
+
+        2'd1: begin
+            // rows 2,3
+            scaleA[0] = ctx_act_scale_lo[23:16];
+            scaleA[1] = ctx_act_scale_lo[31:24];
+        end
+
+
+        2'd2: begin
+            // rows 4,5
+            scaleA[0] = ctx_act_scale_hi[7:0];
+            scaleA[1] = ctx_act_scale_hi[15:8];
+        end
+
+
+        2'd3: begin
+            // rows 6,7
+            scaleA[0] = ctx_act_scale_hi[23:16];
+            scaleA[1] = ctx_act_scale_hi[31:24];
+        end
+
+    endcase
+
+
+    if(scale_col < 4) begin
+
+        scaleB[0] = ctx_weight_scale_lo[scale_col*8 +: 8];
+        scaleB[1] = ctx_weight_scale_lo[scale_col*8 +: 8];
+
+    end
+    else begin
+
+        scaleB[0] = ctx_weight_scale_hi[(scale_col-4)*8 +: 8];
+        scaleB[1] = ctx_weight_scale_hi[(scale_col-4)*8 +: 8];
+
+    end
+
+end
+
+//SCALE_end
+
+    // Unpack the 32-bit read line into individual accumulators
+    always_comb begin
+        scale_accum_in[0] = bram_rd_data[15:0];  
+        scale_accum_in[1] = bram_rd_data[31:16]; 
+    end
+
+//DEBUG
+//------------------------------------------------------------
+// Unified Scale Accumulation Trace Debug
+//
+// Purpose:
+//   Track:
+//      MAC snapshot
+//          ->
+//      BF16 scaled value
+//          +
+//      BRAM previous value
+//          ->
+//      BRAM new value
+//
+//   This specifically verifies:
+//
+//      v0: 0    + 4410 = 4410
+//      v1: 4410 + 4410 = 4490
+//
+//------------------------------------------------------------
+
+logic [31:0] scale_fold_count;
+logic [31:0] scale_context_count;
+
+
+always_ff @(posedge clk_i or negedge rst_ni) begin
+    if(!rst_ni) begin
+        scale_fold_count    <= 32'd0;
+        scale_context_count <= 32'd0;
+    end
+    else begin
+
+        if(context_accept) begin
+            scale_fold_count <= 32'd0;
+            scale_context_count <= scale_context_count + 1'b1;
+        end
+
+        if(scale_write)
+            scale_fold_count <= scale_fold_count + 1'b1;
+
+    end
+end
+
+
+
+always_ff @(posedge clk_i) begin
+
+    if(rst_ni && scale_write) begin
+
+
+        $display("");
+        $display("");
+        $display("==============================================================");
+        $display("[SCALE_ACCUM_TRACE]  TIME=%0t ns",$time);
+        $display("==============================================================");
+
+
+        //--------------------------------------------------------
+        // Context information
+        //--------------------------------------------------------
+
+        $display("");
+        $display("CONTEXT");
+        $display("--------------------------------------------------------------");
+
+        $display("Context ID       = %0d",
+                 scale_context_count);
+
+        $display("Fold Count       = %0d",
+                 scale_fold_count);
+
+
+
+        //--------------------------------------------------------
+        // BRAM bank / address
+        //--------------------------------------------------------
+
+        $display("");
+        $display("BRAM LOCATION");
+        $display("--------------------------------------------------------------");
+
+        $display("Current Tile     = %0d",
+                 current_tile_q);
+
+        $display("Frozen Tile      = %0d",
+                 scale_tile_q);
+
+        $display("Read Tile        = %0d",
+                 bram_rd_tile);
+
+        $display("Write Tile       = %0d",
+                 bram_wr_tile);
+
+
+        $display("");
+
+        $display("Row Group        = %0d",
+                 scale_row_group);
+
+        $display("Column           = %0d",
+                 scale_col);
+
+
+        $display("Rows             = {%0d,%0d}",
+                 bram_wr_row,
+                 bram_wr_row+1);
+
+
+
+        //--------------------------------------------------------
+        // Snapshot source
+        //--------------------------------------------------------
+
+        $display("");
+        $display("MAC SNAPSHOT");
+        $display("--------------------------------------------------------------");
+
+
+        $display("LOW CELL");
+        $display(" snapshot[%0d][%0d]",
+                 {scale_row_group,1'b0},
+                 scale_col);
+
+        $display(" value = %0d (0x%h)",
+                 $signed(scale_tile_value[0]),
+                 scale_tile_value[0]);
+
+
+
+        $display("");
+
+        $display("HIGH CELL");
+        $display(" snapshot[%0d][%0d]",
+                 {scale_row_group,1'b0}+1'b1,
+                 scale_col);
+
+        $display(" value = %0d (0x%h)",
+                 $signed(scale_tile_value[1]),
+                 scale_tile_value[1]);
+
+
+
+
+        //--------------------------------------------------------
+        // Scaling information
+        //--------------------------------------------------------
+
+        $display("");
+        $display("SCALE FACTORS");
+        $display("--------------------------------------------------------------");
+
+
+        $display("LOW:");
+        $display(" Act Scale    = 0x%h",
+                 scaleA[0]);
+
+        $display(" Weight Scale = 0x%h",
+                 scaleB[0]);
+
+
+        $display("");
+
+        $display("HIGH:");
+        $display(" Act Scale    = 0x%h",
+                 scaleA[1]);
+
+        $display(" Weight Scale = 0x%h",
+                 scaleB[1]);
+
+
+
+
+        //--------------------------------------------------------
+        // Accumulation equation
+        //--------------------------------------------------------
+
+        $display("");
+        $display("ACCUMULATION");
+        $display("--------------------------------------------------------------");
+
+
+        $display("LOW CELL");
+
+        $display(" Previous BRAM = 0x%h (%0d)",
+                 scale_accum_in[0],
+                 $signed(scale_accum_in[0]));
+
+        $display(" Scaled Value  = 0x%h",
+                 scale_accum_out[0]);
+
+        $display(" New BRAM      = 0x%h",
+                 scale_accum_out[0]);
+
+
+
+        $display("");
+
+        $display("HIGH CELL");
+
+        $display(" Previous BRAM = 0x%h (%0d)",
+                 scale_accum_in[1],
+                 $signed(scale_accum_in[1]));
+
+        $display(" Scaled Value  = 0x%h",
+                 scale_accum_out[1]);
+
+        $display(" New BRAM      = 0x%h",
+                 scale_accum_out[1]);
+
+
+
+
+        //--------------------------------------------------------
+        // Write commit
+        //--------------------------------------------------------
+
+        $display("");
+        $display("BRAM WRITE COMMIT");
+        $display("--------------------------------------------------------------");
+
+
+        $display("Address:");
+        $display(" tile=%0d row=%0d col=%0d",
+                 bram_wr_tile,
+                 bram_wr_row,
+                 bram_wr_col);
+
+
+        $display("");
+
+        $display("LOW WRITE  = 0x%h",
+                 bram_wr_data[15:0]);
+
+        $display("HIGH WRITE = 0x%h",
+                 bram_wr_data[31:16]);
+
+        $display("PACKED     = 0x%08h",
+                 bram_wr_data);
+
+
+
+
+        //--------------------------------------------------------
+        // Automatic failure detection
+        //--------------------------------------------------------
+
+        $display("");
+        $display("CHECKS");
+        $display("--------------------------------------------------------------");
+
+
+        if(scale_tile_q != bram_rd_tile)
+            $display("ERROR: READ TILE MISMATCH");
+
+
+        if(scale_tile_q != bram_wr_tile)
+            $display("ERROR: WRITE TILE MISMATCH");
+
+
+        if(scale_accum_in[0] == 16'h0000 &&
+           scale_fold_count != 0)
+            $display("WARNING: SECOND FOLD READING ZERO LOW CELL");
+
+
+        if(scale_accum_in[1] == 16'h0000 &&
+           scale_fold_count != 0)
+            $display("WARNING: SECOND FOLD READING ZERO HIGH CELL");
+
+
+        if(scale_accum_out[0] == scale_accum_in[0])
+            $display("WARNING: LOW CELL DID NOT CHANGE");
+
+
+        if(scale_accum_out[1] == scale_accum_in[1])
+            $display("WARNING: HIGH CELL DID NOT CHANGE");
+
+
+        $display("==============================================================");
+        $display("");
+
+    end
+end
+
+always_ff @(posedge clk_i) begin
+
+    if(rst_ni && scale_write) begin
+
+        $display("");
+        $display("================================================");
+        $display("SCALE INDEX DEBUG");
+        $display("================================================");
+
+
+        $display("scale_row_group = %0d", scale_row_group);
+        $display("scale_col       = %0d", scale_col);
+
+
+        $display("");
+        $display("ACT SCALE CONTEXT");
+        $display("-----------------");
+
+        $display("ctx_act_scale_lo = 0x%08h",
+                 ctx_act_scale_lo);
+
+        $display("ctx_act_scale_hi = 0x%08h",
+                 ctx_act_scale_hi);
+
+
+        $display("");
+        $display("Selected ACT scales:");
+        $display("scaleA[0] = 0x%02h",
+                 scaleA[0]);
+
+        $display("scaleA[1] = 0x%02h",
+                 scaleA[1]);
+
+
+        case(scale_row_group)
+
+            2'd0: begin
+                $display("Expected rows: 0,1");
+                $display("row0 source: ctx_act_scale_lo[7:0]");
+                $display("row1 source: ctx_act_scale_lo[15:8]");
+            end
+
+            2'd1: begin
+                $display("Expected rows: 2,3");
+                $display("row2 source: ctx_act_scale_lo[23:16]");
+                $display("row3 source: ctx_act_scale_lo[31:24]");
+            end
+
+            2'd2: begin
+                $display("Expected rows: 4,5");
+                $display("row4 source: ctx_act_scale_hi[7:0]");
+                $display("row5 source: ctx_act_scale_hi[15:8]");
+            end
+
+            2'd3: begin
+                $display("Expected rows: 6,7");
+                $display("row6 source: ctx_act_scale_hi[23:16]");
+                $display("row7 source: ctx_act_scale_hi[31:24]");
+            end
+
+        endcase
+
+
+        $display("");
+        $display("WEIGHT SCALE CONTEXT");
+        $display("--------------------");
+
+        $display("ctx_weight_scale_lo = 0x%08h",
+                 ctx_weight_scale_lo);
+
+        $display("ctx_weight_scale_hi = 0x%08h",
+                 ctx_weight_scale_hi);
+
+
+        $display("");
+        $display("Selected WEIGHT scales:");
+
+        $display("scaleB[0] = 0x%02h",
+                 scaleB[0]);
+
+        $display("scaleB[1] = 0x%02h",
+                 scaleB[1]);
+
+
+        if(scale_col < 4) begin
+            $display("Weight source = LO");
+            $display("Bit range = [%0d +: 8]",
+                     scale_col*8);
+        end
+        else begin
+            $display("Weight source = HI");
+            $display("Bit range = [%0d +: 8]",
+                     (scale_col-4)*8);
+        end
+
+
+        $display("");
+        $display("SNAPSHOT LOCATION");
+        $display("-----------------");
+
+        $display("cell0 = snapshot[%0d][%0d]",
+                 {scale_row_group,1'b0},
+                 scale_col);
+
+        $display("cell1 = snapshot[%0d][%0d]",
+                 {scale_row_group,1'b0}+1,
+                 scale_col);
+
+
+        $display("================================================");
+        $display("");
+
+    end
+
+end
+//DEBUG_end
+
+
+endmodule
