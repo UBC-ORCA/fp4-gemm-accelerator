@@ -1,6 +1,10 @@
 # fp4-gemm-accelerator
 4-Bit Floating Point Accelerator for Dot Product and Outer Products
 
+## NOTICE:
+The RTL in this branch is from RTL-FREEZE commit 723704f.
+https://github.com/UBC-ORCA/fp4-gemm-accelerator/commit/723704f3f80dcb5e4952a04859821f929767bfa6
+
 ## Starting Point
 Please make directories for int8 and fp4-old. We will use these files to populate a new directory, fp4.
 
