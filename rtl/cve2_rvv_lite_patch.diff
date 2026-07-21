@@ -1,0 +1,984 @@
+diff -ruN /mnt/data/rtl_orig/rtl/cve2_core.f /mnt/data/rtl_src/rtl/cve2_core.f
+--- /mnt/data/rtl_orig/rtl/cve2_core.f	2026-02-23 13:49:02.000000000 +0000
++++ /mnt/data/rtl_src/rtl/cve2_core.f	2026-02-28 08:06:23.877808468 +0000
+@@ -14,4 +14,6 @@
+ cve2_prefetch_buffer.sv
+ cve2_fetch_fifo.sv
+ cve2_register_file_ff.sv
++cve2_vec_regfile.sv
++cve2_vec_unit.sv
+ cve2_core.sv
+diff -ruN /mnt/data/rtl_orig/rtl/cve2_core.sv /mnt/data/rtl_src/rtl/cve2_core.sv
+--- /mnt/data/rtl_orig/rtl/cve2_core.sv	2026-02-23 13:49:02.000000000 +0000
++++ /mnt/data/rtl_src/rtl/cve2_core.sv	2026-02-28 08:06:01.400917974 +0000
+@@ -187,6 +187,42 @@
+   logic        rf_we_wb;
+   logic        rf_we_lsu;
+ 
++  ////////////////////////
++  // RVV-Lite Vector Unit
++  ////////////////////////
++  logic        vec_req_valid;
++  logic        vec_req_ready;
++  logic [31:0] vec_req_instr;
++  logic [31:0] vec_req_rs1;
++  logic [31:0] vec_req_rs2;
++  logic        vec_busy;
++  logic        vec_done;
++  logic        vec_scalar_we;
++  logic [4:0]  vec_scalar_waddr;
++  logic [31:0] vec_scalar_wdata;
++
++  // Vector data bus (arbitrated against scalar LSU)
++  logic        vec_data_req;
++  logic        vec_data_we;
++  logic [31:0] vec_data_addr;
++  logic [31:0] vec_data_wdata;
++  logic [3:0]  vec_data_be;
++  logic        vec_data_gnt;
++  logic        vec_data_rvalid;
++  logic [31:0] vec_data_rdata;
++  logic        vec_data_err;
++
++  // Scalar LSU data bus (internal)
++  logic        data_req_lsu;
++  logic        data_we_lsu;
++  logic [31:0] data_addr_lsu;
++  logic [31:0] data_wdata_lsu;
++  logic [3:0]  data_be_lsu;
++  logic        data_gnt_lsu;
++  logic        data_rvalid_lsu;
++  logic [31:0] data_rdata_lsu;
++  logic        data_err_lsu;
++
+   logic [4:0]  rf_waddr_id;
+   logic [31:0] rf_wdata_id;
+   logic        rf_we_id;
+@@ -252,7 +288,6 @@
+   pmp_cfg_t     csr_pmp_cfg  [PMPNumRegions];
+   pmp_mseccfg_t csr_pmp_mseccfg;
+   logic         pmp_req_err  [PMP_NUM_CHAN];
+-  logic         data_req_out;
+ 
+   logic        csr_save_if;
+   logic        csr_save_id;
+@@ -522,7 +557,21 @@
+     .perf_dside_wait_o(perf_dside_wait),
+     .perf_wfi_wait_o  (perf_wfi_wait),
+     .perf_div_wait_o  (perf_div_wait),
+-    .instr_id_done_o  (instr_id_done)
++    .instr_id_done_o  (instr_id_done),
++
++    // RVV-Lite vector unit request channel
++    .vec_req_valid_o      (vec_req_valid),
++    .vec_req_ready_i      (vec_req_ready),
++    .vec_req_instr_o      (vec_req_instr),
++    .vec_req_rs1_value_o  (vec_req_rs1),
++    .vec_req_rs2_value_o  (vec_req_rs2),
++
++    // RVV-Lite vector unit completion channel
++    .vec_busy_i           (vec_busy),
++    .vec_done_i           (vec_done),
++    .vec_scalar_we_i      (vec_scalar_we),
++    .vec_scalar_waddr_i   (vec_scalar_waddr),
++    .vec_scalar_wdata_i   (vec_scalar_wdata)
+   );
+ 
+   // for RVFI only
+@@ -570,25 +619,77 @@
+   // Load/store unit //
+   /////////////////////
+ 
+-  assign data_req_o   = data_req_out & ~pmp_req_err[PMP_D];
++  // Data bus arbitration:
++  // - When the RVV-Lite vector unit is busy, it owns the data bus.
++  // - Otherwise, the scalar LSU owns the data bus (with optional PMP gating).
++  wire sel_vec_data = vec_busy;
++
++  // External data bus drive
++  assign data_req_o   = sel_vec_data ? vec_data_req : (data_req_lsu & ~pmp_req_err[PMP_D]);
++  assign data_addr_o  = sel_vec_data ? vec_data_addr : data_addr_lsu;
++  assign data_we_o    = sel_vec_data ? vec_data_we : data_we_lsu;
++  assign data_be_o    = sel_vec_data ? vec_data_be : data_be_lsu;
++  assign data_wdata_o = sel_vec_data ? vec_data_wdata : data_wdata_lsu;
++
++  // Feed responses back only to the selected master
++  assign data_gnt_lsu     = data_gnt_i    & ~sel_vec_data;
++  assign data_rvalid_lsu  = data_rvalid_i & ~sel_vec_data;
++  assign data_err_lsu     = data_err_i    & ~sel_vec_data;
++  assign data_rdata_lsu   = data_rdata_i;
++
++  assign vec_data_gnt     = data_gnt_i    & sel_vec_data;
++  assign vec_data_rvalid  = data_rvalid_i & sel_vec_data;
++  assign vec_data_err     = data_err_i    & sel_vec_data;
++  assign vec_data_rdata   = data_rdata_i;
++
+   assign lsu_resp_err = lsu_load_err | lsu_store_err;
+ 
++  // RVV-Lite vector unit (minimal subset)
++  cve2_vec_unit vec_unit_i (
++    .clk_i (clk_i),
++    .rst_ni(rst_ni),
++
++    .start_i     (vec_req_valid),
++    .start_ready_o(vec_req_ready),
++    .instr_i     (vec_req_instr),
++    .rs1_value_i (vec_req_rs1),
++    .rs2_value_i (vec_req_rs2),
++
++    .busy_o      (vec_busy),
++    .done_o      (vec_done),
++
++    .scalar_we_o   (vec_scalar_we),
++    .scalar_waddr_o(vec_scalar_waddr),
++    .scalar_wdata_o(vec_scalar_wdata),
++
++    // Dedicated (arbitrated) data interface
++    .mem_req_o   (vec_data_req),
++    .mem_we_o    (vec_data_we),
++    .mem_addr_o  (vec_data_addr),
++    .mem_wdata_o (vec_data_wdata),
++    .mem_be_o    (vec_data_be),
++    .mem_gnt_i   (vec_data_gnt),
++    .mem_rvalid_i(vec_data_rvalid),
++    .mem_rdata_i (vec_data_rdata),
++    .mem_err_i   (vec_data_err)
++  );
++
+   cve2_load_store_unit load_store_unit_i (
+     .clk_i (clk_i),
+     .rst_ni(rst_ni),
+ 
+     // data interface
+-    .data_req_o    (data_req_out),
+-    .data_gnt_i    (data_gnt_i),
+-    .data_rvalid_i (data_rvalid_i),
+-    .data_err_i    (data_err_i),
++    .data_req_o    (data_req_lsu),
++    .data_gnt_i    (data_gnt_lsu),
++    .data_rvalid_i (data_rvalid_lsu),
++    .data_err_i    (data_err_lsu),
+     .data_pmp_err_i(pmp_req_err[PMP_D]),
+ 
+-    .data_addr_o (data_addr_o),
+-    .data_we_o   (data_we_o),
+-    .data_be_o   (data_be_o),
+-    .data_wdata_o(data_wdata_o),
+-    .data_rdata_i(data_rdata_i),
++    .data_addr_o (data_addr_lsu),
++    .data_we_o   (data_we_lsu),
++    .data_be_o   (data_be_lsu),
++    .data_wdata_o(data_wdata_lsu),
++    .data_rdata_i(data_rdata_lsu),
+ 
+     // signals to/from ID/EX stage
+     .lsu_we_i      (lsu_we),
+diff -ruN /mnt/data/rtl_orig/rtl/cve2_decoder.sv /mnt/data/rtl_src/rtl/cve2_decoder.sv
+--- /mnt/data/rtl_orig/rtl/cve2_decoder.sv	2026-02-23 13:49:02.000000000 +0000
++++ /mnt/data/rtl_src/rtl/cve2_decoder.sv	2026-02-28 07:38:57.760978782 +0000
+@@ -33,6 +33,8 @@
+   output logic                 wfi_insn_o,            // wait for interrupt instr encountered
+   output logic                 jump_set_o,            // jump taken set signal
+ 
++  output logic                 vec_insn_o,           // recognized vector instruction (handled by vec unit)
++  output logic                 vec_vset_o,           // vset* instruction (writes rd with vl)
+   // from IF-ID pipeline register
+   input  logic                 instr_first_cycle_i,   // instruction read is in its first cycle
+   input  logic [31:0]          instr_rdata_i,         // instruction read from memory/cache
+@@ -1169,7 +1171,80 @@
+ 
+   // make sure instructions accessing non-available registers in RV32E cause illegal
+   // instruction exceptions
+-  assign illegal_insn_o = illegal_insn | illegal_reg_rv32e;
++  
++
++  // ------------------------------
++  // Minimal RVV-Lite A.1 decode hook
++  // ------------------------------
++  // Recognize a small subset of vector encodings handled by cve2_vec_unit.
++  // Unrecognized encodings remain illegal.
++  localparam logic [6:0] VEC_OPC_OPV     = 7'h57;
++  localparam logic [6:0] VEC_OPC_LOADFP  = 7'h07;
++  localparam logic [6:0] VEC_OPC_STOREFP = 7'h27;
++  localparam logic [2:0] VEC_F3_VSET  = 3'b111;
++  localparam logic [2:0] VEC_F3_OPIVV = 3'b000;
++  localparam logic [2:0] VEC_F3_OPIVI = 3'b011;
++  localparam logic [2:0] VEC_F3_OPIVX = 3'b100;
++  localparam logic [2:0] VEC_F3_W32   = 3'b110;
++  localparam logic [5:0] VEC_F6_VADD  = 6'b000000;
++  localparam logic [5:0] VEC_F6_VMUL  = 6'b100101;
++  localparam logic [5:0] VEC_F6_VAND  = 6'b001001;
++  localparam logic [5:0] VEC_F6_VSRL  = 6'b101000;
++
++  logic vec_insn;
++  logic vec_vset;
++  logic vec_vtype_ok;
++
++  function automatic logic vec_vtype_supported(input logic [10:0] vtypei);
++    logic [2:0] vlmul;
++    logic [2:0] vsew;
++    logic       vta;
++    begin
++      vlmul = vtypei[2:0];
++      vsew  = vtypei[5:3];
++      vta   = vtypei[6];
++      vec_vtype_supported = (vlmul == 3'b000) && (vsew == 3'b010) && (vta == 1'b1);
++    end
++  endfunction
++
++  always_comb begin
++    vec_insn     = 1'b0;
++    vec_vset     = 1'b0;
++    vec_vtype_ok = 1'b1;
++
++    // vset* (OP-V funct3=111). For this project: only SEW=32, LMUL=1, TA=1 are allowed.
++    if (opcode == VEC_OPC_OPV && funct3 == VEC_F3_VSET) begin
++      vec_insn = 1'b1;
++      vec_vset = 1'b1;
++      // vsetvli only (exclude vsetivli and vsetvl patterns) checks vtype.
++      if (!instr_rdata_i[31] && !(instr_rdata_i[25] && (instr_rdata_i[31:26] == 6'b000000))) begin
++        vec_vtype_ok = vec_vtype_supported(instr_rdata_i[30:20]);
++      end
++    end
++
++    // unit-stride vle32.v / vse32.v only: width=32, nf=0, mew=0, mop=00
++    if (opcode == VEC_OPC_LOADFP && funct3 == VEC_F3_W32) begin
++      if ((instr_rdata_i[31:29] == 3'b000) && (instr_rdata_i[28] == 1'b0) && (instr_rdata_i[27:26] == 2'b00)) begin
++        vec_insn = 1'b1;
++      end
++    end
++    if (opcode == VEC_OPC_STOREFP && funct3 == VEC_F3_W32) begin
++      if ((instr_rdata_i[31:29] == 3'b000) && (instr_rdata_i[28] == 1'b0) && (instr_rdata_i[27:26] == 2'b00)) begin
++        vec_insn = 1'b1;
++      end
++    end
++
++    // OP-V arithmetic subset
++    if (opcode == VEC_OPC_OPV) begin
++      if ((funct3 == VEC_F3_OPIVV) && (funct6 == VEC_F6_VADD)) vec_insn = 1'b1;
++      if ((funct3 == VEC_F3_OPIVX) && ((funct6 == VEC_F6_VADD) || (funct6 == VEC_F6_VMUL))) vec_insn = 1'b1;
++      if ((funct3 == VEC_F3_OPIVI) && ((funct6 == VEC_F6_VAND) || (funct6 == VEC_F6_VSRL))) vec_insn = 1'b1;
++    end
++  end
++
++  assign vec_insn_o = vec_insn;
++  assign vec_vset_o = vec_vset;
++assign illegal_insn_o = (illegal_insn | illegal_reg_rv32e) | (vec_vset && !vec_vtype_ok);
+ 
+   // do not propgate regfile write enable if non-available registers are accessed in RV32E
+   assign rf_we_o = rf_we & ~illegal_reg_rv32e;
+diff -ruN /mnt/data/rtl_orig/rtl/cve2_id_stage.sv /mnt/data/rtl_src/rtl/cve2_id_stage.sv
+--- /mnt/data/rtl_orig/rtl/cve2_id_stage.sv	2026-02-23 13:49:02.000000000 +0000
++++ /mnt/data/rtl_src/rtl/cve2_id_stage.sv	2026-02-28 07:47:14.557603419 +0000
+@@ -173,6 +173,18 @@
+   output logic                      perf_wfi_wait_o,
+   output logic                      perf_div_wait_o,
+   output logic                      instr_id_done_o
++  // Vector unit interface (RVV-Lite A.1, minimal)
++  output logic        vec_req_valid_o,
++  output logic [31:0] vec_req_instr_o,
++  output logic [31:0] vec_req_rs1_o,
++  output logic [31:0] vec_req_rs2_o,
++  input  logic        vec_req_ready_i,
++  input  logic        vec_busy_i,
++  input  logic        vec_done_i,
++  input  logic        vec_scalar_we_i,
++  input  logic [4:0]  vec_scalar_waddr_i,
++  input  logic [31:0] vec_scalar_wdata_i,
++
+ );
+ 
+   import cve2_pkg::*;
+@@ -189,7 +201,10 @@
+   logic        branch_set, branch_set_raw, branch_set_raw_d;
+   logic        branch_jump_set_done_q, branch_jump_set_done_d;
+   logic        jump_in_dec;
++  logic [4:0]  rf_waddr_dec;
+   logic        jump_set_dec;
++  logic        vec_insn_dec;
++  logic        vec_vset_dec;
+   logic        jump_set, jump_set_raw;
+ 
+   logic        instr_first_cycle;
+@@ -199,6 +214,7 @@
+   logic        controller_run;
+   logic        stall_mem;
+   logic        stall_multdiv;
++  logic        stall_vec;
+   logic        stall_branch;
+   logic        stall_jump;
+   logic        stall_id;
+@@ -341,7 +357,7 @@
+       end
+     end
+ 
+-    assign multicycle_done = lsu_req_dec ? lsu_resp_valid_i : (illegal_insn_dec ? coproc_done : ex_valid_i);
++    assign multicycle_done = vec_insn_dec ? vec_done_i : (lsu_req_dec ? lsu_resp_valid_i : (illegal_insn_dec ? coproc_done : ex_valid_i));
+ 
+     // Issue Interface
+     assign x_issue_valid_o      = instr_executing & illegal_insn_dec & (id_fsm_q == FIRST_CYCLE) & scoreboard_free;
+@@ -375,7 +391,7 @@
+ 
+     assign unused_coproc_done = coproc_done;
+ 
+-    assign multicycle_done = lsu_req_dec ? lsu_resp_valid_i : ex_valid_i;
++    assign multicycle_done = vec_insn_dec ? vec_done_i : (lsu_req_dec ? lsu_resp_valid_i : ex_valid_i);
+     assign scoreboard_busy = 1'b0;
+ 
+     // Issue Interface
+@@ -475,7 +491,8 @@
+   ///////////////////////
+ 
+   // Suppress register write if there is an illegal CSR access or instruction is not executing
+-  assign rf_we_id_o = rf_we_raw & instr_executing & ~illegal_csr_insn_i;
++assign rf_waddr_id_o = (vec_scalar_we_i) ? vec_scalar_waddr_i : rf_waddr_dec;
++  assign rf_we_id_o = (rf_we_raw & instr_executing & ~illegal_csr_insn_i) | vec_scalar_we_i;
+ 
+   // Register file write data mux
+   always_comb begin : rf_wdata_id_mux
+@@ -485,6 +502,11 @@
+       RF_WD_COPROC: rf_wdata_id_o   = XInterface? x_result_i.data : result_ex_i;
+       default:      rf_wdata_id_o   = result_ex_i;
+     endcase
++
++    // Vector unit scalar writeback (vset*) overrides the normal mux
++    if (vec_scalar_we_i) begin
++      rf_wdata_id_o = vec_scalar_wdata_i;
++    end
+   end
+ 
+   /////////////
+@@ -508,6 +530,8 @@
+     .ecall_insn_o  (ecall_insn_dec),
+     .wfi_insn_o    (wfi_insn_dec),
+     .jump_set_o    (jump_set_dec),
++    .vec_insn_o      (vec_insn_dec),
++    .vec_vset_o      (vec_vset_dec),
+ 
+     // from IF-ID pipeline register
+     .instr_first_cycle_i(instr_first_cycle),
+@@ -532,7 +556,7 @@
+ 
+     .rf_raddr_a_o(rf_raddr_a_o),
+     .rf_raddr_b_o(rf_raddr_b_o),
+-    .rf_waddr_o  (rf_waddr_id_o),
++    .rf_waddr_o  (rf_waddr_dec),
+     .rf_ren_a_o  (rf_ren_a_dec),
+     .rf_ren_b_o  (rf_ren_b_dec),
+ 
+@@ -787,6 +811,13 @@
+                 id_fsm_d    = MULTI_CYCLE;
+               end
+             end
++            vec_insn_dec: begin
++              // Vector operation (handled by vector unit, always multi-cycle)
++              id_fsm_d  = MULTI_CYCLE;
++              rf_we_raw = 1'b0;
++              // Stall immediately so PC does not advance in the first cycle
++              stall_alu = 1'b1;
++            end
+             multdiv_en_dec: begin
+               // MUL or DIV operation
+               if (~ex_valid_i) begin
+@@ -884,7 +915,7 @@
+ 
+   // Stall ID/EX stage for reason that relates to instruction in ID/EX, update assertion below if
+   // modifying this.
+-  assign stall_id = stall_mem | stall_multdiv | stall_jump | stall_branch |
++  assign stall_id = stall_mem | stall_multdiv | stall_vec | stall_jump | stall_branch |
+                       stall_alu | (XInterface & stall_coproc);
+ 
+   // Generally illegal instructions have no reason to stall, however they must still stall waiting
+@@ -907,6 +938,8 @@
+   // Without Writeback Stage always stall the first cycle of a load/store.
+   // Then stall until it is complete
+   assign stall_mem = instr_valid_i & (lsu_req_dec & (~lsu_resp_valid_i | instr_first_cycle));
++  // Vector unit stall (multi-cycle vector ops)
++  assign stall_vec = (vec_busy_i && !vec_done_i) | (instr_valid_i && instr_first_cycle && vec_insn_dec && !vec_req_ready_i);
+ 
+   // Without writeback stage any valid instruction that hasn't seen an error will execute
+   assign instr_executing_spec = instr_valid_i & ~instr_fetch_err_i & controller_run;
+@@ -929,6 +962,12 @@
+ 
+   assign instr_id_done_o = instr_done;
+ 
++  // Vector unit request (pulse on first cycle of a recognized vector instruction)
++  assign vec_req_valid_o = instr_valid_i && instr_first_cycle && vec_insn_dec && controller_run && !stall_id && !flush_id;
++  assign vec_req_instr_o = instr_rdata_i;
++  assign vec_req_rs1_o   = rf_rdata_a_fwd;
++  assign vec_req_rs2_o   = rf_rdata_b_fwd;
++
+   // Signal which instructions to count as retired in minstret, all traps along with ebrk and
+   // ecall instructions are not counted.
+   assign instr_perf_count_id_o = ~ebrk_insn & ~ecall_insn_dec & ~illegal_insn_dec &
+diff -ruN /mnt/data/rtl_orig/rtl/cve2_vec_regfile.sv /mnt/data/rtl_src/rtl/cve2_vec_regfile.sv
+--- /mnt/data/rtl_orig/rtl/cve2_vec_regfile.sv	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/rtl_src/rtl/cve2_vec_regfile.sv	2026-02-28 07:31:44.970391080 +0000
+@@ -0,0 +1,50 @@
++// Copyright (c) 2026
++// SPDX-License-Identifier: Apache-2.0
++//
++// Minimal vector register file for RVV-Lite A.1 on CVE2.
++// Separate from scalar RF.
++
++module cve2_vec_regfile #(
++  parameter int unsigned VLEN     = 256,
++  parameter int unsigned NUM_REGS = 32
++) (
++  input  logic                       clk_i,
++  input  logic                       rst_ni,
++
++  // Read ports (combinational)
++  input  logic [$clog2(NUM_REGS)-1:0] raddr0_i,
++  output logic [VLEN-1:0]            rdata0_o,
++  input  logic [$clog2(NUM_REGS)-1:0] raddr1_i,
++  output logic [VLEN-1:0]            rdata1_o,
++  input  logic [$clog2(NUM_REGS)-1:0] raddr2_i,
++  output logic [VLEN-1:0]            rdata2_o,
++
++  // Write port (synchronous)
++  input  logic                       we_i,
++  input  logic [$clog2(NUM_REGS)-1:0] waddr_i,
++  input  logic [VLEN-1:0]            wdata_i
++);
++
++  logic [VLEN-1:0] vreg_q [NUM_REGS];
++
++  // Combinational reads
++  always_comb begin
++    rdata0_o = vreg_q[raddr0_i];
++    rdata1_o = vreg_q[raddr1_i];
++    rdata2_o = vreg_q[raddr2_i];
++  end
++
++  integer i;
++  always_ff @(posedge clk_i or negedge rst_ni) begin
++    if (!rst_ni) begin
++      for (i = 0; i < NUM_REGS; i++) begin
++        vreg_q[i] <= '0;
++      end
++    end else begin
++      if (we_i) begin
++        vreg_q[waddr_i] <= wdata_i;
++      end
++    end
++  end
++
++endmodule
+diff -ruN /mnt/data/rtl_orig/rtl/cve2_vec_unit.sv /mnt/data/rtl_src/rtl/cve2_vec_unit.sv
+--- /mnt/data/rtl_orig/rtl/cve2_vec_unit.sv	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/rtl_src/rtl/cve2_vec_unit.sv	2026-02-28 07:34:48.663519357 +0000
+@@ -0,0 +1,513 @@
++// Copyright (c) 2026
++// SPDX-License-Identifier: Apache-2.0
++//
++// Minimal RVV-Lite A.1 vector unit for CVE2
++//
++// Requirements implemented:
++// - Separate vector register file.
++// - SEW fixed to 32, LMUL fixed to 1.
++// - VLEN fixed (default 256b => 8 elements).
++// - Minimal mask support using v0 (packed bit mask: v0[i] is mask for element i).
++// - Tail agnostic: elements >= vl are don't care (we leave them unchanged).
++// - Safe/simple uarch: one element per cycle; vector loads/stores are serialized.
++// - Internal hardware loop counter (element index) and post-increment address counter for vmem ops.
++//
++// Supported instruction subset (sufficient for rgba2luma-style kernels):
++// - vsetvli / vsetivli / vsetvl  (fixed to SEW=32, LMUL=1, TA=1)
++// - vle32.v (unit-stride only)
++// - vse32.v (unit-stride only)
++// - vadd.vv, vadd.vx
++// - vmul.vx
++// - vand.vi
++// - vsrl.vi
++
++module cve2_vec_unit #(
++  parameter int unsigned VLEN     = 256,
++  parameter int unsigned SEW      = 32,
++  parameter int unsigned NUM_REGS = 32
++) (
++  input  logic         clk_i,
++  input  logic         rst_ni,
++
++  // Request from ID stage
++  input  logic         req_valid_i,
++  input  logic [31:0]  req_instr_i,
++  input  logic [31:0]  req_rs1_i,    // scalar x[rs1] value
++  input  logic [31:0]  req_rs2_i,    // scalar x[rs2] value (used for vsetvl)
++  output logic         req_ready_o,
++
++  // Completion back to ID stage
++  output logic         busy_o,
++  output logic         done_o,
++  output logic         scalar_we_o,
++  output logic [4:0]   scalar_waddr_o,
++  output logic [31:0]  scalar_wdata_o,
++
++  // Memory interface (direct, shared with scalar LSU via top-level mux)
++  output logic         data_req_o,
++  input  logic         data_gnt_i,
++  output logic [31:0]  data_addr_o,
++  output logic         data_we_o,
++  output logic [3:0]   data_be_o,
++  output logic [31:0]  data_wdata_o,
++  input  logic [31:0]  data_rdata_i,
++  input  logic         data_rvalid_i,
++  input  logic         data_err_i
++);
++
++  localparam int unsigned LANES  = VLEN / SEW; // 8 when VLEN=256 and SEW=32
++  localparam int unsigned REG_AW = $clog2(NUM_REGS);
++
++  // Latched request
++  logic        req_valid_q;
++  logic [31:0] instr_q;
++  logic [31:0] rs1_q, rs2_q;
++
++  // Instruction fields
++  wire [6:0] opcode = instr_q[6:0];
++  wire [4:0] rd     = instr_q[11:7];
++  wire [2:0] funct3 = instr_q[14:12];
++  wire [4:0] rs1    = instr_q[19:15];
++  wire [4:0] rs2    = instr_q[24:20];
++  wire       vm     = instr_q[25];
++  wire [5:0] funct6 = instr_q[31:26];
++  wire [4:0] imm5   = instr_q[19:15];
++
++  // vmem fields (LOAD-FP/STORE-FP)
++  wire [1:0] mop = instr_q[27:26];
++  wire       mew = instr_q[28];
++  wire [2:0] nf  = instr_q[31:29];
++
++  // Vector reg indices (minimal)
++  wire [4:0] vd  = rd;
++  wire [4:0] vs1 = rs1;
++  wire [4:0] vs2 = rs2;
++  wire [4:0] vs3 = rd; // store data is in rd field for STORE-FP encodings
++
++  // ----------------------
++  // Vector register file
++  // ----------------------
++  logic [VLEN-1:0] v_mask, v_r1, v_r2;
++  logic [REG_AW-1:0] raddr0, raddr1, raddr2;
++  logic              v_we;
++  logic [REG_AW-1:0] v_waddr;
++  logic [VLEN-1:0]   v_wdata;
++
++  cve2_vec_regfile #(
++    .VLEN(VLEN),
++    .NUM_REGS(NUM_REGS)
++  ) i_vrf (
++    .clk_i   (clk_i),
++    .rst_ni  (rst_ni),
++    .raddr0_i(raddr0),
++    .rdata0_o(v_mask),
++    .raddr1_i(raddr1),
++    .rdata1_o(v_r1),
++    .raddr2_i(raddr2),
++    .rdata2_o(v_r2),
++    .we_i    (v_we),
++    .waddr_i (v_waddr),
++    .wdata_i (v_wdata)
++  );
++
++  // v0 mask: packed bits, use bit i for element i
++  function automatic logic mask_bit(input int unsigned idx);
++    mask_bit = v_mask[idx];
++  endfunction
++
++  // ----------------------
++  // Helpers: element access
++  // ----------------------
++  function automatic logic [31:0] get_elem32(input logic [VLEN-1:0] vec, input int unsigned idx);
++    get_elem32 = vec[idx*32 +: 32];
++  endfunction
++
++  function automatic logic [VLEN-1:0] set_elem32(
++    input logic [VLEN-1:0] vec,
++    input int unsigned idx,
++    input logic [31:0] val
++  );
++    logic [VLEN-1:0] tmp;
++    begin
++      tmp = vec;
++      tmp[idx*32 +: 32] = val;
++      return tmp;
++    end
++  endfunction
++
++  // unit-stride only
++  function automatic logic is_unit_stride;
++    is_unit_stride = (mop == 2'b00) && (mew == 1'b0) && (nf == 3'b000);
++  endfunction
++
++  // ----------------------
++  // Minimal decode
++  // ----------------------
++  typedef enum logic [3:0] {
++    VOP_NONE,
++    VOP_VSET,
++    VOP_VLE32,
++    VOP_VSE32,
++    VOP_VADD_VV,
++    VOP_VADD_VX,
++    VOP_VMUL_VX,
++    VOP_VAND_VI,
++    VOP_VSRL_VI
++  } vop_e;
++
++  vop_e vop_q, vop_d;
++
++  localparam logic [6:0] OPC_OPV     = 7'h57;
++  localparam logic [6:0] OPC_LOADFP  = 7'h07;
++  localparam logic [6:0] OPC_STOREFP = 7'h27;
++
++  localparam logic [2:0] F3_VSET  = 3'b111;
++  localparam logic [2:0] F3_OPIVV = 3'b000;
++  localparam logic [2:0] F3_OPIVI = 3'b011;
++  localparam logic [2:0] F3_OPIVX = 3'b100;
++  localparam logic [2:0] F3_W32   = 3'b110;
++
++  // Funct6 values from RVV 1.0
++  localparam logic [5:0] F6_VADD = 6'b000000;
++  localparam logic [5:0] F6_VMUL = 6'b100101;
++  localparam logic [5:0] F6_VAND = 6'b001001;
++  localparam logic [5:0] F6_VSRL = 6'b101000;
++
++  function automatic vop_e decode_vop(input logic [31:0] instr);
++    logic [6:0] op;
++    logic [2:0] f3;
++    logic [5:0] f6;
++    begin
++      op = instr[6:0];
++      f3 = instr[14:12];
++      f6 = instr[31:26];
++
++      if (op == OPC_OPV && f3 == F3_VSET) return VOP_VSET;
++
++      if (op == OPC_LOADFP && f3 == F3_W32) return VOP_VLE32;
++      if (op == OPC_STOREFP && f3 == F3_W32) return VOP_VSE32;
++
++      if (op == OPC_OPV && f3 == F3_OPIVV && f6 == F6_VADD) return VOP_VADD_VV;
++      if (op == OPC_OPV && f3 == F3_OPIVX && f6 == F6_VADD) return VOP_VADD_VX;
++      if (op == OPC_OPV && f3 == F3_OPIVX && f6 == F6_VMUL) return VOP_VMUL_VX;
++      if (op == OPC_OPV && f3 == F3_OPIVI && f6 == F6_VAND) return VOP_VAND_VI;
++      if (op == OPC_OPV && f3 == F3_OPIVI && f6 == F6_VSRL) return VOP_VSRL_VI;
++
++      return VOP_NONE;
++    end
++  endfunction
++
++  // vtype constraints (RVV): only accept SEW=32, LMUL=1, TA=1
++  function automatic logic vtype_supported(input logic [10:0] vtypei);
++    logic [2:0] vlmul;
++    logic [2:0] vsew;
++    logic       vta;
++    begin
++      vlmul = vtypei[2:0];
++      vsew  = vtypei[5:3];
++      vta   = vtypei[6];
++      vtype_supported = (vlmul == 3'b000) && (vsew == 3'b010) && (vta == 1'b1);
++    end
++  endfunction
++
++  function automatic logic [$clog2(LANES+1)-1:0] compute_vl(input logic [31:0] avl);
++    logic [$clog2(LANES+1)-1:0] tmp;
++    begin
++      if (avl > LANES) tmp = LANES[$clog2(LANES+1)-1:0];
++      else tmp = avl[$clog2(LANES+1)-1:0];
++      return tmp;
++    end
++  endfunction
++
++  // ----------------------
++  // State
++  // ----------------------
++  typedef enum logic [2:0] {
++    S_IDLE,
++    S_ALU,
++    S_MEM_REQ,
++    S_MEM_WAIT,
++    S_DONE
++  } state_e;
++
++  state_e state_q, state_d;
++
++  logic [$clog2(LANES+1)-1:0] vl_q, vl_d;            // 0..LANES
++  logic [$clog2(LANES)-1:0]   idx_q, idx_d;          // element index
++  logic [31:0]                mem_addr_q, mem_addr_d;
++  logic [VLEN-1:0]            acc_q, acc_d;          // dest accumulator
++
++  // handshake to ID
++  assign req_ready_o = ~req_valid_q;
++  assign busy_o      = req_valid_q;
++
++  // ----------------------
++  // Sequential
++  // ----------------------
++  always_ff @(posedge clk_i or negedge rst_ni) begin
++    if (!rst_ni) begin
++      req_valid_q <= 1'b0;
++      instr_q     <= 32'd0;
++      rs1_q       <= 32'd0;
++      rs2_q       <= 32'd0;
++      vop_q       <= VOP_NONE;
++
++      state_q     <= S_IDLE;
++      vl_q        <= LANES[$clog2(LANES+1)-1:0];
++      idx_q       <= '0;
++      mem_addr_q  <= 32'd0;
++      acc_q       <= '0;
++    end else begin
++      state_q    <= state_d;
++      vl_q       <= vl_d;
++      idx_q      <= idx_d;
++      mem_addr_q <= mem_addr_d;
++      acc_q      <= acc_d;
++      vop_q      <= vop_d;
++
++      // accept new request
++      if (req_valid_i && req_ready_o) begin
++        req_valid_q <= 1'b1;
++        instr_q     <= req_instr_i;
++        rs1_q       <= req_rs1_i;
++        rs2_q       <= req_rs2_i;
++      end
++
++      if (state_q == S_DONE) begin
++        req_valid_q <= 1'b0;
++      end
++    end
++  end
++
++  // ----------------------
++  // Combinational outputs + next state
++  // ----------------------
++  always_comb begin
++    // defaults
++    done_o         = 1'b0;
++    scalar_we_o    = 1'b0;
++    scalar_waddr_o = 5'd0;
++    scalar_wdata_o = 32'd0;
++
++    data_req_o     = 1'b0;
++    data_addr_o    = 32'd0;
++    data_we_o      = 1'b0;
++    data_be_o      = 4'b1111;
++    data_wdata_o   = 32'd0;
++
++    v_we           = 1'b0;
++    v_waddr        = '0;
++    v_wdata        = '0;
++
++    // vector reads: v0 for mask, v_r1 and v_r2 vary by op
++    raddr0 = '0;                 // v0
++    raddr1 = vs1[REG_AW-1:0];     // vs1
++    raddr2 = vs2[REG_AW-1:0];     // vs2
++
++    // next-state defaults
++    state_d    = state_q;
++    vl_d       = vl_q;
++    idx_d      = idx_q;
++    mem_addr_d = mem_addr_q;
++    acc_d      = acc_q;
++    vop_d      = vop_q;
++
++    // when we just accepted a new request, initialize locals
++    if (req_valid_i && req_ready_o) begin
++      vop_d      = decode_vop(req_instr_i);
++      state_d    = S_ALU;
++      idx_d      = '0;
++      mem_addr_d = req_rs1_i;
++      acc_d      = '0;
++    end
++
++    // For store, read vs3 as data vector on port1
++    if (vop_q == VOP_VSE32) begin
++      raddr1 = vs3[REG_AW-1:0];
++    end
++
++    // active-element predicate
++    logic do_elem;
++    do_elem = vm ? 1'b1 : mask_bit(idx_q);
++
++    unique case (state_q)
++      S_IDLE: begin
++        if (req_valid_q) begin
++          state_d = S_ALU;
++        end
++      end
++
++      S_ALU: begin
++        unique case (vop_q)
++          VOP_VSET: begin
++            // minimal vset semantics:
++            // - accept only fixed SEW/LMUL, TA=1 (for vsetvli)
++            // - compute vl = min(AVL, LANES)
++            logic [31:0] avl;
++            logic [10:0] vtypei;
++
++            // default: vsetvli (AVL in rs1)
++            avl   = rs1_q;
++            vtypei = instr_q[30:20];
++
++            if (instr_q[31]) begin
++              // vsetivli: AVL is uimm[4:0], vtypei is bits[29:20]
++              avl    = {27'd0, instr_q[19:15]};
++              vtypei = {1'b0, instr_q[29:20]};
++            end else if (instr_q[25] && (instr_q[31:26] == 6'b000000)) begin
++              // vsetvl: use rs2 as AVL
++              avl    = rs2_q;
++              vtypei = 11'h000;
++            end
++
++            // vsetvli checks vtype
++            if (!instr_q[31] && !(instr_q[25] && (instr_q[31:26] == 6'b000000))) begin
++              if (!vtype_supported(vtypei)) begin
++                // Treat as no-op; decoder should have trapped it as illegal.
++                vl_d = vl_q;
++              end else begin
++                vl_d = compute_vl(avl);
++              end
++            end else begin
++              // vsetivli/vsetvl: fixed semantics
++              vl_d = compute_vl(avl);
++            end
++
++            // write rd with new vl
++            scalar_we_o    = (rd != 5'd0);
++            scalar_waddr_o = rd;
++            scalar_wdata_o = {{(32-$clog2(LANES+1)){1'b0}}, vl_d};
++
++            done_o  = 1'b1;
++            state_d = S_DONE;
++          end
++
++          VOP_VADD_VV,
++          VOP_VADD_VX,
++          VOP_VMUL_VX,
++          VOP_VAND_VI,
++          VOP_VSRL_VI: begin
++            logic [31:0] a, b, r;
++            a = get_elem32(v_r2, idx_q); // vs2
++            unique case (vop_q)
++              VOP_VADD_VV: begin
++                b = get_elem32(v_r1, idx_q); // vs1
++                r = a + b;
++              end
++              VOP_VADD_VX: begin
++                b = rs1_q;
++                r = a + b;
++              end
++              VOP_VMUL_VX: begin
++                b = rs1_q;
++                r = a * b;
++              end
++              VOP_VAND_VI: begin
++                b = {27'd0, imm5};
++                r = a & b;
++              end
++              VOP_VSRL_VI: begin
++                b = {27'd0, imm5};
++                r = a >> b[4:0];
++              end
++              default: begin
++                b = 32'd0;
++                r = 32'd0;
++              end
++            endcase
++
++            if (do_elem) begin
++              acc_d = set_elem32(acc_d, idx_q, r);
++            end
++
++            if (idx_q == (vl_q - 1'b1)) begin
++              v_we    = 1'b1;
++              v_waddr = vd[REG_AW-1:0];
++              v_wdata = acc_d;
++              done_o  = 1'b1;
++              state_d = S_DONE;
++            end else begin
++              idx_d = idx_q + 1'b1;
++            end
++          end
++
++          VOP_VLE32,
++          VOP_VSE32: begin
++            if (!is_unit_stride()) begin
++              // unsupported addressing => should be illegal; treat as done
++              done_o  = 1'b1;
++              state_d = S_DONE;
++            end else begin
++              state_d = S_MEM_REQ;
++            end
++          end
++
++          default: begin
++            done_o  = 1'b1;
++            state_d = S_DONE;
++          end
++        endcase
++      end
++
++      S_MEM_REQ: begin
++        data_req_o  = 1'b1;
++        data_addr_o = mem_addr_q;
++        data_be_o   = 4'b1111;
++
++        if (vop_q == VOP_VLE32) begin
++          data_we_o    = 1'b0;
++          data_wdata_o = 32'd0;
++        end else begin
++          data_we_o    = 1'b1;
++          data_wdata_o = get_elem32(v_r1, idx_q); // v_r1 is vs3 for store
++        end
++
++        if (data_gnt_i) begin
++          state_d = S_MEM_WAIT;
++        end
++      end
++
++      S_MEM_WAIT: begin
++        if (data_rvalid_i) begin
++          if (data_err_i) begin
++            // Minimal: stop. (Scalar core may choose to observe bus error elsewhere.)
++            done_o  = 1'b1;
++            state_d = S_DONE;
++          end else begin
++            if (vop_q == VOP_VLE32) begin
++              if (do_elem) begin
++                acc_d = set_elem32(acc_d, idx_q, data_rdata_i);
++              end
++            end
++
++            // post-increment address
++            mem_addr_d = mem_addr_q + 32'd4;
++
++            if (idx_q == (vl_q - 1'b1)) begin
++              if (vop_q == VOP_VLE32) begin
++                v_we    = 1'b1;
++                v_waddr = vd[REG_AW-1:0];
++                v_wdata = acc_d;
++              end
++              done_o  = 1'b1;
++              state_d = S_DONE;
++            end else begin
++              idx_d   = idx_q + 1'b1;
++              state_d = S_MEM_REQ;
++            end
++          end
++        end
++      end
++
++      S_DONE: begin
++        done_o  = 1'b1;
++        state_d = S_IDLE;
++      end
++
++      default: begin
++        state_d = S_IDLE;
++      end
++    endcase
++  end
++
++endmodule
