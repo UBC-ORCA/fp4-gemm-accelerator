@@ -346,7 +346,7 @@ static void argmax(int *predictions, int WH) {
     }
 }
 
-// Quantize a bf16 activation to its FP4 code: round(value*4), clamped to [-4,4].
+// Quantize a bf16 activation to its FP4 code: round(value*4), clamped to [-4,4]
 static inline uint32_t fp4_from_bf16(uint16_t bf16) {
     int exp = (bf16 >> 7) & 0xFF;
     int mag;
@@ -367,7 +367,7 @@ static inline uint32_t fp4_from_bf16(uint16_t bf16) {
     return sign ? (0x8 | code) : code;
 }
 
-// Read a hidden layer's banks straight to FP4 activations, 8 samples packed per word.
+// Read a hidden layer's banks and qaunt to FP4 activations
 static void readout_fp4(uint32_t *z, int WH) {
     int tiles = (WH + TT - 1) / TT;
     for (int tile = 0; tile < tiles; tile++) {
