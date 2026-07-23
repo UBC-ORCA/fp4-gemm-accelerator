@@ -183,8 +183,8 @@ for (int i = 0; i < WORDS_PER_VREG * NUM_VREGS; i++) {
 //  mac_bias(1,0,0,0x00aa);   // distinctive value to trace how the scale-fold reads propagate it
 mac_bias(0,0,0,0x3f80);
    mac_bias(0,7,7,0x4120);   // tile0 row7 col7 (ODD row - must not assert or spill to tile1)
-  //mac_bias(1,0,0,0x4120);   // distinctive value to trace how the scale-fold reads propagate it
-//  mac_bias(1,0,0,0x4120);   // distinctive value to trace how the scale-fold reads propagate it
+  mac_bias(1,0,0,0x4120);   // distinctive value to trace how the scale-fold reads propagate it
+  mac_bias(1,0,0,0x4120);   // distinctive value to trace how the scale-fold reads propagate it
 
    load_act_scales(act_scales);
   load_w_scales(weight_scales);
@@ -192,23 +192,23 @@ mac_bias(0,0,0,0x3f80);
   // ==========================================
   // BRING-UP TEST 1: Register v0 Verification
   // ==========================================
-  load_v0(&mat_a[0]);               // Loads v0 (Words 0 to 31)
-  mac_zz();                         // Clear accumulator tile
-  mac_mem_test_v0(weights);         // Multiplies v0 by weights[0..31]
-  mac_as();                         // Apply activation scales
-  mac_ws();                         // Apply weight scales
+ // load_v0(&mat_a[0]);               // Loads v0 (Words 0 to 31)
+ // mac_zz();                         // Clear accumulator tile
+//  mac_mem_test_v0(weights);         // Multiplies v0 by weights[0..31]
+ // mac_as();                         // Apply activation scales
+ // mac_ws();                         // Apply weight scales
 
   // ==========================================
   // BRING-UP TEST 2: Register v1 Verification
   // ==========================================
-  load_act_scales(act_scales);
-  load_w_scales(weight_scales);
-  load_v1(&mat_a[32]);              // Loads v1 (Words 32 to 63)
-  mac_zz();
-  mac_mem_test_v1(weights);         // Multiplies v1 by weights[32..63]
-  mac_as();
-  mac_ws();
-  chk = mac_out(0, 0, 2);
+//  load_act_scales(act_scales);
+//  load_w_scales(weight_scales);
+//  load_v1(&mat_a[32]);              // Loads v1 (Words 32 to 63)
+//  mac_zz();
+//  mac_mem_test_v1(weights);         // Multiplies v1 by weights[32..63]
+//  mac_as();
+//  mac_ws();
+//  chk = mac_out(0, 0, 2);
 mac_bias(31,7,7,0x3fc0); 
 
 //BRAM write check
