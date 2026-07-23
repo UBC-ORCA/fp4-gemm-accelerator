@@ -16,8 +16,8 @@ SHELL := /bin/bash
 
 CVE2_CONFIG ?= small
 
-#TB_CPP := ../../../../sw/tb/matrix_tb/min_tb_matmul8.cpp
-TB_CPP := ../../../../sw/tb/inference_tb/min_tb_inference.cpp
+TB_CPP := ../../../../sw/tb/matrix_tb/min_tb_matmul8.cpp
+#TB_CPP := ../../../../sw/tb/inference_tb/min_tb_inference.cpp
 
 TOP_MODULE := cve2_top
 
