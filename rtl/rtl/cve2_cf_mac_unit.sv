@@ -217,7 +217,7 @@ module cve2_cf_mac_unit
 		bram_rd_en   = scale_rd_en;
             bram_rd_tile = scale_tile_q;
             bram_rd_row  = {scale_row_group, 1'b0};
-            bram_rd_col  = scale_col;
+            bram_rd_col  = scale_rd_col;
 
             bram_wr_en   = scale_write;
             bram_wr_tile = scale_tile_q;
