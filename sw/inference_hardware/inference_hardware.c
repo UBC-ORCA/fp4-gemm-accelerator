@@ -4,7 +4,7 @@
 #include "../headers/weights_blk32_pkgUINT32_scaleE8M0.h"
 
 // Total number of samples to process
-#define N_SAMPLES 10000
+#define N_SAMPLES 80
 
 // Memory addresses for test data loading
 #define IMG_LOAD  ((volatile unsigned int  *) 0xFFFF0010)
@@ -76,11 +76,11 @@ static inline uint32_t rdcyc(void) {
     return c;
 }
 
-static uint64_t pc_imgq;       
-static uint64_t pc_gemm[3];    
-static uint64_t pc_qact[2];    
-static uint64_t pc_bram[3];
-static uint64_t pc_bias[3];    
+static uint64_t pc_imgq;
+static uint64_t pc_gemm[3];
+static uint64_t pc_qact[2];    // hidden read-out + FP4 quantize (readout_fp4)
+static uint64_t pc_argmax;     // final read-out + argmax
+static uint64_t pc_bias[3];
 static int      pc_layer;      
 
 #define PC_LAYER(n)     (pc_layer = (n))
@@ -112,39 +112,32 @@ static void pc_report(void) {
     print_str("\n[PERF] cycles over run\n");
     pc_line("imgq   |", pc_imgq);       // image load and quant
 
-    pc_line("gemm_1 |", pc_gemm[0]);    // first gemm compute (incl. bias seed, excl. read-out)
-    pc_line("gemm_2 |", pc_gemm[1]);    // second gemm compute
-    pc_line("gemm_3 |", pc_gemm[2]);    // third gemm compute
+    pc_line("gemm_1 |", pc_gemm[0]);    // gemm compute per layer (incl. bias seed)
+    pc_line("gemm_2 |", pc_gemm[1]);
+    pc_line("gemm_3 |", pc_gemm[2]);
 
-    pc_line("qact_1 |", pc_qact[0]);    // first activation apply + quant
-    pc_line("qact_2 |", pc_qact[1]);    // second activation apply + quant
+    pc_line("qact_1 |", pc_qact[0]);    // hidden read-out from banks + FP4 quantize
+    pc_line("qact_2 |", pc_qact[1]);
 
-    pc_line("bram_1 |", pc_bram[0]);    // first bram->ram
-    pc_line("bram_2 |", pc_bram[1]);    // second bram->ram
-    pc_line("bram_3 |", pc_bram[2]);    // thrid bram->ram
+    pc_line("argmax |", pc_argmax);     // final read-out from banks + argmax
 
-    pc_line("bias_1 |", pc_bias[0]);    // first bias tile seed
-    pc_line("bias_2 |", pc_bias[1]);    // second bias tile seed
-    pc_line("bias_3 |", pc_bias[2]);    // third bias tile seed
+    pc_line("bias_1 |", pc_bias[0]);    // bias tile seed (subset of gemm)
+    pc_line("bias_2 |", pc_bias[1]);
+    pc_line("bias_3 |", pc_bias[2]);
 
     print_str("\n[PERF] total cycles over run\n");
-    // total cycles in gemm compute (incl. bias) plus the read-out
+    // gemm compute (incl. bias) plus every read-out
     pc_line("gemm_T |",
         pc_gemm[0] + pc_gemm[1] + pc_gemm[2] +
-        pc_bram[0] + pc_bram[1] + pc_bram[2]);
+        pc_qact[0] + pc_qact[1] + pc_argmax);
     // datapath only: gemm compute minus the bias seed
     pc_line("gemm_X |",
         pc_gemm[0] + pc_gemm[1] + pc_gemm[2] -
         (pc_bias[0] + pc_bias[1] + pc_bias[2]));
-    // total cycles spent applying activation + quantizing to FP4
-    pc_line("qact_T |", 
-        pc_qact[0] + pc_qact[1]);
-    // total cycles spent reading from bram and storing
-    pc_line("bram_T |", 
-        pc_bram[0] + pc_bram[1] + pc_bram[2]);
-    // total cycles spent performing tile bias seed
-    pc_line("bias_T |", 
-        pc_bias[0] + pc_bias[1] + pc_bias[2]);
+    // total read-out + FP4 quantize
+    pc_line("qact_T |", pc_qact[0] + pc_qact[1]);
+    // total bias seed
+    pc_line("bias_T |", pc_bias[0] + pc_bias[1] + pc_bias[2]);
 }
 #else
 #define PC_LAYER(n)     ((void)0)
@@ -358,33 +351,32 @@ enum { FP4_05 = 1, FP4_10 = 2, FP4_15 = 3, FP4_20 = 4, FP4_30 = 5, FP4_40 = 6 };
 static uint8_t bf16_fp4_lut[128 * 4];
 
 static void build_bf16_fp4_lut(void) {
-    int code = 0;
+    int code = 0;                                   // start: value below 0.25 -> 0
     for (int i = 0; i < 128 * 4; i++) {
-        if (i >= (0 * 128) +  1) { code = FP4_05; } // > 0.25 (tie at 0.25 -> 0)
-        if (i >= (1 * 128) + 64) { code = FP4_10; } // >= 0.75
-        if (i >= (2 * 128) + 33) { code = FP4_15; } // >  1.25
-        if (i >= (2 * 128) + 96) { code = FP4_20; } // >= 1.75
-        if (i >= (3 * 128) + 33) { code = FP4_30; } // >  2.5
-        if (i >= (3 * 128) + 96) { code = FP4_40; } // >= 3.5
+        if (i >= (0 * 128) +  1) { code = FP4_05; } // past 0.25 -> 0.5   (0   / 0.5 boundary)
+        if (i >= (1 * 128) + 64) { code = FP4_10; } // past 0.75 -> 1.0   (0.5 / 1.0 boundary)
+        if (i >= (2 * 128) + 33) { code = FP4_15; } // past 1.25 -> 1.5   (1.0 / 1.5 boundary)
+        if (i >= (2 * 128) + 96) { code = FP4_20; } // past 1.75 -> 2.0   (1.5 / 2.0 boundary)
+        if (i >= (3 * 128) + 33) { code = FP4_30; } // past 2.5  -> 3.0   (2.0 / 3.0 boundary)
+        if (i >= (3 * 128) + 96) { code = FP4_40; } // past 3.5  -> 4.0   (3.0 / 4.0 boundary)
         bf16_fp4_lut[i] = (uint8_t)code;
     }
 }
 
-// bf16 activation -> FP4 code
-// now using Hardtanh(-0.5,0.5)
+// bf16 activation -> FP4 code (Hardtanh(-0.5,0.5), scaled x8 so 0.5 -> FP4 4.0)
 static inline uint32_t fp4_from_bf16(uint16_t bf16) {
     int exp  = (bf16 >> 7) & 0xFF;
     int sign = (bf16 >> 15) & 1;
     int code;
-    if (exp < 122) {                       // scaled |value| < 0.25 -> 0
+    if (exp < 122) {                       // |act| < 0.03125 : too small, rounds to 0
         code = 0;
-    } else if (exp > 125) {                // |value| >= 0.5 -> hardtanh clamp -> 4.0
+    } else if (exp > 125) {                // |act| >= 0.5    : hardtanh clamp, top FP4 (4.0)
         code = FP4_40;
-    } else {
+    } else {                               // 0.03125 .. 0.5  : nearest FP4 from the LUT
         code = bf16_fp4_lut[(((exp - 122) & 3) << 7) | (bf16 & 0x7F)];
     }
-    if (code == 0) { return 0; }
-    return sign ? (0x8u | code) : (uint32_t)code;
+    if (code == 0) { return 0; }           // zero has no sign
+    return sign ? (0x8u | code) : (uint32_t)code;   // else set the sign bit (bit 3)
 }
 
 // Read a hidden layer's banks and qaunt to FP4 activations
@@ -504,15 +496,15 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
 
     PC_LAYER(0);
     gemm(inputs, w1_fp4, bias1_packed, IN_DIM, L1_DIM, wscale1, ascale1);
-    TIME(pc_bram[0], readout_fp4(z1_packed, L1_DIM));       // hidden layer -> FP4 activations
+    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM));       // hidden layer -> FP4 activations
 
     PC_LAYER(1);
     gemm(z1_packed, w2_fp4, bias2_packed, L1_DIM, L2_DIM, wscale2, ascale2);
-    TIME(pc_bram[1], readout_fp4(z2_packed, L2_DIM));       // hidden layer -> FP4 activations
+    TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM));       // hidden layer -> FP4 activations
 
     PC_LAYER(2);
     gemm(z2_packed, w3_fp4, bias3_packed, L2_DIM, OUT_DIM, wscale3, ascale3);
-    TIME(pc_bram[2], argmax(predictions, OUT_DIM));  // final layer -> argmax
+    TIME(pc_argmax, argmax(predictions, OUT_DIM));  // final layer -> argmax
 }
 
 int main(void) {
