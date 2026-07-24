@@ -1,9 +1,10 @@
 // MLP inference on CVE2 with GEN3 spec
 
+#include <assert.h>
 #include "../headers/weights_blk32_pkgUINT32_scaleE8M0.h"
 
 // Total number of samples to process
-#define N_SAMPLES 80
+#define N_SAMPLES 10000
 
 // Memory addresses for test data loading
 #define IMG_LOAD  ((volatile unsigned int  *) 0xFFFF0010)
@@ -33,6 +34,10 @@
 
 // Enable intermediate UART prints (P|T|M results)
 #define PTM_PRINTS
+
+void __assert_func(const char *f,int l,const char *fn,const char *e){
+    (void)f;(void)l;(void)fn;(void)e; __builtin_trap();
+}
 
 // =======================================
 // UART output helpers
@@ -346,25 +351,40 @@ static void argmax(int *predictions, int WH) {
     }
 }
 
-// Quantize a bf16 activation to its FP4 code: round(value*4), clamped to [-4,4]
+// FP4 E2M1 magnitude codes:  0=0  1=0.5  2=1.0  3=1.5  4=2.0  5=3.0  6=4.0
+enum { FP4_05 = 1, FP4_10 = 2, FP4_15 = 3, FP4_20 = 4, FP4_30 = 5, FP4_40 = 6 };
+
+// Nearest-FP4 code for a scaled value in [0,4]; index = (exp-125)[1:0]<<7 | mantissa
+static uint8_t bf16_fp4_lut[128 * 4];
+
+static void build_bf16_fp4_lut(void) {
+    int code = 0;
+    for (int i = 0; i < 128 * 4; i++) {
+        if (i >= (0 * 128) +  1) { code = FP4_05; } // > 0.25 (tie at 0.25 -> 0)
+        if (i >= (1 * 128) + 64) { code = FP4_10; } // >= 0.75
+        if (i >= (2 * 128) + 33) { code = FP4_15; } // >  1.25
+        if (i >= (2 * 128) + 96) { code = FP4_20; } // >= 1.75
+        if (i >= (3 * 128) + 33) { code = FP4_30; } // >  2.5
+        if (i >= (3 * 128) + 96) { code = FP4_40; } // >= 3.5
+        bf16_fp4_lut[i] = (uint8_t)code;
+    }
+}
+
+// bf16 activation -> FP4 code
+// now using Hardtanh(-0.5,0.5)
 static inline uint32_t fp4_from_bf16(uint16_t bf16) {
-    int exp = (bf16 >> 7) & 0xFF;
-    int mag;
-    if (exp >= 127) {
-        mag = 4;                             // |value| >= 1 -> clamp
-    } else if (exp <= 123) {
-        mag = 0;                             // |value|*4 < 0.5 -> rounds to 0
-    } else {
-        int man = 0x80 | (bf16 & 0x7F);       // 128..255
-        int shift    = 132 - exp;             // 6..8
-        mag = (man + (1 << (shift - 1))) >> shift;   // round to nearest -> 1..4
-    }
+    int exp  = (bf16 >> 7) & 0xFF;
     int sign = (bf16 >> 15) & 1;
-    int code = fp4_mag_lut[mag];
-    if (code == 0) {
-        return 0;
+    int code;
+    if (exp < 122) {                       // scaled |value| < 0.25 -> 0
+        code = 0;
+    } else if (exp > 125) {                // |value| >= 0.5 -> hardtanh clamp -> 4.0
+        code = FP4_40;
+    } else {
+        code = bf16_fp4_lut[(((exp - 122) & 3) << 7) | (bf16 & 0x7F)];
     }
-    return sign ? (0x8 | code) : code;
+    if (code == 0) { return 0; }
+    return sign ? (0x8u | code) : (uint32_t)code;
 }
 
 // Read a hidden layer's banks and qaunt to FP4 activations
@@ -376,6 +396,8 @@ static void readout_fp4(uint32_t *z, int WH) {
             z[neuron0 + col] = 0;                  // clear this bank's 8 neurons
         }
         for (int row = 0; row < TT/2; row++) {
+
+            #pragma GCC unroll 8 // TT
             for (int col = 0; col < TT; col++) {
                 uint32_t pair   = bram_rd(tile, 2 * row, col);
                 int neuron = neuron0 + col;        // column picks the neuron
@@ -400,6 +422,10 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
 #ifdef PERF_COUNTERS
     uint32_t _gt0 = rdcyc();
 #endif
+    // Results are left in the BRAM accumulator
+    assert( AV == TT );          // else BRAM must be saved after each I iteration
+    assert( WH <= NTILES * TT ); // else BRAM must be saved+reloaded each J iteration
+
     int num_blocks = (KK + BS - 1) / BS;   // K split into BS-blocks
     int num_tiles  = (WH + TT - 1) / TT;   // columns split into TTxTT tiles
     
@@ -422,6 +448,8 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
                     uint32_t word = bias_packed[idx*32 + c*8];
                     uint16_t lo = (uint16_t)(word & 0xFFFF);   // even col 2c
                     uint16_t hi = (uint16_t)(word >> 16);      // odd  col 2c+1
+
+                    #pragma GCC unroll 8 // BATCH
                     for (int r = 0; r < BATCH; r++) {  // 8 rows
                         mac_bias(T, r, 2*c,   lo);
                         mac_bias(T, r, 2*c+1, hi);
@@ -494,6 +522,7 @@ int main(void) {
     int predictions[BATCH];
 
     build_pix_lut();
+    build_bf16_fp4_lut();
 
     // Print prediction, truth, and reference format
     #ifdef PTM_PRINTS
