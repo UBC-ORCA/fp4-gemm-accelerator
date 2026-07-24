@@ -950,7 +950,14 @@ assign cf_req_rs2_o   = rf_rdata_b_fwd;
                 id_fsm_d    = MULTI_CYCLE;
               end
             end
-            (vec_insn_dec || cf_insn_dec): begin
+            (vec_insn_dec): begin
+              // Vector operation (handled by vector unit, always multi-cycle)
+              id_fsm_d  = MULTI_CYCLE;
+              rf_we_raw = 1'b0;
+              // Stall immediately so PC does not advance in the first cycle
+              stall_alu = 1'b1;
+            end
+            (cf_insn_dec): begin
               // Vector operation (handled by vector unit, always multi-cycle)
               id_fsm_d  = MULTI_CYCLE;
               rf_we_raw = 1'b0;
