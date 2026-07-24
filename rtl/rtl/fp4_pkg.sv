@@ -14,6 +14,12 @@ typedef struct packed {
 } fp4_scaler_e4m3_t;
 
 typedef struct packed {
+    logic sign;
+    logic [1:0] exp;
+    logic mant;
+} fp4_e2m1_t;
+
+typedef struct packed {
     /* MX format of the scaler E8M0 has no sign bits */
     logic [7:0] exp;
 } fp4_scaler_mxe8m0_t;

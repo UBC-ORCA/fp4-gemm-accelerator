@@ -24,6 +24,8 @@ TOP_MODULE := cve2_top
 VC_NAME := openhwgroup_cve2_cve2_top_0.1.vc
 VC_PATCHED := openhwgroup_cve2_cve2_top_0.1_patched.vc
 
+RTL := rtl
+
 ###############################################################################
 # RTL simulation-debug displays (all OFF by default -> clean inference runs)
 # Enable a subsystem's $display dumps by setting its var, e.g.:
@@ -43,11 +45,18 @@ DBG_DEFINES := $(if $(MAC_DEBUG),+define+MAC_DEBUG) \
 
 all: run
 
+# Generate FP4 multiply LUT
+$(RTL)/fp4_mul_int9.sv: $(wildcard scripts/rtl_gen/*)
+	@echo "Generating FP4 Multiplier LUT Configuration"
+	python3 scripts/rtl_gen/gen_fp4_mul.py $(RTL)/fp4_mul_int9.sv
+
+
+
 ###############################################################################
 # STEP 1: Generate FuseSoC file list (.vc)
 ###############################################################################
 .PHONY: fuse
-fuse:
+fuse: rtl/fp4_mul_int9.sv
 	@echo "Running FuseSoC setup..."
 	VERILATOR_OPTIONS="-Wno-fatal" \
 	PATH="$(PWD)/venv_cve2/bin:$$PATH" \

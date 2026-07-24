@@ -44,14 +44,12 @@ filesets:
       - rtl/parameterized_adder.sv
       - rtl/accumulator_reg.sv
       - rtl/sat16_adder.sv
-      - rtl/fp4_multiplier.sv
-      - rtl/fp4_decoder.sv
+      - rtl/fp4_mul_int9.sv
       - rtl/mac_cell.sv
       - rtl/mac_controller.sv
       - rtl/mac_array.sv
       - rtl/cve2_cf_mac_unit.sv
       - rtl/fp4_mac8x8_gen1.sv
-      - rtl/cve2_cf_unit.sv
       - rtl/cve2_vec_regfile.sv
       - rtl/cve2_vec_unit.sv
       - rtl/cve2_pmp.sv

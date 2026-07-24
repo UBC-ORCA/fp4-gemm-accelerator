@@ -13,7 +13,8 @@
  * This module is intentionally ISA-independent.
  ******************************************************************************/
 
-module mac_array #(
+module mac_array
+import fp4_pkg::*; #(
 
     parameter int TT = 8
 
@@ -33,13 +34,13 @@ module mac_array #(
     // One FP4 activation per row
     //----------------------------------------------------------
 
-    input logic [3:0] act_i [0:TT-1],
+    input fp4_e2m1_t act_i [0:TT-1],
 
     //----------------------------------------------------------
     // One FP4 weight per column
     //----------------------------------------------------------
 
-    input logic [3:0] wt_i [0:TT-1],
+    input fp4_e2m1_t wt_i [0:TT-1],
 
     //----------------------------------------------------------
     // Full accumulator tile
@@ -57,50 +58,6 @@ output logic [31:0] mv_data_o
 
 );
 
-
-    //----------------------------------------------------------
-    // Decoded INT5 quanta vectors
-    //----------------------------------------------------------
-
-    logic signed [4:0] act_q [0:TT-1];
-    logic signed [4:0] wt_q  [0:TT-1];
-
-
-    //----------------------------------------------------------
-    // FP4 decode
-    //
-    // Decode once per vector element.
-    //----------------------------------------------------------
-
-    genvar i;
-
-    generate
-
-        for (i = 0; i < TT; i++) begin : GEN_DECODER
-
-
-            fp4_decoder u_act_decoder (
-
-                .fp4_i    (act_i[i]),
-                .quanta_o (act_q[i])
-
-            );
-
-
-            fp4_decoder u_wt_decoder (
-
-                .fp4_i    (wt_i[i]),
-                .quanta_o (wt_q[i])
-
-            );
-
-
-        end
-
-    endgenerate
-
-
-
     //----------------------------------------------------------
     // Instantiate TT × TT MAC cells
     //----------------------------------------------------------
@@ -115,44 +72,43 @@ localparam logic [1:0] MV_PAIR = 2'd2;
         for (r = 0; r < TT; r++) begin : GEN_ROW
 
             for (c = 0; c < TT; c++) begin : GEN_COL
-logic cell_mv_clear; //for mv
+                logic cell_mv_clear; //for mv
 
-assign cell_mv_clear =
-    mv_en_i &&
-    (
-        ((mv_mode_i == MV_EVEN) &&
-         (r == mv_row_idx_i) &&
-         (c == mv_even_col_idx_i))
+                assign cell_mv_clear =
+                    mv_en_i &&
+                    (
+                        ((mv_mode_i == MV_EVEN) &&
+                        (r == mv_row_idx_i) &&
+                        (c == mv_even_col_idx_i))
 
-     ||
+                    ||
 
-        ((mv_mode_i == MV_ODD) &&
-         (r == mv_row_idx_i) &&
-         (c == mv_odd_col_idx_i))
+                        ((mv_mode_i == MV_ODD) &&
+                        (r == mv_row_idx_i) &&
+                        (c == mv_odd_col_idx_i))
 
-     ||
+                    ||
 
-        ((mv_mode_i == MV_PAIR) &&
-         (r == mv_row_idx_i) &&
-         (
-            (c == mv_even_col_idx_i) ||
-            (c == mv_odd_col_idx_i)
-         ))
-    );
+                        ((mv_mode_i == MV_PAIR) &&
+                        (r == mv_row_idx_i) &&
+                        (
+                            (c == mv_even_col_idx_i) ||
+                            (c == mv_odd_col_idx_i)
+                        ))
+                    );
 
 
                 mac_cell u_mac (
 
                     .clk      (clk),
-                    .rst_n    (rst_n),
 
                     .mac_en_i (mac_en_i),
                     .clear_i  (clear_i),
-		    .mv_clear_i(cell_mv_clear), // for mv
+		             .mv_clear_i(cell_mv_clear), // for mv
 
                     // decoded FP4 quanta
-                    .act_i    (act_q[r]),
-                    .wt_i     (wt_q[c]),
+                    .act_i    (act_i[r]),
+                    .wt_i     (wt_i[c]),
 
                     .accum_o  (accum_o[r][c])
 
