@@ -30,7 +30,7 @@ run_inference.sh - launch a CVE2 FP4 MNIST inference build under Verilator
   ./run_inference.sh <version> [dataset] [options]
 
   version : baseline | hardware            (required)
-  dataset : 8 | 80 | 400 | 1K | 2k | 10k   (default: 80 | UPDATE IN C)
+  dataset : 8 | 80 | 400 | 1k | 2k | 10k   (default: 80 | UPDATE IN C)
 
 Run ./run_inference.sh --help for the full option list.
 
@@ -73,7 +73,7 @@ while [[ $# -gt 0 ]]; do
     8|test_8|test8)          DATASET=8 ;;
     80|test_80|test80)          DATASET=80 ;;
     400|test_400|test400)          DATASET=400 ;;
-    1K|test_1K|test1k)          DATASET=1K ;;
+    1k|test_1k|test1k)          DATASET=1k ;;
     2k|test_2k|test2k)          DATASET=2k ;;
     10k|test_10k|test10k)       DATASET=10k ;;
     --traces)      TRACE_IF=1; TRACE_D=1 ;;
@@ -104,7 +104,7 @@ HEX="../sw/$DIR/inference.hex"
 DATA="../sw/headers/test_${DATASET}.bin"
 
 if [[ $YES -eq 0 && -t 0 ]]; then
-  case "$DATASET" in 8) N=8 ;; 80) N=80 ;; 400) N=400 ;; 1K) N=1000 ;; 2k) N=2000 ;; 10k) N=10000 ;; *) N="$DATASET" ;; esac
+  case "$DATASET" in 8) N=8 ;; 80) N=80 ;; 400) N=400 ;; 1k) N=1000 ;; 2k) N=2000 ;; 10k) N=10000 ;; *) N="$DATASET" ;; esac
   echo "version: $VERSION"
   echo "dataset size (check c code): $N"
   read -rp "confirm [y/n] " ans
