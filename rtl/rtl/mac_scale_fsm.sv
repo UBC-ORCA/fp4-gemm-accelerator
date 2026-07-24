@@ -16,42 +16,76 @@ module mac_scale_fsm #(
     input  logic signed [15:0]   tile_snapshot_i [0:7][0:7],
 
     output logic                 scale_busy_o,
+    output logic                 scale_rd_en_o,
     output logic                 scale_write_o,
     output logic                 scale_done_o,
 
-    output logic [2:0]           scale_col_o,
-    output logic [1:0]           scale_row_group_o
+    // Read coordinates (pushed to BRAM & Scale Muxes)
+    output logic [2:0]           scale_rd_col_o,
+    output logic [1:0]           scale_rd_row_group_o,
+
+    // Write coordinates (pushed to BRAM on cycle T+1)
+    output logic [2:0]           scale_wr_col_o,
+    output logic [1:0]           scale_wr_row_group_o
 );
 
     typedef enum logic [1:0] {
         IDLE,
-        STREAM,
-        DRAIN
+        INIT_RD,    // Prime the memory pipeline with the first read
+        STREAM,     // Continuous pipeline: read N+1, compute/write N
+        DRAIN       // Flush remaining pipeline write N_last
     } state_e;
 
     state_e state_q, state_d;
 
-    // Independent structural read counters
+    // Read Counters
     logic [2:0] rd_col_q, rd_col_d;
     logic [1:0] rd_row_grp_q, rd_row_grp_d;
 
-    // Registered pipeline write flag
-    logic write_valid_q;
+    // Pipeline Write Tracking Registers (Delay 1 cycle behind Read)
+    logic [2:0] wr_col_q;
+    logic [1:0] wr_row_grp_q;
+    logic       write_valid_q;
+
+    // Flag indicating read pipeline priming status
+    logic       rd_init_q;
+
+    // Read counter increment helper flag
+    logic       rd_last;
+    assign rd_last = (rd_col_q == 3'd7) && (rd_row_grp_q == 2'd3);
 
     //--------------------------------------------------------------------------
-    // State & Counter Register Logic
+    // Sequential Pipeline Logic
     //--------------------------------------------------------------------------
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
             state_q       <= IDLE;
             rd_col_q      <= '0;
             rd_row_grp_q  <= '0;
+            wr_col_q      <= '0;
+            wr_row_grp_q  <= '0;
             write_valid_q <= 1'b0;
+            rd_init_q     <= 1'b0;
         end else begin
-            state_q       <= state_d;
-            rd_col_q      <= rd_col_d;
-            rd_row_grp_q  <= rd_row_grp_d;
-            write_valid_q <= (state_q == STREAM);
+            state_q      <= state_d;
+            rd_col_q     <= rd_col_d;
+            rd_row_grp_q <= rd_row_grp_d;
+
+            // Write pipeline delay line (captures read address on active read)
+            if (state_q == INIT_RD || state_q == STREAM) begin
+                wr_col_q     <= rd_col_q;
+                wr_row_grp_q <= rd_row_grp_q;
+            end
+
+            // Write enable valid 1 cycle after read starts
+            write_valid_q <= (state_q == STREAM) || (state_q == DRAIN);
+
+            // Prime status tracking
+            if (state_q == INIT_RD) begin
+                rd_init_q <= 1'b1;
+            end else if (state_q == IDLE || state_q == DRAIN) begin
+                rd_init_q <= 1'b0;
+            end
         end
     end
 
@@ -68,26 +102,31 @@ module mac_scale_fsm #(
                 rd_col_d     = '0;
                 rd_row_grp_d = '0;
                 if (context_ready_i) begin
-                    state_d = STREAM;
+                    state_d = INIT_RD;
                 end
             end
 
+            INIT_RD: begin
+                // Kick off 1st read at (0,0), step read counter on next cycle
+                rd_col_d = rd_col_q + 1'b1;
+                state_d  = STREAM;
+            end
+
             STREAM: begin
-                // Independent column step
-                if (rd_col_q == 3'd7) begin
-                    rd_col_d = '0;
-                    // Independent row-group step
-                    if (rd_row_grp_q == 2'd3) begin
-                        state_d = DRAIN;
-                    end else begin
-                        rd_row_grp_d = rd_row_grp_q + 1'b1;
-                    end
+                if (rd_last) begin
+                    state_d = DRAIN;
                 end else begin
-                    rd_col_d = rd_col_q + 1'b1;
+                    if (rd_col_q == 3'd7) begin
+                        rd_col_d     = '0;
+                        rd_row_grp_d = rd_row_grp_q + 1'b1;
+                    end else begin
+                        rd_col_d = rd_col_q + 1'b1;
+                    end
                 end
             end
 
             DRAIN: begin
+                // Drain last element write, then return to IDLE
                 state_d = IDLE;
             end
 
@@ -96,15 +135,19 @@ module mac_scale_fsm #(
     end
 
     //--------------------------------------------------------------------------
-    // Output Assignments
+    // Control Signal Outputs
     //--------------------------------------------------------------------------
     assign context_accept_o = (state_q == IDLE) && context_ready_i;
-    assign scale_busy_o      = (state_q != IDLE) || write_valid_q;
-    assign scale_write_o     = write_valid_q;
-    assign scale_done_o      = (state_q == DRAIN);
+    assign scale_busy_o     = (state_q != IDLE);
+    assign scale_rd_en_o    = (state_q == INIT_RD) || (state_q == STREAM);
+    assign scale_write_o    = write_valid_q;
+    assign scale_done_o     = (state_q == DRAIN);
 
-    // Dynamic output coordinates strictly controlled by structural counters
-    assign scale_col_o       = rd_col_q;
-    assign scale_row_group_o = rd_row_grp_q;
+    // Export decoupled read and write indices
+    assign scale_rd_col_o       = rd_col_q;
+    assign scale_rd_row_group_o = rd_row_grp_q;
+
+    assign scale_wr_col_o       = wr_col_q;
+    assign scale_wr_row_group_o = wr_row_grp_q;
 
 endmodule

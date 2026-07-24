@@ -202,17 +202,27 @@ module cve2_cf_mac_unit
     logic [15:0] scale_accum_in  [0:1];
     logic [15:0] scale_accum_out [0:1];
 
+//PATCH
+// Wire declarations for pipeline scaling
+    logic        scale_rd_en;
+    logic [2:0]  scale_rd_col;
+    logic [1:0]  scale_rd_row_group;
+    logic [2:0]  scale_wr_col;
+    logic [1:0]  scale_wr_row_group;
+//PATCH_end
+
     always_comb begin
         if (scale_busy) begin
-            bram_rd_en   = 1'b1;
+            //bram_rd_en   = 1'b1;
+		bram_rd_en   = scale_rd_en;
             bram_rd_tile = scale_tile_q;
             bram_rd_row  = {scale_row_group, 1'b0};
             bram_rd_col  = scale_col;
 
             bram_wr_en   = scale_write;
             bram_wr_tile = scale_tile_q;
-            bram_wr_row  = {scale_row_group, 1'b0};
-            bram_wr_col  = scale_col;
+            bram_wr_row  = {scale_wr_row_group, 1'b0};
+            bram_wr_col  = scale_wr_col;
             bram_wr_data = {scale_accum_out[1], scale_accum_out[0]};
             bram_wr_pair = 1'b1;   // Scale fold writes row pairs
         end else begin
@@ -374,15 +384,22 @@ module cve2_cf_mac_unit
         .weight_scale_hi_i    (ctx_weight_scale_hi),
         .tile_snapshot_i      (ctx_tile_snapshot),
         .scale_busy_o         (scale_busy),
+        //.scale_write_o        (scale_write),
+        //.scale_done_o         (scale_done),
+        //.scale_col_o          (scale_col),
+        //.scale_row_group_o    (scale_row_group) 
+.scale_rd_en_o        (scale_rd_en),
         .scale_write_o        (scale_write),
         .scale_done_o         (scale_done),
-        .scale_col_o          (scale_col),
-        .scale_row_group_o    (scale_row_group) 
+        .scale_rd_col_o       (scale_rd_col),
+        .scale_rd_row_group_o (scale_rd_row_group),
+        .scale_wr_col_o       (scale_wr_col),
+        .scale_wr_row_group_o (scale_wr_row_group)
     );
 
     always_comb begin
-        scale_tile_value[0] = ctx_tile_snapshot[{scale_row_group,1'b0}][scale_col];
-        scale_tile_value[1] = ctx_tile_snapshot[{scale_row_group,1'b0}+1][scale_col];
+        scale_tile_value[0] = ctx_tile_snapshot[{scale_rd_row_group,1'b0}][scale_rd_col];
+        scale_tile_value[1] = ctx_tile_snapshot[{scale_rd_row_group,1'b0}+1][scale_rd_col];
     end
 
     logic [7:0] scaleA [0:1];
@@ -406,7 +423,7 @@ module cve2_cf_mac_unit
 
     // Dynamic Scale Muxing Logic
     always_comb begin
-        case(scale_row_group)
+        case(scale_rd_row_group)
             2'd0: begin
                 scaleA[0] = ctx_act_scale_lo[7:0];
                 scaleA[1] = ctx_act_scale_lo[15:8];
@@ -425,12 +442,12 @@ module cve2_cf_mac_unit
             end
         endcase
 
-        if (scale_col < 4) begin
-            scaleB[0] = ctx_weight_scale_lo[scale_col*8 +: 8];
-            scaleB[1] = ctx_weight_scale_lo[scale_col*8 +: 8];
+        if (scale_rd_col < 4) begin
+            scaleB[0] = ctx_weight_scale_lo[scale_rd_col*8 +: 8];
+            scaleB[1] = ctx_weight_scale_lo[scale_rd_col*8 +: 8];
         end else begin
-            scaleB[0] = ctx_weight_scale_hi[(scale_col-4)*8 +: 8];
-            scaleB[1] = ctx_weight_scale_hi[(scale_col-4)*8 +: 8];
+            scaleB[0] = ctx_weight_scale_hi[(scale_rd_col-4)*8 +: 8];
+            scaleB[1] = ctx_weight_scale_hi[(scale_rd_col-4)*8 +: 8];
         end
     end
 
