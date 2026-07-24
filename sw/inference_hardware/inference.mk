@@ -64,8 +64,7 @@ MAP_FILE := $(NAME).map
 SRCS := \
 	../generic/uart.c \
 	../generic/image.c \
-	$(MAIN_SRC) \
-	matmul8_vec.S
+	$(MAIN_SRC)
 
 ###############################################################################
 # Linker script
