@@ -16,8 +16,12 @@ SHELL := /bin/bash
 
 CVE2_CONFIG ?= small
 
-#TB_CPP := ../../../../sw/tb/matrix_tb/min_tb_matmul8.cpp
-TB_CPP := ../../../../sw/tb/inference_tb/min_tb_inference.cpp
+TB_BASE := ../../../../sw/tb
+MATMUL_TB_CPP := $(TB_BASE)/matrix_tb/min_tb_matmul8.cpp
+MAC_CELL_TB_CPP := $(TB_BASE)/artih_tb/mac_cell.cpp
+#MATMUL_TB_CPP := ../../../../sw/tb/inference_tb/min_tb_inference.cpp
+
+UNIT_TEST_DIR := build/unit_test
 
 TOP_MODULE := cve2_top
 
@@ -46,9 +50,44 @@ DBG_DEFINES := $(if $(MAC_DEBUG),+define+MAC_DEBUG) \
 all: run
 
 # Generate FP4 multiply LUT
+.PHONY: fp4_mul_int9
 $(RTL)/fp4_mul_int9.sv: $(wildcard scripts/rtl_gen/*)
 	@echo "Generating FP4 Multiplier LUT Configuration"
 	python3 scripts/rtl_gen/gen_fp4_mul.py $(RTL)/fp4_mul_int9.sv
+
+###############################################################################
+#	Unit Block Testing
+###############################################################################
+
+.PHONY: mac_cell
+mac_cell: $(RTL)/fp4_mul_int9.sv
+	@mkdir -p $(UNIT_TEST_DIR)/mac_cell
+	@echo "Building Vmac_cell in $(UNIT_TEST_DIR)/mac_cell"
+	cd $(UNIT_TEST_DIR)/mac_cell && \
+	verilator --cc --exe --build \
+		-sv \
+		-Wno-fatal \
+		--coverage \
+		$(DBG_DEFINES) \
+		--top-module mac_cell \
+		../../../$(RTL)/fp4_pkg.sv \
+		../../../$(RTL)/mac_cell.sv \
+		../../../$(RTL)/sat16_adder.sv \
+		../../../$(RTL)/accumulator_reg.sv \
+		../../../$(RTL)/fp4_mul_int9.sv \
+		$(MAC_CELL_TB_CPP)
+
+	@echo "=================================================="
+	@echo "MAC CELL SIM BUILD COMPLETE"
+	@echo "=================================================="
+	@echo "Generated executable:"
+	@find build -name Vmac_cell 2>/dev/null || true
+	@echo "=================================================="
+
+
+.PHONY: clean_mac_cell
+clean_mac_cell: 
+	rm -rf $(UNIT_TEST_DIR)/mac_cell
 
 
 
@@ -110,7 +149,7 @@ build-sim:
 		--cc --exe --build \
 		--top-module $(TOP_MODULE) \
 		-LDFLAGS "-lelf" \
-		$(TB_CPP)
+		$(MATMUL_TB_CPP)
 
 ###############################################################################
 # STEP 4: Full pipeline
@@ -128,6 +167,6 @@ run: fuse gen-vc build-sim
 # CLEAN
 ###############################################################################
 .PHONY: clean
-clean:
+clean: clean_mac_cell
 	rm -rf build/*/lint-verilator/obj_dir
 	rm -f build/*/lint-verilator/*_patched.vc
