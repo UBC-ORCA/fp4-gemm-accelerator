@@ -11,7 +11,7 @@ extern void matmul8_vec(const volatile uint32_t *a,
 #define BS 32
 #define WORDS_PER_VREG 32
 //#define NUM_VREGS 32
-#define NUM_VREGS 1
+#define NUM_VREGS 2
 
 static volatile uint32_t *const DONE_MMIO       = (volatile uint32_t *)0xFFFF0000u;
 static volatile uint32_t *const COMP_START_MMIO = (volatile uint32_t *)0xFFFF0004u;
@@ -180,11 +180,11 @@ for (int i = 0; i < WORDS_PER_VREG * NUM_VREGS; i++) {
   // Set up standard scaling scales for validation pipeline
 
 
-//  mac_bias(1,0,0,0x00aa);   // distinctive value to trace how the scale-fold reads propagate it
-//mac_bias(0,0,0,0x3f80);
-//   mac_bias(0,7,7,0x4120);   // tile0 row7 col7 (ODD row - must not assert or spill to tile1)
-//  mac_bias(1,0,0,0x4120);   // distinctive value to trace how the scale-fold reads propagate it
-//  mac_bias(1,0,0,0x4120);   // distinctive value to trace how the scale-fold reads propagate it
+//  mac_bias(1,0,0,0x00aa);   // distinctive value to trace how the scale-fold reads propagate it, too small to show
+//mac_bias(0,0,0,0x3f80); // too small to show
+   mac_bias(0,0,0,0x4120);   // tile0 row7 col7 (ODD row - must not assert or spill to tile1)
+   mac_bias(0,7,7,0x4120);   // tile0 row7 col7 (ODD row - must not assert or spill to tile1)
+  mac_bias(1,0,0,0x4120);   // distinctive value to trace how the scale-fold reads propagate it
 
    load_act_scales(act_scales);
   load_w_scales(weight_scales);
@@ -201,15 +201,15 @@ for (int i = 0; i < WORDS_PER_VREG * NUM_VREGS; i++) {
   // ==========================================
   // BRING-UP TEST 2: Register v1 Verification
   // ==========================================
-//  load_act_scales(act_scales);
-//  load_w_scales(weight_scales);
-//  load_v1(&mat_a[32]);              // Loads v1 (Words 32 to 63)
-//  mac_zz();
-//  mac_mem_test_v1(weights);         // Multiplies v1 by weights[32..63]
-//  mac_as();
-//  mac_ws();
+  load_act_scales(act_scales);
+  load_w_scales(weight_scales);
+  load_v1(&mat_a[32]);              // Loads v1 (Words 32 to 63)
+  mac_zz();
+  mac_mem_test_v1(weights);         // Multiplies v1 by weights[32..63]
+  mac_as();
+  mac_ws();
   chk = mac_out(0, 0, 2);
-//mac_bias(31,7,7,0x3fc0); 
+mac_bias(31,7,7,0x3fc0); 
 
 //BRAM write check
   // mac_bias(0,0,0,0x3f80);   // tile0 row0 col0 (even row)
