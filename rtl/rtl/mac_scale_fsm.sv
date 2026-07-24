@@ -108,7 +108,7 @@ module mac_scale_fsm #(
 
             INIT_RD: begin
                 // Kick off 1st read at (0,0), step read counter on next cycle
-                rd_col_d = rd_col_q + 1'b1;
+                //rd_col_d = rd_col_q + 1'b1;
                 state_d  = STREAM;
             end
 
@@ -149,5 +149,27 @@ module mac_scale_fsm #(
 
     assign scale_wr_col_o       = wr_col_q;
     assign scale_wr_row_group_o = wr_row_grp_q;
+
+//--------------------------------------------------------------------------
+    // Simulation Debug Prints
+    //--------------------------------------------------------------------------
+`ifdef BRAM_DEBUG
+
+    always @(posedge clk_i) begin
+        if (rst_ni && ((state_q != IDLE) || context_ready_i)) begin
+            $display("[MAC_SCALE_FSM @ %0t ps] --------------------------------------------------", $time);
+            $display("  STATE    : curr=%s (0x%0h)  -->  next=%s (0x%0h)",
+                     state_q.name(), state_q, state_d.name(), state_d);
+            $display("  INPUTS   : context_ready=%b | rd_last=%b", 
+                     context_ready_i, rd_last);
+            $display("  FLAGS    : busy=%b | rd_init_q=%b | write_valid_q=%b | accept=%b | done=%b", 
+                     scale_busy_o, rd_init_q, write_valid_q, context_accept_o, scale_done_o);
+            $display("  READ ADDR: rd_en=%b | rd_row_grp_q=%0d (next=%0d) | rd_col_q=%0d (next=%0d)",
+                     scale_rd_en_o, rd_row_grp_q, rd_row_grp_d, rd_col_q, rd_col_d);
+            $display("  WRIT ADDR: wr_en=%b | wr_row_grp_q=%0d          | wr_col_q=%0d",
+                     scale_write_o, wr_row_grp_q, wr_col_q);
+        end
+    end
+`endif
 
 endmodule
