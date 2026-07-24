@@ -303,9 +303,6 @@ static void build_pix_lut(void) {
 // =======================================
 // Reading the accumulator banks back out
 // =======================================
-// A bank is a TTxTT tile: rows are the BATCH images, columns are the output neurons. The
-// scale unit stores tile rows r and r+TT/2 as an adjacent physical pair, so a read at
-// physical row 2*r returns both of them -- the TT rows take TT/2 reads, not TT.
 
 // Map a bf16 to an unsigned value that compares in the same order (bf16 is sign-magnitude).
 static inline uint16_t bf16_ordered(uint16_t bf16) {
