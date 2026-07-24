@@ -52,8 +52,8 @@ MAP_FILE := inference.map
 #   Main test program (scalar, no-acceleration baseline).
 ###############################################################################
 SRCS := \
-	start.S \
-	uart.c \
+	../generic/uart.c \
+	../generic/image.c \
 	inference_risc_noaccel.c
 
 ###############################################################################
@@ -88,7 +88,19 @@ CFLAGS := \
 	-nostdlib \
 	-ffreestanding
 
+# FPGA=1 uses start_fpga.S + auto-incrementing UART pointer; FPGA=0 (default)
+# uses the simulator start.S / UART.
+FPGA ?= 0
+ifeq ($(FPGA),1)
+CFLAGS += -DFPGA
+SRCS += ../generic/start_fpga.S
+else
+SRCS += ../generic/start.S
+endif
+
 LDFLAGS := \
+	-I ../generic \
+	-I ../headers \
 	-T $(LINKER_SCRIPT) \
 	-Wl,-Map=$(MAP_FILE)
 

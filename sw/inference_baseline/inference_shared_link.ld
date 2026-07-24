@@ -14,6 +14,7 @@ SECTIONS
 
   .rodata : {
     *(.rodata*)
+    *(.imagedata)
   } > RAM
 
   .data : {

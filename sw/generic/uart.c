@@ -7,7 +7,17 @@
 #define UART_MMIO_ADDR 0x10000000u
 #endif
 
+#ifdef FPGA
+// FPGA VERSION
+void putchar_uart(char c) {
+  static volatile uint8_t *a_ptr = (volatile uint8_t *)UART_MMIO_ADDR;
+  *a_ptr++ = (uint8_t)c;
+}
+
+#else
+// SIMULATOR VERSION
 void putchar_uart(char c) {
   volatile uint32_t *uart = (volatile uint32_t *)UART_MMIO_ADDR;
   *uart = (uint32_t)(uint8_t)c;
 }
+#endif

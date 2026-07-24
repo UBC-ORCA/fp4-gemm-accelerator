@@ -1,15 +1,7 @@
 // MLP inference on CVE2 with GEN3 spec
 
 #include "../headers/weights_blk32_pkgUINT32_scaleE8M0.h"
-
-// Total number of samples to process
-#define N_SAMPLES 80
-
-// Memory addresses for test data loading
-#define IMG_LOAD  ((volatile unsigned int  *) 0xFFFF0010)
-#define IMG_LABEL ((volatile unsigned int  *) 0xFFFF0014)
-#define IMG_PRED  ((volatile unsigned int  *) 0xFFFF0018)
-#define IMG_STAGE ((volatile unsigned char *) 0x80070000)
+#include "image.h"
 
 // Network dimensions for the MLP layers
 #define IN_REAL   784             // real MNIST pixels
@@ -581,7 +573,7 @@ int main(void) {
             // Leave unused lanes and the K pad tail (784..799) as zero
             for (int p = 0; p < IN_DIM; p++) image_packed[p] = 0;
             for (int j = 0; j < n; j++) {
-                *IMG_LOAD = s + j;
+                image_load(s + j);
                 for (int p = 0; p < IN_REAL; p++) {   // only the 784 real pixels
                     uint32_t code = pix_to_fp4[IMG_STAGE[p]];
                     image_packed[p] |= code << (4 * j);
