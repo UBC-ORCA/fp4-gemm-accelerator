@@ -303,6 +303,9 @@ static void build_pix_lut(void) {
 // =======================================
 // Reading the accumulator banks back out
 // =======================================
+// A bank is a TTxTT tile: rows are the BATCH images, columns are the output neurons. The
+// scale unit stores tile rows r and r+TT/2 as an adjacent physical pair, so a read at
+// physical row 2*r returns both of them -- the TT rows take TT/2 reads, not TT.
 
 // Map a bf16 to an unsigned value that compares in the same order (bf16 is sign-magnitude).
 static inline uint16_t bf16_ordered(uint16_t bf16) {
@@ -325,21 +328,21 @@ static void argmax(int *predictions, int WH) {
     for (int tile = 0; tile < tiles; tile++) {
         int neuron0 = tile * TT;
         int cols = (WH - neuron0 < TT) ? (WH - neuron0) : TT;   // real neurons in this bank
-        for (int group = 0; group < 4; group++) {                 // group holds samples g, g+4
+        for (int row = 0; row < TT/2; row++) {
             for (int col = 0; col < cols; col++) {
-                int neuron = neuron0 + col;
-                uint32_t pair = bram_rd(tile, 2 * group, col);
+                int neuron = neuron0 + col;                              // column picks the neuron
+                uint32_t pair = bram_rd(tile, 2 * row, col);
 
-                uint16_t lo = bf16_ordered((uint16_t)(pair & 0xFFFF));   // sample = group
-                if (lo > best[group]) {
-                    best[group] = lo;
-                    predictions[group] = neuron;
+                uint16_t lo = bf16_ordered((uint16_t)(pair & 0xFFFF));   // sample = row
+                if (lo > best[row]) {
+                    best[row] = lo;
+                    predictions[row] = neuron;
                 }
 
-                uint16_t hi = bf16_ordered((uint16_t)(pair >> 16));      // sample = group + 4
-                if (hi > best[group + 4]) {
-                    best[group + 4] = hi;
-                    predictions[group + 4] = neuron;
+                uint16_t hi = bf16_ordered((uint16_t)(pair >> 16));      // sample = row + TT/2
+                if (hi > best[row + TT/2]) {
+                    best[row + TT/2] = hi;
+                    predictions[row + TT/2] = neuron;
                 }
             }
         }
@@ -375,12 +378,13 @@ static void readout_fp4(uint32_t *z, int WH) {
         for (int col = 0; col < TT; col++) {
             z[neuron0 + col] = 0;                  // clear this bank's 8 neurons
         }
-        for (int group = 0; group < 4; group++) {
+        for (int row = 0; row < TT/2; row++) {
             for (int col = 0; col < TT; col++) {
-                uint32_t pair   = bram_rd(tile, 2 * group, col);
-                int      neuron = neuron0 + col;
-                z[neuron] |= fp4_from_bf16((uint16_t)(pair & 0xFFFF)) << (4 * group);       // sample = group
-                z[neuron] |= fp4_from_bf16((uint16_t)(pair >> 16))    << (4 * (group + 4)); // sample = group+4
+                uint32_t pair   = bram_rd(tile, 2 * row, col);
+                int neuron = neuron0 + col;        // column picks the neuron
+                // the shift is 4 bits per FP4 code times the sample index
+                z[neuron] |= fp4_from_bf16((uint16_t)(pair & 0xFFFF)) << (4 * row);          // sample = row
+                z[neuron] |= fp4_from_bf16((uint16_t)(pair >> 16))    << (4 * (row + TT/2)); // sample = row + TT/2
             }
         }
     }
