@@ -425,3 +425,14 @@ After building the simulator, run the generated executable with the Matmul8 prog
 ```bash
 ./build/openhwgroup_cve2_cve2_top_0.1/lint-verilator/Vcve2_top \
     ../sw/test_gen/matmul8_vec.hex
+```
+
+## Unit Testing
+
+`mac_cell`: Runs unit test for mac_cell arithmetic
+
+```
+make -f sim.mk mac_cell
+build/unit_test/mac_cell/obj_dir/Vmac_cell [test_name]
+```
+
