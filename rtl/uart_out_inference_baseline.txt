@@ -1,0 +1,15 @@
+
+ACCURACY: 10/80
+MATCH (vs mptorch): 8/80
+
+[PERF] cycles over run
+  imgq   | 753280
+  gemm_1 | 358485600
+  gemm_2 | 44298560
+  gemm_3 | 3478560
+  qact_1 | 164474
+  qact_2 | 93280
+
+[PERF] total cycles over run
+  gemm_T | 406262720
+  qact_T | 257754
