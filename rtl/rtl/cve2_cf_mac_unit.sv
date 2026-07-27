@@ -65,8 +65,6 @@ module cve2_cf_mac_unit
     logic [4:0]  scalar_waddr;
     assign scalar_waddr = req_instr_i[11:7];
 
-    logic [2:0] scale_col;
-    logic [1:0] scale_row_group; 
 
     logic signed [15:0] scale_tile_value [0:1]; 
 
@@ -89,11 +87,6 @@ module cve2_cf_mac_unit
     logic signed [15:0] ctx_tile_snapshot [0:TT-1][0:TT-1];
 
     // Execution isolated registers (Active scale datapath context)
-    logic [31:0]        scale_act_lo_q;
-    logic [31:0]        scale_act_hi_q;
-    logic [31:0]        scale_weight_lo_q;
-    logic [31:0]        scale_weight_hi_q;
-    logic signed [15:0] scale_tile_snapshot_q [0:TT-1][0:TT-1];
 
     logic                context_ready;
     logic                context_accept;
@@ -156,18 +149,8 @@ module cve2_cf_mac_unit
     // Scaler Private Isolated Context Latching
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
-            scale_act_lo_q        <= '0;
-            scale_act_hi_q        <= '0;
-            scale_weight_lo_q     <= '0;
-            scale_weight_hi_q     <= '0;
-            scale_tile_snapshot_q <= '{default: '{default: '0}};
             scale_tile_q          <= 5'b0;
         end else if (context_accept) begin
-            scale_act_lo_q        <= ctx_act_scale_lo;
-            scale_act_hi_q        <= ctx_act_scale_hi;
-            scale_weight_lo_q     <= ctx_weight_scale_lo;
-            scale_weight_hi_q     <= ctx_weight_scale_hi;
-            scale_tile_snapshot_q <= ctx_tile_snapshot;
             scale_tile_q          <= current_tile_q;   // Freeze bank choice for this fold
         end
     end
@@ -384,10 +367,6 @@ module cve2_cf_mac_unit
         .weight_scale_hi_i    (ctx_weight_scale_hi),
         .tile_snapshot_i      (ctx_tile_snapshot),
         .scale_busy_o         (scale_busy),
-        //.scale_write_o        (scale_write),
-        //.scale_done_o         (scale_done),
-        //.scale_col_o          (scale_col),
-        //.scale_row_group_o    (scale_row_group) 
 .scale_rd_en_o        (scale_rd_en),
         .scale_write_o        (scale_write),
         .scale_done_o         (scale_done),
