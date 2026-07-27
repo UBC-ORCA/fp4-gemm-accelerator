@@ -47,20 +47,8 @@ module cve2_cf_mac_unit
     assign weight_base = req_rs1_i;
     assign weight_addr = weight_base + imm12;
 
-    logic [4:0]  mv_row;
-    logic [4:0]  mv_pair;
-    assign mv_row  = req_instr_i[19:15];
-    assign mv_pair = req_instr_i[24:20];
-
-    logic        map_mv_en;
-    logic [1:0]  mv_mode;   
-    logic [2:0]  mv_even_col_idx;
-    logic [2:0]  mv_odd_col_idx;
-    logic [2:0]  mv_row_idx;
-    logic [31:0] mv_data;
-
     // BRAM_RD returns the accumulator read pair; MV ops return the raw tile.
-    assign scalar_wdata_o = (cf_req_op_i == cve2_pkg::OP_BRAM_RD) ? bram_rd_data : mv_data;
+    assign scalar_wdata_o = bram_rd_data;
 
     logic [4:0]  scalar_waddr;
     assign scalar_waddr = req_instr_i[11:7];
@@ -278,13 +266,6 @@ module cve2_cf_mac_unit
         .act_vector_o         (act_vector),
         .weight_vector_o      (weight_vector),
         .mac_vrf_rdata_i      (mac_vrf_rdata_i),
-        .mv_en_o              (map_mv_en),
-        .mv_mode_o            (mv_mode),
-        .mv_even_col_idx_o    (mv_even_col_idx),
-        .mv_odd_col_idx_o     (mv_odd_col_idx),
-        .mv_row_idx_o         (mv_row_idx),
-        .mv_row_i             (mv_row),
-        .mv_pair_i            (mv_pair),
         .scalar_waddr_i       (scalar_waddr),
         .scalar_waddr_o       (scalar_waddr_o),
         .scalar_we_o          (scalar_we_o),
@@ -343,11 +324,6 @@ module cve2_cf_mac_unit
         .wr_data_i            (bram_wr_data),
         .wr_pair_i            (bram_wr_pair)
     );
-
-    assign mv_data = {
-        tile_snapshot[mv_row_idx][mv_odd_col_idx],
-        tile_snapshot[mv_row_idx][mv_even_col_idx]
-    };
 
     mac_scale_fsm #(
         .NUM_GROUPS(32)

@@ -45,15 +45,6 @@ module mac_controller #(
     input  logic [31:0]                data_rdata_i,
     input  logic                       data_err_i,
 
-    // MV Inst Interface
-    output logic                       mv_en_o,
-    output logic [1:0]                 mv_mode_o,
-    output logic [2:0]                 mv_even_col_idx_o,
-    output logic [2:0]                 mv_odd_col_idx_o,
-    output logic [2:0]                 mv_row_idx_o,
-    input  logic [4:0]                 mv_row_i,
-    input  logic [4:0]                 mv_pair_i,
-
     output logic                       scalar_we_o,
     output logic [4:0]                 scalar_waddr_o,
     input  logic [4:0]                 scalar_waddr_i,
@@ -149,16 +140,6 @@ module mac_controller #(
         end
     end
 
-    localparam logic [1:0] MV_EVEN = 2'd0;
-    localparam logic [1:0] MV_ODD  = 2'd1;
-    localparam logic [1:0] MV_PAIR = 2'd2;
-
-    logic [1:0] mv_pair_idx;
-    assign mv_row_idx_o      = mv_row_i[2:0];
-    assign mv_pair_idx       = mv_pair_i[1:0];
-    assign mv_even_col_idx_o = {mv_pair_idx, 1'b0};
-    assign mv_odd_col_idx_o  = {mv_pair_idx, 1'b1};
-
     logic [4:0] scalar_waddr_q;
     logic       brd_phase_q, brd_phase_d;   // BRAM read: 0=issue read, 1=capture+writeback
 
@@ -247,9 +228,6 @@ module mac_controller #(
                 end
                 else if ((op_q == cve2_pkg::OP_ZZ )    ||
                     (op_q == cve2_pkg::OP_MAC)    ||
-                    (op_q == cve2_pkg::OP_MVE)    ||
-                    (op_q == cve2_pkg::OP_MVO)    ||
-                    (op_q == cve2_pkg::OP_MV2)    ||
                     (op_q == cve2_pkg::OP_MAC_AS) ||
                     (op_q == cve2_pkg::OP_MAC_WS) ||
                     (op_q == cve2_pkg::OP_MAC_BIAS) ||
@@ -288,8 +266,6 @@ module mac_controller #(
         busy_o         = 1'b1;
         done_o         = 1'b0;
         clear_o        = 1'b0;
-        mv_en_o        = 1'b0;
-        mv_mode_o      = MV_EVEN;
         scalar_we_o    = 1'b0;
         scalar_waddr_o = scalar_waddr_q;
 
@@ -333,21 +309,6 @@ module mac_controller #(
             end
             EXEC: begin
                 unique case (op_q)
-                    cve2_pkg::OP_MVE: begin
-                        mv_en_o     = 1'b1;
-                        mv_mode_o   = MV_EVEN;
-                        scalar_we_o = 1'b1;
-                    end
-                    cve2_pkg::OP_MVO: begin
-                        mv_en_o     = 1'b1;
-                        mv_mode_o   = MV_ODD;
-                        scalar_we_o = 1'b1;
-                    end
-                    cve2_pkg::OP_MV2: begin
-                        mv_en_o     = 1'b1;
-                        mv_mode_o   = MV_PAIR;
-                        scalar_we_o = 1'b1;
-                    end
                     cve2_pkg::OP_MAC_BIAS: begin
                         accum_wr_en_o   = 1'b1;
                         accum_wr_tile_o = bias_tile;
