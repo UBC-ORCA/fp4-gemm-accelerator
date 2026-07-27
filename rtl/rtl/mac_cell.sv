@@ -8,7 +8,6 @@ import fp4_pkg::*; (
     // control
     input  logic mac_en_i,
     input  logic clear_i,
-	input logic mv_clear_i, //for mv
 
     // FP4 inputs
     input  fp4_e2m1_t act_i,
@@ -57,7 +56,7 @@ import fp4_pkg::*; (
 
         .clk(clk),
 
-        .clear_i(clear_i || mv_clear_i),
+        .clear_i(clear_i),
         .we_i(mac_en_i),
 
         .d_i(accum_next),

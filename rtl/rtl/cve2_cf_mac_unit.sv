@@ -321,12 +321,7 @@ module cve2_cf_mac_unit
         .clear_i              (clear),
         .act_i                (act_vector),
         .wt_i                 (weight_vector),
-        .accum_o              (tile_snapshot),
-        .mv_en_i              (map_mv_en),
-        .mv_mode_i            (mv_mode),
-        .mv_even_col_idx_i    (mv_even_col_idx),
-        .mv_odd_col_idx_i     (mv_odd_col_idx),
-        .mv_row_idx_i         (mv_row_idx)
+        .accum_o              (tile_snapshot)
     );
 
     mac_accum_bram #(

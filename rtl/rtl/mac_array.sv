@@ -46,24 +46,12 @@ import fp4_pkg::*; #(
     // Full accumulator tile
     //----------------------------------------------------------
 
-    output logic signed [15:0] accum_o [0:TT-1][0:TT-1],
-
-    // mv inst
-	input logic        mv_en_i,
-	input logic [1:0]  mv_mode_i,   // 0=even 1=odd 2=pair
-	input logic [2:0] mv_even_col_idx_i,
-	input logic [2:0] mv_odd_col_idx_i,
-	input logic [2:0] mv_row_idx_i,
-output logic [31:0] mv_data_o
-
+    output logic signed [15:0] accum_o [0:TT-1][0:TT-1]
 );
 
     //----------------------------------------------------------
     // Instantiate TT × TT MAC cells
     //----------------------------------------------------------
-localparam logic [1:0] MV_EVEN = 2'd0;
-localparam logic [1:0] MV_ODD  = 2'd1;
-localparam logic [1:0] MV_PAIR = 2'd2;
 
     genvar r, c;
 
@@ -72,31 +60,6 @@ localparam logic [1:0] MV_PAIR = 2'd2;
         for (r = 0; r < TT; r++) begin : GEN_ROW
 
             for (c = 0; c < TT; c++) begin : GEN_COL
-                logic cell_mv_clear; //for mv
-
-                assign cell_mv_clear =
-                    mv_en_i &&
-                    (
-                        ((mv_mode_i == MV_EVEN) &&
-                        (r == mv_row_idx_i) &&
-                        (c == mv_even_col_idx_i))
-
-                    ||
-
-                        ((mv_mode_i == MV_ODD) &&
-                        (r == mv_row_idx_i) &&
-                        (c == mv_odd_col_idx_i))
-
-                    ||
-
-                        ((mv_mode_i == MV_PAIR) &&
-                        (r == mv_row_idx_i) &&
-                        (
-                            (c == mv_even_col_idx_i) ||
-                            (c == mv_odd_col_idx_i)
-                        ))
-                    );
-
 
                 mac_cell u_mac (
 
@@ -104,7 +67,6 @@ localparam logic [1:0] MV_PAIR = 2'd2;
 
                     .mac_en_i (mac_en_i),
                     .clear_i  (clear_i),
-		             .mv_clear_i(cell_mv_clear), // for mv
 
                     // decoded FP4 quanta
                     .act_i    (act_i[r]),
@@ -120,39 +82,6 @@ localparam logic [1:0] MV_PAIR = 2'd2;
         end
 
     endgenerate
-
-//MV_rd
-always_comb begin
-
-    mv_data_o = 32'h0;
-
-    unique case (mv_mode_i)
-
-        MV_EVEN:
-            mv_data_o =
-            {{16{accum_o[mv_row_idx_i][mv_even_col_idx_i][15]}},
-              accum_o[mv_row_idx_i][mv_even_col_idx_i]};
-
-        MV_ODD:
-            mv_data_o =
-            {{16{accum_o[mv_row_idx_i][mv_odd_col_idx_i][15]}},
-              accum_o[mv_row_idx_i][mv_odd_col_idx_i]};
-
-        MV_PAIR:
-            mv_data_o =
-            {
-                accum_o[mv_row_idx_i][mv_odd_col_idx_i],
-                accum_o[mv_row_idx_i][mv_even_col_idx_i]
-            };
-
-        default: ;
-
-    endcase
-
-end
-//MV_rd_end
-
-
 
 
 // --- [stev] ---
