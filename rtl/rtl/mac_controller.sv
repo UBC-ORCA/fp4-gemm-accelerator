@@ -5,82 +5,82 @@ module mac_controller #(
     parameter int VL = 32, 
     parameter int TT = 8
 ) (
-    input  logic                       clk_i,
-    input  logic                       rst_ni,
+    input  logic                        clk_i,
+    input  logic                        rst_ni,
 
     // Request interface
-    input  logic                       req_valid_i,
-    output logic                       req_ready_o,
+    input  logic                        req_valid_i,
+    output logic                        req_ready_o,
     input  cve2_pkg::mac_op_e          cf_req_op_i,
     input  logic [31:0]                rs1_i,
     input  logic [31:0]                rs2_i,
 
     // Status outputs
-    output logic                       busy_o,
-    output logic                       done_o,
+    output logic                        busy_o,
+    output logic                        done_o,
 
     // Control to MAC array
-    output logic                       mac_en_o,
-    output logic                       clear_o,
+    output logic                        mac_en_o,
+    output logic                        clear_o,
 
     // Vector Register File Interface
-    input  logic [4:0]                 vs1_i,
-    input  logic [4:0]                 weight_blk_i,
-    input  logic [31:0]                base_i,
+    input  logic [4:0]                  vs1_i,
+    input  logic [4:0]                  weight_blk_i,
+    input  logic [31:0]                 base_i,
 
-    output logic [4:0]                 mac_vrf_raddr_o,
-    output logic [4:0]                 mac_vrf_relem_o, 
-    input  logic [31:0]                mac_vrf_rdata_i, 
+    output logic [4:0]                  mac_vrf_raddr_o,
+    output logic [4:0]                  mac_vrf_relem_o, 
+    input  logic [31:0]                 mac_vrf_rdata_i, 
 
     // Weight memory interface
-    output logic                       data_req_o,
-    input  logic                       data_gnt_i,
+    output logic                        data_req_o,
+    input  logic                        data_gnt_i,
 
-    output logic [31:0]                data_addr_o,
-    output logic                       data_we_o,
-    output logic [3:0]                 data_be_o,
-    output logic [31:0]                data_wdata_o,
+    output logic [31:0]                 data_addr_o,
+    output logic                        data_we_o,
+    output logic [3:0]                  data_be_o,
+    output logic [31:0]                 data_wdata_o,
 
-    input  logic                       data_rvalid_i,
-    input  logic [31:0]                data_rdata_i,
-    input  logic                       data_err_i,
+    input  logic                        data_rvalid_i,
+    input  logic [31:0]                 data_rdata_i,
+    input  logic                        data_err_i,
 
-    output logic                       scalar_we_o,
-    output logic [4:0]                 scalar_waddr_o,
-    input  logic [4:0]                 scalar_waddr_i,
+    output logic                        scalar_we_o,
+    output logic [4:0]                  scalar_waddr_o,
+    input  logic [4:0]                  scalar_waddr_i,
 
     // Optimized Vector Slices
-    output logic [3:0]                 act_vector_o    [0:TT-1],
-    output logic [3:0]                 weight_vector_o [0:TT-1],
+    output logic [3:0]                  act_vector_o    [0:TT-1],
+    output logic [3:0]                  weight_vector_o [0:TT-1],
 
     // Scale register interface
-    output logic [31:0]                act_scale_lo_o,
-    output logic [31:0]                act_scale_hi_o,
-    output logic [31:0]                weight_scale_lo_o,
-    output logic [31:0]                weight_scale_hi_o,
+    output logic [31:0]                 act_scale_lo_o,
+    output logic [31:0]                 act_scale_hi_o,
+    output logic [31:0]                 weight_scale_lo_o,
+    output logic [31:0]                 weight_scale_hi_o,
 
-    output logic                       act_scale_ready_o,
-    output logic                       weight_scale_ready_o,
-    output logic                       mac_snapshot_valid_o,
+    output logic                        act_scale_ready_o,
+    output logic                        weight_scale_ready_o,
+    output logic                        mac_snapshot_valid_o,
 
     // Scale FSM handshake ports
-    input  logic                       scale_busy_i,
-    input  logic                       scale_done_i,
+    input  logic                        scale_busy_i,
+    input  logic                        scale_done_i,
 
     //--------------------------------------------------
-    // Accumulator BRAM Structured Interface (Patched)
+    // Accumulator BRAM Structured Interface
     //--------------------------------------------------
-    output logic                       accum_rd_en_o,
-    output logic [4:0]                 accum_rd_tile_o,
-    output logic [2:0]                 accum_rd_row_o,
-    output logic [2:0]                 accum_rd_col_o,
-    input  logic [15:0]                accum_rd_data_i,
+    output logic                        accum_rd_en_o,
+    output logic [4:0]                  accum_rd_tile_o,
+    output logic [2:0]                  accum_rd_row_o,
+    output logic [2:0]                  accum_rd_col_o,
+    input  logic [15:0]                 accum_rd_data_i,
 
-    output logic                       accum_wr_en_o,
-    output logic [4:0]                 accum_wr_tile_o,
-    output logic [2:0]                 accum_wr_row_o,
-    output logic [2:0]                 accum_wr_col_o,
-    output logic [15:0]                accum_wr_data_o
+    output logic                        accum_wr_en_o,
+    output logic [4:0]                  accum_wr_tile_o,
+    output logic [2:0]                  accum_wr_row_o,
+    output logic [2:0]                  accum_wr_col_o,
+    output logic [15:0]                 accum_wr_data_o
 );
 
     logic [31:0] act_scale_lo_q;
@@ -125,7 +125,13 @@ module mac_controller #(
 
     logic        vmac_last_q;
 
-    typedef enum logic [1:0] { IDLE, EXEC, DONE } state_e;
+    // Patched FSM State Definition
+    typedef enum logic [1:0] {
+        IDLE,
+        CLEAR,
+        EXEC,
+        DONE
+    } state_e;
     state_e state_q, state_d;
 
     logic [31:0] act_packed;
@@ -141,7 +147,7 @@ module mac_controller #(
     end
 
     logic [4:0] scalar_waddr_q;
-    logic       brd_phase_q, brd_phase_d;   // BRAM read: 0=issue read, 1=capture+writeback
+    logic        brd_phase_q, brd_phase_d;   // BRAM read: 0=issue read, 1=capture+writeback
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
@@ -159,7 +165,7 @@ module mac_controller #(
             weight_scale_lo_q  <= '0;
             weight_scale_hi_q  <= '0;
             snapshot_valid_q   <= 1'b0;
-            act_scale_pulse    <= 1'b0;
+            act_scale_pulse    <= 1'b1;
             weight_scale_pulse <= 1'b0;
             vmac_last_q        <= 1'b0;
         end else begin
@@ -202,6 +208,7 @@ module mac_controller #(
         end
     end
 
+    // Next State Logic
     always_comb begin
         state_d        = state_q;
         count_d        = count_q;
@@ -213,10 +220,19 @@ module mac_controller #(
                 count_d        = '0;
                 mem_req_sent_d = 1'b0;
                 brd_phase_d    = 1'b0;
+
                 if (req_valid_i) begin
-                    state_d = EXEC;
+                    if (cf_req_op_i == cve2_pkg::OP_VMAC)
+                        state_d = CLEAR;
+                    else
+                        state_d = EXEC;
                 end
             end
+
+            CLEAR: begin
+                state_d = EXEC;
+            end
+
             EXEC: begin
                 if (op_q == cve2_pkg::OP_BRAM_RD) begin
                     if (!brd_phase_q) begin
@@ -226,12 +242,11 @@ module mac_controller #(
                         state_d     = DONE;
                     end
                 end
-                else if ((op_q == cve2_pkg::OP_ZZ )    ||
-                    (op_q == cve2_pkg::OP_MAC)    ||
-                    (op_q == cve2_pkg::OP_MAC_AS) ||
-                    (op_q == cve2_pkg::OP_MAC_WS) ||
-                    (op_q == cve2_pkg::OP_MAC_BIAS) ||
-                    (op_q == cve2_pkg::OP_ACC_BANK)) begin // Finishes execution in one cycle
+                else if ((op_q == cve2_pkg::OP_MAC)    ||
+                         (op_q == cve2_pkg::OP_MAC_AS) ||
+                         (op_q == cve2_pkg::OP_MAC_WS) ||
+                         (op_q == cve2_pkg::OP_MAC_BIAS) ||
+                         (op_q == cve2_pkg::OP_ACC_BANK)) begin // Finishes execution in one cycle
                     state_d = DONE;
                 end 
                 else if (op_q == cve2_pkg::OP_VMAC) begin
@@ -252,26 +267,30 @@ module mac_controller #(
                     end
                 end
             end
+
             DONE: begin
                 state_d = IDLE;
             end
+
             default: begin
                 state_d = IDLE;
             end
         endcase
     end
 
+    // Output Decode Logic
     always_comb begin
         req_ready_o    = 1'b0;
         busy_o         = 1'b1;
         done_o         = 1'b0;
-        clear_o        = 1'b0;
         scalar_we_o    = 1'b0;
         scalar_waddr_o = scalar_waddr_q;
 
+        // Clean output decode logic
         mac_en_o = ((state_q == EXEC) && (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i) || 
                    ((state_q == EXEC) && (op_q == cve2_pkg::OP_MAC));
-        clear_o = (state_q == EXEC) && (op_q == cve2_pkg::OP_ZZ);
+
+        clear_o  = (state_q == CLEAR);
 
         mac_vrf_raddr_o = '0;
         mac_vrf_relem_o = '0;
@@ -307,6 +326,11 @@ module mac_controller #(
                 req_ready_o = 1'b1;
                 busy_o      = 1'b0;
             end
+
+            CLEAR: begin
+                // Occupied clearing cycle; busy_o defaults to 1'b1, req_ready_o defaults to 1'b0
+            end
+
             EXEC: begin
                 unique case (op_q)
                     cve2_pkg::OP_MAC_BIAS: begin
@@ -321,7 +345,7 @@ module mac_controller #(
                             // phase 0: issue the (synchronous) BRAM read
                             accum_rd_en_o   = 1'b1;
                             accum_rd_tile_o = bias_tile;   // rs1[10:6]
-                            accum_rd_row_o  = bias_row;    // rs1[5:3] (even -> reads pair n, n+1)
+                            accum_rd_row_o  = bias_row;    // rs1[5:3]
                             accum_rd_col_o  = bias_col;    // rs1[2:0]
                         end else begin
                             // phase 1: data is valid, write it back to the GPR
@@ -340,9 +364,11 @@ module mac_controller #(
                     end
                 end
             end
+
             DONE: begin
                 done_o = 1'b1;
             end
+
             default: ;
         endcase
     end
@@ -355,7 +381,7 @@ module mac_controller #(
         end
     endgenerate
 
-    // simulation debugging hooks
+    // Simulation debugging hooks
 `ifdef MAC_DEBUG
     always_ff @(posedge clk_i) begin
         if (rst_ni && (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i) begin
