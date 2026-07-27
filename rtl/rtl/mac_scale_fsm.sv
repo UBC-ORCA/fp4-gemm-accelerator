@@ -9,12 +9,6 @@ module mac_scale_fsm #(
     input  logic                 context_ready_i,
     output logic                 context_accept_o,
 
-    input  logic [31:0]          act_scale_lo_i,
-    input  logic [31:0]          act_scale_hi_i,
-    input  logic [31:0]          weight_scale_lo_i,
-    input  logic [31:0]          weight_scale_hi_i,
-    input  logic signed [15:0]   tile_snapshot_i [0:7][0:7],
-
     output logic                 scale_busy_o,
     output logic                 scale_rd_en_o,
     output logic                 scale_write_o,
