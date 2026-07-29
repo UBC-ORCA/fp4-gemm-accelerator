@@ -28,6 +28,13 @@ import mx_pkg::*;
         .bf16_out (bf16_scaled)
     );
 
+   // int16_to_bf16_scaled u_convert_scale (
+   //     .int_in   (tile_value),
+   //     .scale_a  (scaleA),
+   //     .scale_b  (scaleB),
+    //    .bf16_out (bf16_scaled)
+    //);
+
     // 3. Accumulate with BRAM memory context lines
     bf16_accumulate u_add (
         .bf16_scaled     (bf16_scaled),

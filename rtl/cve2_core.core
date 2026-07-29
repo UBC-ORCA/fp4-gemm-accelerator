@@ -40,6 +40,7 @@ filesets:
       - rtl/int16_to_bf16.sv
       - rtl/e8m0_scale.sv
       - rtl/bf16_accumulate.sv
+      - rtl/int16_to_bf16_scaled.sv
       - rtl/mac_scale_accum.sv
       - rtl/parameterized_adder.sv
       - rtl/accumulator_reg.sv

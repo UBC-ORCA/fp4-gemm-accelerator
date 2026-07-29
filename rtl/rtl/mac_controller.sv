@@ -140,10 +140,6 @@ module mac_controller #(
     always_comb begin
         act_packed    = mac_vrf_rdata_i;
         weight_packed = data_rdata_i;
-        if (op_q == cve2_pkg::OP_MAC) begin
-            act_packed    = rs1_i;
-            weight_packed = rs2_i;
-        end
     end
 
     logic [4:0] scalar_waddr_q;
@@ -242,8 +238,7 @@ module mac_controller #(
                         state_d     = DONE;
                     end
                 end
-                else if ((op_q == cve2_pkg::OP_MAC)    ||
-                         (op_q == cve2_pkg::OP_MAC_AS) ||
+                else if ((op_q == cve2_pkg::OP_MAC_AS) ||
                          (op_q == cve2_pkg::OP_MAC_WS) ||
                          (op_q == cve2_pkg::OP_MAC_BIAS) ||
                          (op_q == cve2_pkg::OP_ACC_BANK)) begin // Finishes execution in one cycle
@@ -287,8 +282,7 @@ module mac_controller #(
         scalar_waddr_o = scalar_waddr_q;
 
         // Clean output decode logic
-        mac_en_o = ((state_q == EXEC) && (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i) || 
-                   ((state_q == EXEC) && (op_q == cve2_pkg::OP_MAC));
+        mac_en_o = ((state_q == EXEC) && (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i); 
 
         clear_o  = (state_q == CLEAR);
 
