@@ -29,6 +29,11 @@
 
 #define BS       K1_STEP_HDR      // Number of K elements per inner block
 
+// Read-out multiply: scale up by 2^RDOUT_SHIFT so [-0.5,0.5] fills the FP4 grid;
+// MAC_AS undoes it via ascale = 2^-(bias+2) (should be bias+1 but +2 performs better)
+#define RDOUT_SHIFT  3                     // x8 (exact = 2, x4)
+#define RDOUT_OFF    (125 - RDOUT_SHIFT)   // LUT exponent offset (122)
+
 // Enable performance counters
 #define PERF_COUNTERS
 
@@ -149,7 +154,6 @@ static void pc_report(void) {
 // MAC accelerator instructions
 // =======================================
 // Encodings mirror matmul8_vec.S. CUSTOM1=0x2b, CUSTOM2=0x5b, funct3=0 unless noted
-//   MAC_ZZ()        ZZMAC64  f7=0x00   clear the raw 8x8 tile
 //   VMAC64(N,ptr)   VMAC64   CUSTOM1   vN x weight block at ptr -> raw tile
 //   MAC_AS(a,b)     MAC_AS   f7=0x0A   apply act scale words a,b to the tile
 //   MAC_WS(a,b)     MAC_WS   f7=0x0B   apply wgt scale words a,b -> fold into bank
@@ -158,7 +162,7 @@ static void pc_report(void) {
 //   BRAM_RD(rd,p)   BRAMRD   f7=0x0E   read the bram pair at p into register rd
 //   VSETVLI(avl)    vsetvli  OPV=0x57  set vl=avl, e32,m1,ta,ma
 //   VLE32(N,ptr)    vle32.v  0x07      load 32 words at ptr -> vN
-#define MAC_ZZ()       __asm__ volatile(".insn r 0x5b,0x0,0x00, x0,x0,x0")
+#define MAC_ZZ()       __asm__ volatile(".insn r 0x5b,0x0,0x00, x0,x0,x0") // REMOVE LATER
 #define VMAC64(N,ptr)  __asm__ volatile(".insn i 0x2b,0x0,x" #N ",%0,0" :: "r"(ptr))
 #define MAC_AS(a,b)    __asm__ volatile(".insn r 0x5b,0x0,0x0a, x0,%0,%1" :: "r"(a),"r"(b))
 #define MAC_WS(a,b)    __asm__ volatile(".insn r 0x5b,0x0,0x0b, x0,%0,%1" :: "r"(a),"r"(b))
@@ -186,7 +190,7 @@ static inline uint32_t bram_rd(uint32_t tile, uint32_t row, uint32_t col) {
 // One K-block reduction
 static inline __attribute__((always_inline))
 void do_k_tile(int vreg, const uint32_t *As, const uint32_t *Ws, const uint32_t *weights) {
-    MAC_ZZ();
+    MAC_ZZ(); // REMOVE LATER
     switch (vreg) {
         case  0: VMAC64(0,  weights +  0*BS); break;
         case  1: VMAC64(1,  weights +  1*BS); break;
@@ -347,7 +351,9 @@ static void argmax(int *predictions, int WH) {
 // FP4 E2M1 magnitude codes:  0=0  1=0.5  2=1.0  3=1.5  4=2.0  5=3.0  6=4.0
 enum { FP4_05 = 1, FP4_10 = 2, FP4_15 = 3, FP4_20 = 4, FP4_30 = 5, FP4_40 = 6 };
 
-// Nearest-FP4 code for a scaled value in [0,4]; index = (exp-125)[1:0]<<7 | mantissa
+// Nearest-FP4 rounding grid for a value in [0,4]: index = 2 exp bits << 7 | 7 mantissa.
+// fp4_from_bf16 supplies the exponent offset (the read-out multiply); this table is
+// just the rounding, so it is independent of the multiply.
 static uint8_t bf16_fp4_lut[128 * 4];
 
 static void build_bf16_fp4_lut(void) {
@@ -363,20 +369,20 @@ static void build_bf16_fp4_lut(void) {
     }
 }
 
-// bf16 activation -> FP4 code (Hardtanh(-0.5,0.5), scaled x8 so 0.5 -> FP4 4.0)
+// bf16 activation -> FP4 code.
 static inline uint32_t fp4_from_bf16(uint16_t bf16) {
     int exp  = (bf16 >> 7) & 0xFF;
     int sign = (bf16 >> 15) & 1;
     int code;
-    if (exp < 122) {                       // |act| < 0.03125 : too small, rounds to 0
+    if (exp < RDOUT_OFF) {                 // below LUT floor -> 0
         code = 0;
-    } else if (exp > 125) {                // |act| >= 0.5    : hardtanh clamp, top FP4 (4.0)
+    } else if (exp > 125) {                // |act| >= 0.5 (Hardtanh) -> clamp to top FP4
         code = FP4_40;
-    } else {                               // 0.03125 .. 0.5  : nearest FP4 from the LUT
-        code = bf16_fp4_lut[(((exp - 122) & 3) << 7) | (bf16 & 0x7F)];
+    } else {                               // scale up 2^RDOUT_SHIFT, round via LUT
+        code = bf16_fp4_lut[(((exp - RDOUT_OFF) & 3) << 7) | (bf16 & 0x7F)];
     }
-    if (code == 0) { return 0; }           // zero has no sign
-    return sign ? (0x8u | code) : (uint32_t)code;   // else set the sign bit (bit 3)
+    if (code == 0) { return 0; }
+    return sign ? (0x8u | code) : (uint32_t)code;
 }
 
 // Read a hidden layer's banks and qaunt to FP4 activations
