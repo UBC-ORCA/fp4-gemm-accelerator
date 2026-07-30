@@ -44,6 +44,16 @@ void __assert_func(const char *f,int l,const char *fn,const char *e){
     (void)f;(void)l;(void)fn;(void)e; __builtin_trap();
 }
 
+//[stev]
+// Define the simulator termination MMIO register
+static volatile uint32_t *const DONE_MMIO = (volatile uint32_t *)0xFFFF0000u;
+
+static inline void kill_simulation(void) {
+    *DONE_MMIO = 0xFF; // Signal simulator testbench to halt
+    while (1);         // Catch pipeline flush before termination
+}
+//[end]
+
 // =======================================
 // UART output helpers
 // =======================================
@@ -65,6 +75,14 @@ static void putdec(uint32_t n) {
         n /= 10; 
     }
     while (i--) putchar_uart(buf[i]);
+}
+
+// Helper to print raw bfloat16 hex values
+static void puthex16(uint16_t val) {
+    const char hex_chars[] = "0123456789ABCDEF";
+    for (int i = 12; i >= 0; i -= 4) {
+        putchar_uart(hex_chars[(val >> i) & 0xF]);
+    }
 }
 
 // =======================================
@@ -186,6 +204,37 @@ static inline uint32_t bram_rd(uint32_t tile, uint32_t row, uint32_t col) {
     BRAM_RD(result, BRAM_ADDR(tile, row, col));
     return result;
 }
+
+// =======================================
+// DEBUG CHECKPOINT FUNCTION
+// =======================================
+static void dump_bram_checkpoint(int max_tiles) {
+    print_str("\n=== BRAM STATE CHECKPOINT DUMP ===\n");
+    for (int t = 0; t < max_tiles; t++) {
+        print_str("--- TILE ");
+        putdec(t);
+        print_str(" ---\n");
+        for (int r_pair = 0; r_pair < TT / 2; r_pair++) {
+            print_str("RowPair ");
+            putdec(r_pair);
+            print_str(": ");
+            for (int c = 0; c < TT; c++) {
+                uint32_t pair = bram_rd(t, 2 * r_pair, c);
+                uint16_t lo = (uint16_t)(pair & 0xFFFF);
+                uint16_t hi = (uint16_t)(pair >> 16);
+
+                print_str("[");
+                puthex16(lo);
+                print_str(",");
+                puthex16(hi);
+                print_str("] ");
+            }
+            print_str("\n");
+        }
+    }
+    print_str("=== END BRAM CHECKPOINT DUMP ===\n\n");
+}
+
 
 // One K-block reduction
 static inline __attribute__((always_inline))
@@ -500,9 +549,24 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
     // Hidden layers read out to FP4 activations; the final layer argmaxes straight from the banks
     static uint32_t z1_packed[L1_DIM], z2_packed[L2_DIM];
 
+    print_str("[DEBUG] Running Layer 1 GEMM...\n");
+
     PC_LAYER(0);
     gemm(inputs, w1_fp4, bias1_packed, IN_DIM, L1_DIM, wscale1, ascale1);
     TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM));       // hidden layer -> FP4 activations
+
+//[stev]
+ // ==================== CHECKPOINT HERE ====================
+    // Tile count for Layer 1: L1_DIM (128) / TT (8) = 16 Tiles.
+    print_str("[DEBUG] Layer 1 GEMM complete! Dumping BRAM Status...\n");
+    dump_bram_checkpoint(16);
+
+    print_str("[DEBUG] Terminating execution for hardware validation.\n");
+   // __builtin_trap(); // Force halt / trigger trap
+// Kill simulation cleanly via MMIO
+    kill_simulation();
+
+//end
 
     PC_LAYER(1);
     gemm(z1_packed, w2_fp4, bias2_packed, L1_DIM, L2_DIM, wscale2, ascale2);
