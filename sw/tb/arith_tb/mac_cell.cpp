@@ -4,11 +4,13 @@
 #include <cstdio>
 #include <limits>
 #include <memory>
+#include <random>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include <verilated_cov.h>
 #include "verilated.h"
 #include "Vmac_cell.h"
 
@@ -288,35 +290,65 @@ public:
     }
 };
 
-/* Accumulates over 5 rounds of distinct FP4 input pairs and checks the
-   running accumulator value after every round, then checks that
-   deasserting mac_en_i holds the accumulator steady. */
+/* Accumulates over the specified number of rounds of 
+    randomized FP4 inputs.
+    
+    Each round has kInputsPerRound different FP4 inputs, while
+    during kHoldInputIdxth input, the mac_en is deasserted, 
+    while kClearInputIdxth input, the cell is cleared. */
 class AccumulatorBehaviorTest : public MacCellTestCase {
 public:
-    explicit AccumulatorBehaviorTest(Vmac_cell &dut)
-        : MacCellTestCase("accumulator_behavior", dut) {}
+    static constexpr int kInputsPerRound = 20;
+    static constexpr int kHoldInputIdx = 9;   // mac_en_i deasserted
+    static constexpr int kClearInputIdx = 19;  //  clear_i asserted
+
+    uint64_t rounds;
+
+    AccumulatorBehaviorTest(Vmac_cell &dut, uint64_t rounds)
+        : MacCellTestCase("accumulator_behavior", dut), rounds(rounds), rng_(0xACE1u) {}
 
     void run() override {
         reset();
 
-        static constexpr int kRounds = 5;
-        static constexpr uint8_t kAVals[kRounds] = {0x1, 0x3, 0x9, 0xC, 0x5};
-        static constexpr uint8_t kBVals[kRounds] = {0x2, 0xB, 0x4, 0xD, 0x7};
-
-        for (int round = 0; round < kRounds; ++round) {
-            int16_t got = step(fp4_t(kAVals[round]), fp4_t(kBVals[round]),
-                                /*mac_en=*/true, /*clear=*/false);
-
-            CHECK(got == ref_.acc,
-                "round=" + std::to_string(round) +
-                " got=" + std::to_string(got) + " exp=" + std::to_string(ref_.acc));
+        for (uint64_t round = 0; round < rounds; ++round) {
+            run_round(round);
         }
-
-        int16_t held = ref_.acc;
-        int16_t got = step(fp4_t::MAX_VAL(), fp4_t::MAX_VAL(), /*mac_en=*/false, /*clear=*/false);
-        CHECK(got == held && ref_.acc == held,
-            "accumulator changed while mac_en_i was deasserted");
     }
+
+    private:
+        std::mt19937 rng_;
+        std::uniform_int_distribution<int> raw_dist_{0, 15};
+
+        fp4_t rand_fp4() { return fp4_t(static_cast<uint8_t>(raw_dist_(rng_))); }
+
+        void run_round(uint64_t round){
+            for (int i = 0; i < kInputsPerRound; ++i) {
+                fp4_t a = rand_fp4();
+                fp4_t b = rand_fp4();
+
+                if (i == kClearInputIdx) {
+                    int16_t got = step(a, b, /*mac_en=*/true, /*clear=*/true);
+                    CHECK(got == 0 && ref_.acc == 0,
+                        "round=" + std::to_string(round) + " input=" + std::to_string(i) +
+                        " clear_i did not reset accumulator to zero");
+                    continue;
+                }
+
+                if (i == kHoldInputIdx) {
+                    int16_t held = ref_.acc;
+                    int16_t got = step(a, b, /*mac_en=*/false, /*clear=*/false);
+                    CHECK(got == held && ref_.acc == held,
+                        "round=" + std::to_string(round) + " input=" + std::to_string(i) +
+                        " accumulator changed while mac_en_i was deasserted");
+                    continue;
+                }
+
+                int16_t got = step(a, b, /*mac_en=*/true, /*clear=*/false);
+                CHECK(got == ref_.acc,
+                    "round=" + std::to_string(round) + " input=" + std::to_string(i) +
+                    " got=" + std::to_string(got) + " exp=" + std::to_string(ref_.acc));
+            }
+        }
 };
 
 /* Drives repeated max-magnitude MAC ops of a fixed sign to check that the
@@ -423,13 +455,14 @@ int main(int argc, char** argv) {
     TestSuite suite;
     suite.add(std::make_unique<Fp4ComputationTest>(dut));
     suite.add(std::make_unique<ClearBehaviorTest>(dut));
-    suite.add(std::make_unique<AccumulatorBehaviorTest>(dut));
+    suite.add(std::make_unique<AccumulatorBehaviorTest>(dut, /*rounds=*/100));
     suite.add(std::make_unique<SaturationTest>(dut));
 
     /* Extra CLI args (if any) name which test cases to run; none => run all. */
     std::vector<std::string> selected(argv + 1, argv + argc);
     bool ok = suite.run(selected);
 
+    VerilatedCov::write("coverage.dat");
     dut.final();
     return ok ? 0 : 1;
 }
