@@ -109,10 +109,10 @@ import mx_pkg::*;
     always_comb begin
 
         //--------------------------------------------------------
-        // Zero bypass
+        // Zero bypass or Underflow Management
         //--------------------------------------------------------
 
-        if (int_in == 16'd0) begin
+        if (int_in == 16'd0 || (rounded_scaled_exp <= 10'sd0)) begin
 
             bf16_out = '0;
 
@@ -130,18 +130,8 @@ import mx_pkg::*;
 
         end
 
-        //--------------------------------------------------------
-        // Underflow -> Flush-to-zero
-        //--------------------------------------------------------
-
-        else if (rounded_scaled_exp <= 10'sd0) begin
-
-            bf16_out.exp  = 8'h00;
-            bf16_out.mant = 7'h00;
-            bf16_out.sign = 1'b0;
-
-        end
-
+  
+  
         //--------------------------------------------------------
         // Normal BF16 value
         //--------------------------------------------------------
