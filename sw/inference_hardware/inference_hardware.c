@@ -277,6 +277,16 @@ void do_k_tile(int vreg, const uint32_t *As, const uint32_t *Ws, const uint32_t 
     }
     MAC_AS(As[0], As[1]);   // apply activation scales
     MAC_WS(Ws[0], Ws[1]);   // apply weight scales
+
+    // [rbs] DEBUG: per-fold dump (disabled for correctness run)
+    // static int fold_dbg = 0;
+    // if (fold_dbg < 8) {
+    //     for (volatile int d = 0; d < 400; d++) { }  // spacing: let the fold's multi-cycle write fully commit before reading
+    //     print_str("\n>>> after fold "); putdec((uint32_t)fold_dbg);
+    //     print_str(" (vreg "); putdec((uint32_t)vreg); print_str(")\n");
+    //     dump_bram_checkpoint(1);        // tile 0 only (the first folds all target bank 0)
+    // }
+    // if (++fold_dbg >= 8) kill_simulation();
 }
 
 // Load one activation block (32 words) into vector register vreg
@@ -505,7 +515,15 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
             }
             );
 
-            for (int K = 0; K < KK; K += (NVREG*BS)) 
+            // [rbs] PROBE: pure bias-seed dump (disabled for correctness run)
+            // static int seed_dbg = 0;
+            // if (seed_dbg == 0) {
+            //     seed_dbg = 1;
+            //     print_str("\n>>> PURE BIAS SEED (before any accumulation)\n");
+            //     dump_bram_checkpoint(1);   // tile 0 only
+            // }
+
+            for (int K = 0; K < KK; K += (NVREG*BS))
             {
                 // number of K-blocks reduced in this chunk
                 int blk0 = K / BS;
@@ -556,15 +574,15 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
     TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM));       // hidden layer -> FP4 activations
 
 //[stev]
- // ==================== CHECKPOINT HERE ====================
+ // ==================== CHECKPOINT HERE ==================== (disabled for correctness run)
     // Tile count for Layer 1: L1_DIM (128) / TT (8) = 16 Tiles.
-    print_str("[DEBUG] Layer 1 GEMM complete! Dumping BRAM Status...\n");
-    dump_bram_checkpoint(16);
+    // print_str("[DEBUG] Layer 1 GEMM complete! Dumping BRAM Status...\n");
+    // dump_bram_checkpoint(16);
 
-    print_str("[DEBUG] Terminating execution for hardware validation.\n");
+    // print_str("[DEBUG] Terminating execution for hardware validation.\n");
    // __builtin_trap(); // Force halt / trigger trap
 // Kill simulation cleanly via MMIO
-    kill_simulation();
+    // kill_simulation();
 
 //end
 
