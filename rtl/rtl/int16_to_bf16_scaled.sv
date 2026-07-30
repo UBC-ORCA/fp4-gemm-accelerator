@@ -150,21 +150,7 @@ import mx_pkg::*;
 
             bf16_out.sign = sign;
             bf16_out.exp  = rounded_scaled_exp[7:0];
-
-            if (round_up) begin
-
-                if (mant_base == 7'h7F) begin
-                    bf16_out.mant = 7'h00;
-                end
-                else begin
-                    bf16_out.mant = mant_base + 1'b1;
-                end
-
-            end
-            else begin
-                bf16_out.mant = mant_base;
-            end
-
+            bf16_out.mant = mant_base + {6'b0, round_up};
         end
 
     end
