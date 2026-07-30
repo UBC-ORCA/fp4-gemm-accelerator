@@ -39,9 +39,11 @@ import mx_pkg::*;
     assign norm_val = abs_val << lzc;
 
     // Unrounded exponent calculation based on BF16 bias (127)
+    // This bias is adjusted by -2 since the original integer has a
+    // value of 2^-2 * (x), where x is the value of the INT16 rep.
     // INT16 MSB (bit 15) represents 2^15 relative to 2^0
     logic [7:0] initial_exp;
-    assign initial_exp = 8'd127 + 8'd15 - {4'b0, lzc};
+    assign initial_exp = 8'd125 + 8'd15 - {4'b0, lzc};
 
     // Rounding logic: Extract explicit mantissa bits, guard, round, and sticky
     // Normalized string: [15] is hidden bit, [14:8] are target 7 mantissa bits
