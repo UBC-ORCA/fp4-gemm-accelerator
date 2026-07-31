@@ -352,8 +352,9 @@ assign done_o = done_main || scale_done;
     );
 
     always_comb begin
-        scale_tile_value[0] = ctx_tile_snapshot[{scale_rd_row_group,1'b0}][scale_rd_col];
-        scale_tile_value[1] = ctx_tile_snapshot[{scale_rd_row_group,1'b0}+1][scale_rd_col];
+        // use write col: BRAM read is 1 cycle late, so it lines up with the accumulator
+        scale_tile_value[0] = ctx_tile_snapshot[{scale_wr_row_group,1'b0}][scale_wr_col];
+        scale_tile_value[1] = ctx_tile_snapshot[{scale_wr_row_group,1'b0}+1][scale_wr_col];
     end
 
     logic [7:0] scaleA [0:1];
@@ -377,7 +378,8 @@ assign done_o = done_main || scale_done;
 
     // Dynamic Scale Muxing Logic
     always_comb begin
-        case(scale_rd_row_group)
+        // scaleA by write row group (matches the late read)
+        case(scale_wr_row_group)
             2'd0: begin
                 scaleA[0] = ctx_act_scale_lo[7:0];
                 scaleA[1] = ctx_act_scale_lo[15:8];
@@ -396,13 +398,25 @@ assign done_o = done_main || scale_done;
             end
         endcase
 
-        if (scale_rd_col < 4) begin
-            scaleB[0] = ctx_weight_scale_lo[scale_rd_col*8 +: 8];
-            scaleB[1] = ctx_weight_scale_lo[scale_rd_col*8 +: 8];
+        // scaleB by write col (matches the late read)
+        if (scale_wr_col < 4) begin
+            scaleB[0] = ctx_weight_scale_lo[scale_wr_col*8 +: 8];
+            scaleB[1] = ctx_weight_scale_lo[scale_wr_col*8 +: 8];
         end else begin
-            scaleB[0] = ctx_weight_scale_hi[(scale_rd_col-4)*8 +: 8];
-            scaleB[1] = ctx_weight_scale_hi[(scale_rd_col-4)*8 +: 8];
+            scaleB[0] = ctx_weight_scale_hi[(scale_wr_col-4)*8 +: 8];
+            scaleB[1] = ctx_weight_scale_hi[(scale_wr_col-4)*8 +: 8];
         end
     end
+
+`ifdef BRAM_DEBUG
+    // debug: log write col vs product col per fold write (should match after the fix)
+    always_ff @(posedge clk_i) begin
+        if (rst_ni && scale_busy && scale_write && scale_tile_q == 5'd0) begin
+            $display("[CF_SCALE] wr_col=%0d prod_col(rd)=%0d | tile0=%4h scaleB0=%2h | accIn0=%4h -> accOut0=%4h",
+                     scale_wr_col, scale_rd_col,
+                     scale_tile_value[0], scaleB[0], scale_accum_in[0], scale_accum_out[0]);
+        end
+    end
+`endif
 
 endmodule
