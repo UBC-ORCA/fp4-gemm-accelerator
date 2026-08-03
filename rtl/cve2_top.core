@@ -21,6 +21,11 @@ filesets:
       - rtl/cve2_top.sv
     file_type: systemVerilogSource
 
+  constraints: 
+    files:
+      - syn/vivado/cve2_top.xdc
+    file_type: xdc
+
   files_lint_verilator:
     files:
       - lint/verilator_waiver.vlt: {file_type: vlt}
@@ -75,9 +80,23 @@ targets:
       - tool_verilator ? (files_lint_verilator)
       - tool_veriblelint ? (files_lint_verible)
       - files_rtl
+      - constraints
     toplevel: cve2_top
     parameters:
       - tool_vivado ? (FPGA_XILINX=true)
+
+  syn:
+    <<: *default_target
+    parameters:
+     - SYNTHESIS=true
+     - RV32E
+     - RV32M
+     - MHPMCounterNum
+     - MHPMCounterWidth
+    default_tool: vivado
+    tools:
+      vivado:
+        part: xczu7ev-ffvc1156-2-e
 
   lint:
     <<: *default_target

@@ -37,8 +37,9 @@ filesets:
       - rtl/e4m3_scale.sv
       - rtl/mac_scale_accum_bram.sv
       - rtl/mac_scale_fsm.sv
-      - rtl/int16_to_bf16.sv
-      - rtl/e8m0_scale.sv
+      # - rtl/int16_to_bf16.sv
+      # - rtl/e8m0_scale.sv
+      - rtl/int16_to_bf16_scaled.sv
       - rtl/bf16_accumulate.sv
       - rtl/mac_scale_accum.sv
       - rtl/parameterized_adder.sv
@@ -102,14 +103,16 @@ targets:
       - tool_verilator ? (files_lint_verilator)
       - tool_veriblelint ? (files_lint_verible)
       - files_rtl
+
     toplevel: cve2_core
     parameters:
       - tool_vivado ? (FPGA_XILINX=true)
+
   lint:
     <<: *default_target
     parameters:
       - SYNTHESIS=true
-      - RVFI=true
+      # - RVFI=true
     default_tool: verilator
     tools:
       verilator:
