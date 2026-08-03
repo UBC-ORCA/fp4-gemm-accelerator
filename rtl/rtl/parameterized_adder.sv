@@ -42,7 +42,7 @@ import fp4_pkg::*;
     logic [EXT_MANT_WIDTH:0] norm_mant;
     logic [3:0]  lzc; 
 
-    logic max_op_subnorm, min_op_subnorm;
+    logic max_op_norm, min_op_norm;
 
     always_comb begin 
 
@@ -74,15 +74,18 @@ import fp4_pkg::*;
             exp_diff = -exp_diff;
         end
 
-        max_op_subnorm = max_op.exp == '0;
-        min_op_subnorm = min_op.exp == '0;
+        // Optimization for flush to 0: 
+        // Check if max_op.exp != 0,
+        // -> to flush to 0, need to AND the max_op.exp 
+        // and replicated signal of max_op_exp != 0.
+        // Therefore when not nromal, the mantissa goes to 0.
 
-        /* subnormal exponent accounting */
-        exp_diff += max_op_subnorm - min_op_subnorm;
+        max_op_norm = ~(|max_op.exp);
+        min_op_norm = ~(|min_op.exp);
 
         // Extract mantissas and append hidden bits (handle zero operands)
-        max_mant = {~max_op_subnorm , max_op.mant, 3'b000};
-        min_mant = {~min_op_subnorm, min_op.mant, 3'b000};
+        max_mant = {max_op_norm , max_op.mant & {7{max_op_norm}}, 3'b000};
+        min_mant = {min_op_norm, min_op.mant & {7{min_op_norm}}, 3'b000};
 
         // Align smaller operand's mantissa with dynamic sticky-bit retention
         if (exp_diff >= EXT_MANT_WIDTH) begin
@@ -121,15 +124,10 @@ import fp4_pkg::*;
             norm_mant = sum_mant_ext >> 1;
             norm_mant[0] = norm_mant[0] | sum_mant_ext[0]; 
             final_exp = final_exp + 1'b1;  
-        
-        // subnormal add, when the hidden bit is 1, promote exponent
-        end else if ((eff_sub == 1'b0) && sum_mant_ext[EXT_MANT_WIDTH-1]
-                        && max_op_subnorm && min_op_subnorm) begin
-            final_exp = final_exp + 1'b1; 
+    
 
         /* Mantissa hidden bit is 0 */
-        end else if ((eff_sub == 1'b1) && !abs_sum_mant_ext[EXT_MANT_WIDTH-1]
-                        && (~max_op_subnorm || ~min_op_subnorm)) begin
+        end else if ((eff_sub == 1'b1) && !abs_sum_mant_ext[EXT_MANT_WIDTH-1]) begin
             // Cancellation during subtraction: shift left by LZC
             if      (abs_sum_mant_ext[10]) lzc = 4'd0;
             else if (abs_sum_mant_ext[9])  lzc = 4'd1;
