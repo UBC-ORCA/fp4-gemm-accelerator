@@ -62,6 +62,7 @@ import mx_pkg::*;
     logic [6:0] mant_base;
     logic       g, r, s;
     logic       round_up;
+    logic [7:0] rounded_mant;
 
     assign mant_base = norm_val[14:8];
 
@@ -71,7 +72,7 @@ import mx_pkg::*;
 
     // Round-to-nearest-even
     assign round_up = g && (r || s || mant_base[0]);
-
+    assign rounded_mant = {1'b0, mant_base} + {7'b0, round_up};
 
     //------------------------------------------------------------
     // Scaled exponent computation
@@ -90,10 +91,10 @@ import mx_pkg::*;
     logic signed [9:0] sgn_scale_b;
     logic signed [9:0] sgn_bf16_exp;
 
-    logic signed [9:0] round_up_exp_increase;    
-
+    logic signed [9:0] round_up_exp_increase;       
+    logic round_exp_ov;
     // Increment exponent if mantissa rounding overflows.
-    assign round_up_exp_increase = {9'd0, round_up & (mant_base == 7'h7F)};
+    assign round_up_exp_increase = {9'd0, rounded_mant[7]};
 
     assign sgn_scale_a = {2'b0, scale_a};
     assign sgn_scale_b = {2'b0, scale_b};
@@ -102,45 +103,45 @@ import mx_pkg::*;
     assign rounded_scaled_exp = sgn_scale_a + sgn_scale_b + 
         round_up_exp_increase - sgn_bf16_exp - 10'sd114;
 
+    assign round_exp_ov = ~rounded_scaled_exp[9] & (rounded_scaled_exp[8]
+                            | &rounded_scaled_exp[7:0]);
+
     //------------------------------------------------------------
     // Final BF16 packing
     //------------------------------------------------------------
 
     always_comb begin
 
+        bf16_out.sign = sign;
+
         //--------------------------------------------------------
         // Zero bypass or Underflow Management
         //--------------------------------------------------------
 
-        if (int_in == 16'd0 || (rounded_scaled_exp <= 10'sd0)) begin
-
-            bf16_out = '0;
-
+        // Only handle case where negative exponent occurs
+        if (int_in == 16'd0 || rounded_scaled_exp[9]) begin
+            bf16_out.exp = '0;
+            bf16_out.mant = '0;
         end
 
         //--------------------------------------------------------
         // Overflow -> Infinity
         //--------------------------------------------------------
 
-        else if (rounded_scaled_exp >= 10'sd255) begin
+        else if (round_exp_ov) begin
 
-            bf16_out.sign = sign;
             bf16_out.exp  = 8'hFF;
             bf16_out.mant = 7'h00;
 
         end
-
-  
   
         //--------------------------------------------------------
         // Normal BF16 value
         //--------------------------------------------------------
 
         else begin
-
-            bf16_out.sign = sign;
             bf16_out.exp  = rounded_scaled_exp[7:0];
-            bf16_out.mant = mant_base + {6'b0, round_up};
+            bf16_out.mant = rounded_mant[6:0];
         end
 
     end

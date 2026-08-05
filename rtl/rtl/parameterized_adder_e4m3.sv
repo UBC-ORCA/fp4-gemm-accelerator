@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module parameterized_adder_e4m3 
+module parameterized_adder 
 import fp4_pkg::*;
 #(
     parameter int EXP_WIDTH  = 8,

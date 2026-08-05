@@ -18,7 +18,8 @@ CVE2_CONFIG ?= small
 
 TB_BASE := ../../../../sw/tb
 MATMUL_TB_CPP := $(TB_BASE)/matrix_tb/min_tb_matmul8.cpp
-MAC_CELL_TB_CPP := $(TB_BASE)/artih_tb/mac_cell.cpp
+MAC_CELL_TB_CPP := $(TB_BASE)/arith_tb/mac_cell.cpp
+BF16_ADDER_TB_CPP := $(TB_BASE)/arith_tb/bf16_add_tb.cpp
 #MATMUL_TB_CPP := ../../../../sw/tb/inference_tb/min_tb_inference.cpp
 
 UNIT_TEST_DIR := build/unit_test
@@ -90,6 +91,33 @@ mac_cell: $(RTL)/fp4_mul_int9.sv
 .PHONY: clean_mac_cell
 clean_mac_cell: 
 	rm -rf $(UNIT_TEST_DIR)/mac_cell
+
+
+.PHONY: test_bf16_add
+test_bf16_add: $(RTL)/parameterized_adder.sv
+	@mkdir -p $(UNIT_TEST_DIR)/bf16_adder
+	@echo "Building Vbf16_adder in $(UNIT_TEST_DIR)/bf16_adder"
+	cd $(UNIT_TEST_DIR)/bf16_adder && \
+	verilator --cc --exe --build \
+		-sv \
+		-Wno-fatal \
+		--coverage \
+		$(DBG_DEFINES) \
+		--top-module parameterized_adder \
+		../../../$(RTL)/fp4_pkg.sv \
+		../../../$(RTL)/parameterized_adder.sv \
+		$(BF16_ADDER_TB_CPP)
+	@echo "=================================================="
+	@echo "BF16 ADDER SIM BUILD COMPLETE"
+	@echo "=================================================="
+	@echo "Generated executable:"
+	@find build -name Vparameterized_adder 2>/dev/null || true
+	@echo "=================================================="
+
+
+.PHONY: clean_bf16_adder
+clean_bf16_adder: 
+	rm -rf $(UNIT_TEST_DIR)/bf16_adder
 
 
 
