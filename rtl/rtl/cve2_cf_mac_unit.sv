@@ -61,6 +61,10 @@ module cve2_cf_mac_unit
     logic        act_scale_ready, weight_scale_ready;
     logic        snapshot_valid;
 
+    // help with inst reordering
+    logic [31:0] act_scale_lo_safe, act_scale_hi_safe;
+    logic [31:0] weight_scale_lo_safe, weight_scale_hi_safe;
+
     logic signed [15:0] tile_snapshot [0:TT-1][0:TT-1];
 
     logic                snapshot_valid_q;
@@ -99,16 +103,25 @@ module cve2_cf_mac_unit
             if (snapshot_valid && !snapshot_valid_q) begin
                 snapshot_valid_q  <= 1'b1;
                 ctx_tile_snapshot <= tile_snapshot;
+		// help with inst reordering
+                ctx_act_scale_lo  <= act_scale_lo_safe;
+                ctx_act_scale_hi  <= act_scale_hi_safe;
+                ctx_weight_scale_lo  <= weight_scale_lo_safe;
+                ctx_weight_scale_hi  <= weight_scale_hi_safe;
             end
             if (act_scale_ready && !act_scale_valid_q) begin
                 act_scale_valid_q <= 1'b1;
-                ctx_act_scale_lo  <= act_scale_lo;
-                ctx_act_scale_hi  <= act_scale_hi;
+                //ctx_act_scale_lo  <= act_scale_lo;
+                //ctx_act_scale_hi  <= act_scale_hi;
+                act_scale_lo_safe  <= act_scale_lo;
+                act_scale_hi_safe  <= act_scale_hi;
             end
             if (weight_scale_ready && !weight_scale_valid_q) begin
                 weight_scale_valid_q <= 1'b1;
-                ctx_weight_scale_lo  <= weight_scale_lo;
-                ctx_weight_scale_hi  <= weight_scale_hi;
+                //ctx_weight_scale_lo  <= weight_scale_lo;
+                //ctx_weight_scale_hi  <= weight_scale_hi;
+                weight_scale_lo_safe  <= weight_scale_lo;
+                weight_scale_hi_safe  <= weight_scale_hi;
             end
             if (context_accept) begin
                 snapshot_valid_q     <= 1'b0;
