@@ -17,9 +17,9 @@ SHELL := /bin/bash
 CVE2_CONFIG ?= small
 
 TB_BASE := ../../../../sw/tb
-#MATMUL_TB_CPP := $(TB_BASE)/matrix_tb/min_tb_matmul8.cpp
+MATMUL_TB_CPP := $(TB_BASE)/matrix_tb/min_tb_matmul8.cpp
 MAC_CELL_TB_CPP := $(TB_BASE)/artih_tb/mac_cell.cpp
-MATMUL_TB_CPP := ../../../../sw/tb/inference_tb/min_tb_inference.cpp
+#MATMUL_TB_CPP := ../../../../sw/tb/inference_tb/min_tb_inference.cpp
 
 UNIT_TEST_DIR := build/unit_test
 
