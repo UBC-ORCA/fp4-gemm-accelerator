@@ -15,8 +15,6 @@ import fp4_pkg::*;
     bf16_t op_a, op_b, op_b_norm, op_res;
     assign op_a = bf16_t'(a);
     assign op_b = bf16_t'(b);
-
-
     assign sum  = logic_vector_pack(op_res);
 
     // Helper function to cast structural representations cleanly back to logic arrays
@@ -89,6 +87,7 @@ import fp4_pkg::*;
 
         op_a_exp_signed = {1'b0, op_a.exp};
         op_b_exp_signed = {1'b0, op_b.exp};
+
         // ---------------------------------------------------------------------
         // 1. OPERAND SORTING & EXPONENT ALIGNMENT
         // ---------------------------------------------------------------------

@@ -32,9 +32,9 @@ filesets:
       - rtl/mac_accum_bram.sv
       - rtl/mx_pkg.sv
       - rtl/fp4_pkg.sv
-      - rtl/fp4_e4m3_scale_mul.sv
-      - rtl/parameterized_adder_e4m3.sv
-      - rtl/e4m3_scale.sv
+      # - rtl/fp4_e4m3_scale_mul.sv
+      # - rtl/parameterized_adder_e4m3.sv
+      # - rtl/e4m3_scale.sv
       - rtl/mac_scale_accum_bram.sv
       - rtl/mac_scale_fsm.sv
       # - rtl/int16_to_bf16.sv

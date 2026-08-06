@@ -125,14 +125,12 @@ import mx_pkg::*;
         end
 
         //--------------------------------------------------------
-        // Overflow -> Infinity
+        // Exponent Overflow behaviour, goes to NaN
         //--------------------------------------------------------
 
         else if (round_exp_ov) begin
-
             bf16_out.exp  = 8'hFF;
-            bf16_out.mant = 7'h00;
-
+            bf16_out.mant = 7'h40;
         end
   
         //--------------------------------------------------------

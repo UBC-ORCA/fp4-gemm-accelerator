@@ -164,7 +164,7 @@ vivado:
 # STEP 2: Patch VC file
 ###############################################################################
 .PHONY: gen-vc
-gen-vc:
+gen-vc: fuse
 	@VC_FILE=$$(find build -name "$(VC_NAME)" | head -n 1); \
 	if [ -z "$$VC_FILE" ]; then \
 		echo "ERROR: VC file not found. Run 'make fuse' first."; \
@@ -187,7 +187,7 @@ gen-vc:
 # STEP 3: Build simulation
 ###############################################################################
 .PHONY: build-sim
-build-sim:
+build-sim: gen-vc
 	@VC_FILE=$$(find build -name "$(VC_NAME)" | head -n 1); \
 	if [ -z "$$VC_FILE" ]; then \
 		echo "ERROR: VC file not found. Run 'make fuse' first."; \
