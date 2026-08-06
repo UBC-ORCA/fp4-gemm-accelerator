@@ -15,7 +15,7 @@ import mx_pkg::*;
 
     logic        sign;
     logic [15:0] abs_val;
-    logic [4:0]  lzc;
+    logic [3:0]  lzc;
 
     assign sign    = int_in[15];
     assign abs_val = sign ? -int_in : int_in;
@@ -24,26 +24,24 @@ import mx_pkg::*;
     //------------------------------------------------------------
     // Leading zero count
     //------------------------------------------------------------
+
     always_comb begin
-        casez (abs_val)
-            16'b1???_????_????_????: lzc = 5'd0;
-            16'b01??_????_????_????: lzc = 5'd1;
-            16'b001?_????_????_????: lzc = 5'd2;
-            16'b0001_????_????_????: lzc = 5'd3;
-            16'b0000_1???_????_????: lzc = 5'd4;
-            16'b0000_01??_????_????: lzc = 5'd5;
-            16'b0000_001?_????_????: lzc = 5'd6;
-            16'b0000_0001_????_????: lzc = 5'd7;
-            16'b0000_0000_1???_????: lzc = 5'd8;
-            16'b0000_0000_01??_????: lzc = 5'd9;
-            16'b0000_0000_001?_????: lzc = 5'd10;
-            16'b0000_0000_0001_????: lzc = 5'd11;
-            16'b0000_0000_0000_1???: lzc = 5'd12;
-            16'b0000_0000_0000_01??: lzc = 5'd13;
-            16'b0000_0000_0000_001?: lzc = 5'd14;
-            16'b0000_0000_0000_0001: lzc = 5'd15;             
-            default:  lzc = 5'd16;
-        endcase
+        if      (abs_val[15]) lzc = 4'd0;
+        else if (abs_val[14]) lzc = 4'd1;
+        else if (abs_val[13]) lzc = 4'd2;
+        else if (abs_val[12]) lzc = 4'd3;
+        else if (abs_val[11]) lzc = 4'd4;
+        else if (abs_val[10]) lzc = 4'd5;
+        else if (abs_val[9])  lzc = 4'd6;
+        else if (abs_val[8])  lzc = 4'd7;
+        else if (abs_val[7])  lzc = 4'd8;
+        else if (abs_val[6])  lzc = 4'd9;
+        else if (abs_val[5])  lzc = 4'd10;
+        else if (abs_val[4])  lzc = 4'd11;
+        else if (abs_val[3])  lzc = 4'd12;
+        else if (abs_val[2])  lzc = 4'd13;
+        else if (abs_val[1])  lzc = 4'd14;
+        else                  lzc = 4'd15;
     end
 
 
@@ -52,6 +50,7 @@ import mx_pkg::*;
     //------------------------------------------------------------
 
     logic [15:0] norm_val;
+
     assign norm_val = abs_val << lzc;
 
 
@@ -62,7 +61,6 @@ import mx_pkg::*;
     logic [6:0] mant_base;
     logic       g, r, s;
     logic       round_up;
-    logic [7:0] rounded_mant;
 
     assign mant_base = norm_val[14:8];
 
@@ -72,39 +70,35 @@ import mx_pkg::*;
 
     // Round-to-nearest-even
     assign round_up = g && (r || s || mant_base[0]);
-    assign rounded_mant = {1'b0, mant_base} + {7'b0, round_up};
+
 
     //------------------------------------------------------------
     // Scaled exponent computation
     //
-    // initial_exp = 127 + 15 - lzc - 2
+    // initial_exp = 127 + 15 - lzc
     // scaled_exp  = initial_exp + scaleA + scaleB - 254
     //
     // Simplifies to:
     //
-    // scaled_exp = scaleA + scaleB - lzc - 114
+    // scaled_exp = scaleA + scaleB - lzc - 112
     //------------------------------------------------------------
 
+    logic signed [9:0] scaled_exp;
     logic signed [9:0] rounded_scaled_exp;
 
-    logic signed [9:0] sgn_scale_a;
-    logic signed [9:0] sgn_scale_b;
-    logic signed [9:0] sgn_bf16_exp;
+    assign scaled_exp =
+            $signed({2'b0,scale_a})
+          + $signed({2'b0,scale_b})
+          - $signed({6'b0,lzc})
+          - 10'sd112;
 
-    logic signed [9:0] round_up_exp_increase;       
-    logic round_exp_ov;
     // Increment exponent if mantissa rounding overflows.
-    assign round_up_exp_increase = {9'd0, rounded_mant[7]};
+    assign rounded_scaled_exp =
+            scaled_exp +
+            ((round_up && (mant_base == 7'h7F))
+                ? 10'sd1
+                : 10'sd0);
 
-    assign sgn_scale_a = {2'b0, scale_a};
-    assign sgn_scale_b = {2'b0, scale_b};
-    assign sgn_bf16_exp = {5'b0, lzc};
-
-    assign rounded_scaled_exp = sgn_scale_a + sgn_scale_b + 
-        round_up_exp_increase - sgn_bf16_exp - 10'sd114;
-
-    assign round_exp_ov = ~rounded_scaled_exp[9] & (rounded_scaled_exp[8]
-                            | &rounded_scaled_exp[7:0]);
 
     //------------------------------------------------------------
     // Final BF16 packing
@@ -112,36 +106,63 @@ import mx_pkg::*;
 
     always_comb begin
 
-        bf16_out.sign = sign;
-
         //--------------------------------------------------------
-        // Zero bypass or Underflow Management
+        // Zero bypass
         //--------------------------------------------------------
 
-        // Only handle case where negative exponent occurs
-        if (int_in == 16'd0 || rounded_scaled_exp[9]) begin
-            bf16_out.exp = '0;
-            bf16_out.mant = '0;
+        if (int_in == 16'd0) begin
+
+            bf16_out = '0;
+
         end
 
         //--------------------------------------------------------
         // Overflow -> Infinity
         //--------------------------------------------------------
 
-        else if (round_exp_ov) begin
+        else if (rounded_scaled_exp >= 10'sd255) begin
 
+            bf16_out.sign = sign;
             bf16_out.exp  = 8'hFF;
             bf16_out.mant = 7'h00;
 
         end
-  
+
+        //--------------------------------------------------------
+        // Underflow -> Flush-to-zero
+        //--------------------------------------------------------
+
+        else if (rounded_scaled_exp <= 10'sd0) begin
+
+            bf16_out.exp  = 8'h00;
+            bf16_out.mant = 7'h00;
+            bf16_out.sign = 1'b0;
+
+        end
+
         //--------------------------------------------------------
         // Normal BF16 value
         //--------------------------------------------------------
 
         else begin
+
+            bf16_out.sign = sign;
             bf16_out.exp  = rounded_scaled_exp[7:0];
-            bf16_out.mant = rounded_mant[6:0];
+
+            if (round_up) begin
+
+                if (mant_base == 7'h7F) begin
+                    bf16_out.mant = 7'h00;
+                end
+                else begin
+                    bf16_out.mant = mant_base + 1'b1;
+                end
+
+            end
+            else begin
+                bf16_out.mant = mant_base;
+            end
+
         end
 
     end
