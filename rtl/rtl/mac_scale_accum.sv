@@ -11,22 +11,29 @@ import mx_pkg::*;
 );
 
     // Intermediate structured wiring signals
-    bf16_t bf16_tile;
     bf16_t bf16_scaled;
 
-    // 1. Convert Int16 Accumulator Matrix Output into standard BF16 format
-    int16_to_bf16 u_convert (
-        .int_in   (tile_value),
-        .bf16_out (bf16_tile)
+    // Convert int + scaling directly to bf16   
+    int16_to_bf16_scaled scaler(
+        .int_in          (tile_value),
+        .scale_a         (scaleA),
+        .scale_b         (scaleB),
+        .bf16_out        (bf16_scaled)
     );
 
-    // 2. Adjust Exponents dynamically utilizing E8M0 elements
-    e8m0_scale u_scale (
-        .bf16_in  (bf16_tile),
-        .scale_a  (scaleA),
-        .scale_b  (scaleB),
-        .bf16_out (bf16_scaled)
-    );
+    // // 1. Convert Int16 Accumulator Matrix Output into standard BF16 format
+    // int16_to_bf16 u_convert (
+    //     .int_in   (tile_value),
+    //     .bf16_out (bf16_tile)
+    // );
+
+    // // 2. Adjust Exponents dynamically utilizing E8M0 elements
+    // e8m0_scale u_scale (
+    //     .bf16_in  (bf16_tile),
+    //     .scale_a  (scaleA),
+    //     .scale_b  (scaleB),
+    //     .bf16_out (bf16_scaled)
+    // );
 
    // int16_to_bf16_scaled u_convert_scale (
    //     .int_in   (tile_value),
