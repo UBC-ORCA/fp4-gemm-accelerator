@@ -27,6 +27,7 @@ module mac_controller #(
     output logic                        vmac_start_o,
     input  logic                        vmac_busy_i,
     input  logic                        vmac_done_i,
+    input  logic                        vmac_complete_i,
 
     // Memory / GPR scalar interface
     output logic                        scalar_we_o,
@@ -114,6 +115,13 @@ module mac_controller #(
             act_scale_pulse    <= 1'b0;
             weight_scale_pulse <= 1'b0;
 
+	    // Fire weight-scale context only when the previous VMAC has completed.
+	    if ((state_q == EXEC) &&
+    		(op_q == cve2_pkg::OP_MAC_WS) &&
+    		vmac_complete_i) begin
+    		weight_scale_pulse <= 1'b1;
+	    end
+
             if (req_valid_i && req_ready_o) begin
                 op_q           <= cf_req_op_i;
                 scalar_waddr_q <= scalar_waddr_i;
@@ -127,7 +135,7 @@ module mac_controller #(
                     cve2_pkg::OP_MAC_WS: begin
                         weight_scale_lo_q  <= rs1_i;
                         weight_scale_hi_q  <= rs2_i;
-                        weight_scale_pulse <= 1'b1;
+                        //weight_scale_pulse <= 1'b1;
                     end
                     default: ;
                 endcase
@@ -166,15 +174,25 @@ module mac_controller #(
                     end
                 end
                 else if ((op_q == cve2_pkg::OP_MAC_AS) ||
-                         (op_q == cve2_pkg::OP_MAC_WS) ||
                          (op_q == cve2_pkg::OP_MAC_BIAS) ||
                          (op_q == cve2_pkg::OP_ACC_BANK)) begin // Finishes execution in one cycle
                     state_d = DONE;
-                end 
-                else if (op_q == cve2_pkg::OP_VMAC) begin
-                    if (vmac_done_i) begin
+                end
+		else if (op_q == cve2_pkg::OP_MAC_WS) begin
+//[stev]
+//`ifdef DEBUG_PRINT
+//$display("WS EXEC complete=%0d", vmac_complete_i);
+//`endif
+//end
+
+    			if (vmac_complete_i) begin
+        			state_d = DONE;
+			end
+		end 
+                else if (op_q == cve2_pkg::OP_VMAC) begin //[stev] - need to make this return imm
+                   // if (vmac_done_i) begin
                         state_d = DONE;
-                    end
+                   // end
                 end
             end
 

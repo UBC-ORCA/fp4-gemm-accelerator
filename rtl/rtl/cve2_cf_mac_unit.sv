@@ -78,6 +78,7 @@ module cve2_cf_mac_unit (
     logic        scale_busy;
     logic        scale_write;
     logic        scale_done;
+    logic vmac_complete_q;
 
     assign context_ready = snapshot_valid_q && act_scale_valid_q && weight_scale_valid_q;
 
@@ -92,10 +93,18 @@ module cve2_cf_mac_unit (
             ctx_weight_scale_lo  <= '0;
             ctx_weight_scale_hi  <= '0;
             ctx_tile_snapshot   <= '{default: '{default: '0}};
+	    vmac_complete_q <= 1'b0;
         end else begin
             if (snapshot_valid && !snapshot_valid_q) begin
                 snapshot_valid_q  <= 1'b1;
                 ctx_tile_snapshot <= tile_snapshot;
+		vmac_complete_q <= 1'b1;
+//[stev]
+//`ifdef DEBUG_PRINT
+$display("%0t SNAPSHOT VALID", $time);
+//`endif
+//end
+
             end
             if (act_scale_ready && !act_scale_valid_q) begin
                 act_scale_valid_q <= 1'b1;
@@ -106,11 +115,24 @@ module cve2_cf_mac_unit (
                 weight_scale_valid_q <= 1'b1;
                 ctx_weight_scale_lo  <= weight_scale_lo;
                 ctx_weight_scale_hi  <= weight_scale_hi;
+		vmac_complete_q <= 1'b0;
+//[stev]
+//`ifdef DEBUG_PRINT
+$display("%0t WS READY", $time);
+//`endif
+//end
+
             end
             if (context_accept) begin
                 snapshot_valid_q     <= 1'b0;
                 act_scale_valid_q    <= 1'b0;
                 weight_scale_valid_q <= 1'b0;
+//[stev]
+//`ifdef DEBUG_PRINT
+$display("%0t CONTEXT ACCEPT", $time);
+//`endif
+//end
+
             end
         end
     end
@@ -271,7 +293,8 @@ module cve2_cf_mac_unit (
         .accum_wr_tile_o      (ctrl_accum_wr_tile),
         .accum_wr_row_o       (ctrl_accum_wr_row),
         .accum_wr_col_o       (ctrl_accum_wr_col),
-        .accum_wr_data_o      (ctrl_accum_wr_data)
+        .accum_wr_data_o      (ctrl_accum_wr_data),
+	.vmac_complete_i      (vmac_complete_q)
     );
 
     vmac_engine #(

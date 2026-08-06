@@ -104,7 +104,16 @@ module vmac_engine #(
             snapshot_valid_o <= vmac_last_q;
         end
     end
+always_ff @(posedge clk_i) begin
+    if (start_i)
+        $display("%0t VMAC START", $time);
 
+    if (done_o)
+        $display("%0t VMAC DONE", $time);
+
+    if (snapshot_valid_o)
+        $display("%0t SNAPSHOT_VALID", $time);
+end
     always_comb begin
         state_d        = state_q;
         count_d        = count_q;
