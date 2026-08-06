@@ -32,6 +32,7 @@ RISCV_PREFIX ?= riscv-none-elf
 
 CC      := $(RISCV_PREFIX)-gcc
 OBJCOPY := $(RISCV_PREFIX)-objcopy
+DATASET ?= mnist
 
 ###############################################################################
 # Output files
@@ -111,7 +112,7 @@ endif
 
 LDFLAGS := \
 	-I ../generic \
-	-I ../headers \
+	-I ../headers/$(DATASET) \
 	-T $(LINKER_SCRIPT) \
 	-Wl,-Map=$(MAP_FILE)
 

@@ -1,16 +1,8 @@
 // MLP inference on CVE2 with GEN3 spec
 
 #include <assert.h>
-#include "../headers/weights_blk32_pkgUINT32_scaleE8M0.h"
-
-// Total number of samples to process
-#define N_SAMPLES 80
-
-// Memory addresses for test data loading
-#define IMG_LOAD  ((volatile unsigned int  *) 0xFFFF0010)
-#define IMG_LABEL ((volatile unsigned int  *) 0xFFFF0014)
-#define IMG_PRED  ((volatile unsigned int  *) 0xFFFF0018)
-#define IMG_STAGE ((volatile unsigned char *) 0x80070000)
+#include "weights_blk32_pkgUINT32_scaleE8M0.h"
+#include "image.h"
 
 // Network dimensions for the MLP layers
 #define IN_REAL   784             // real MNIST pixels
@@ -180,7 +172,6 @@ static void pc_report(void) {
 //   BRAM_RD(rd,p)   BRAMRD   f7=0x0E   read the bram pair at p into register rd
 //   VSETVLI(avl)    vsetvli  OPV=0x57  set vl=avl, e32,m1,ta,ma
 //   VLE32(N,ptr)    vle32.v  0x07      load 32 words at ptr -> vN
-#define MAC_ZZ()       __asm__ volatile(".insn r 0x5b,0x0,0x00, x0,x0,x0") // REMOVE LATER
 #define VMAC64(N,ptr)  __asm__ volatile(".insn i 0x2b,0x0,x" #N ",%0,0" :: "r"(ptr))
 #define MAC_AS(a,b)    __asm__ volatile(".insn r 0x5b,0x0,0x0a, x0,%0,%1" :: "r"(a),"r"(b))
 #define MAC_WS(a,b)    __asm__ volatile(".insn r 0x5b,0x0,0x0b, x0,%0,%1" :: "r"(a),"r"(b))
@@ -239,7 +230,6 @@ static void dump_bram_checkpoint(int max_tiles) {
 // One K-block reduction
 static inline __attribute__((always_inline))
 void do_k_tile(int vreg, const uint32_t *As, const uint32_t *Ws, const uint32_t *weights) {
-    //MAC_ZZ(); // REMOVE LATER
     switch (vreg) {
         case  0: VMAC64(0,  weights +  0*BS); break;
         case  1: VMAC64(1,  weights +  1*BS); break;
@@ -627,10 +617,13 @@ int main(void) {
             for (int p = 0; p < IN_DIM; p++) {
                 image_packed[p] = 0;
             }
-            // Read the staging buffer 4 pixels to reduce MIMO accesses
-            const volatile uint32_t *stage32 = (const volatile uint32_t *)IMG_STAGE;
             for (int j = 0; j < n; j++) {
-                *IMG_LOAD = s + j;
+                image_load(s + j);
+                // Read the staging buffer 4 pixels at a time to reduce accesses.
+                // Re-read IMG_STAGE per sample: it is a fixed MMIO buffer in the
+                // simulator build but moves through the blob in the FPGA build.
+                // Both stay 4-byte aligned (blob is .align 4, 784 % 4 == 0).
+                const volatile uint32_t *stage32 = (const volatile uint32_t *)IMG_STAGE;
                 int sh = 4 * j;
                 for (int w = 0; w < IN_REAL/4; w++) {   // 196 words = 784 real pixels
                     uint32_t four = stage32[w];
