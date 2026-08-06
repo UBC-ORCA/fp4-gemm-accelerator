@@ -619,10 +619,6 @@ int main(void) {
             }
             for (int j = 0; j < n; j++) {
                 image_load(s + j);
-                // Read the staging buffer 4 pixels at a time to reduce accesses.
-                // Re-read IMG_STAGE per sample: it is a fixed MMIO buffer in the
-                // simulator build but moves through the blob in the FPGA build.
-                // Both stay 4-byte aligned (blob is .align 4, 784 % 4 == 0).
                 const volatile uint32_t *stage32 = (const volatile uint32_t *)IMG_STAGE;
                 int sh = 4 * j;
                 for (int w = 0; w < IN_REAL/4; w++) {   // 196 words = 784 real pixels
