@@ -2,6 +2,10 @@
 
 module int16_to_bf16_scaled
 import mx_pkg::*;
+#(
+    // Bias of int16 input, true value is 2^(0-INT16_BIAS) * int_in
+    parameter logic [3:0] INT16_BIAS = 2
+)
 (
     input  logic signed [15:0] int_in,
     input  logic [7:0]         scale_a,
@@ -77,12 +81,12 @@ import mx_pkg::*;
     //------------------------------------------------------------
     // Scaled exponent computation
     //
-    // initial_exp = 127 + 15 - lzc - 2
+    // initial_exp = 127 + 15 - lzc - INT16_BIAS
     // scaled_exp  = initial_exp + scaleA + scaleB - 254
     //
     // Simplifies to:
     //
-    // scaled_exp = scaleA + scaleB - lzc - 114
+    // scaled_exp = scaleA + scaleB - lzc - 112 - INT16_BIAS
     //------------------------------------------------------------
 
     logic signed [9:0] rounded_scaled_exp;
@@ -90,6 +94,7 @@ import mx_pkg::*;
     logic signed [9:0] sgn_scale_a;
     logic signed [9:0] sgn_scale_b;
     logic signed [9:0] sgn_bf16_exp;
+    logic signed [9:0] sgn_int16_bias = {9'd0, INT16_BIAS};
 
     logic signed [9:0] round_up_exp_increase;       
     logic round_exp_ov;
@@ -101,7 +106,7 @@ import mx_pkg::*;
     assign sgn_bf16_exp = {5'b0, lzc};
 
     assign rounded_scaled_exp = sgn_scale_a + sgn_scale_b + 
-        round_up_exp_increase - sgn_bf16_exp - 10'sd114;
+        round_up_exp_increase - sgn_bf16_exp - (10'sd112 + sgn_int16_bias);
 
     assign round_exp_ov = ~rounded_scaled_exp[9] & (rounded_scaled_exp[8]
                             | &rounded_scaled_exp[7:0]);
