@@ -29,9 +29,8 @@
 
 #define BS       K1_STEP_HDR      // Number of K elements per inner block
 
-// Read-out multiply: scale up by 2^RDOUT_SHIFT so [-0.5,0.5] fills the FP4 grid;
-// MAC_AS undoes it via ascale = 2^-(bias+2) (should be bias+1 but +2 performs better)
-#define RDOUT_SHIFT  3                     // x8 (exact = 2, x4)
+// Read-out multiply: scale up by 2^RDOUT_SHIFT so [-0.5,0.5] fills the FP4 grid
+#define RDOUT_SHIFT  3
 #define RDOUT_OFF    (125 - RDOUT_SHIFT)   // LUT exponent offset (122)
 
 // Enable performance counters
