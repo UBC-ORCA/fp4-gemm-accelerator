@@ -100,6 +100,14 @@ CFLAGS := \
 	-nostdlib \
 	-ffreestanding
 
+# Workaround for the MAC busy/done race: at N_SAMPLES >= ~1000 gcc clones
+# gemm/readout_fp4 instead of inlining them, which reschedules the custom
+# instructions and trips it. NOCLONE=0 builds without it.
+NOCLONE ?= 1
+ifeq ($(NOCLONE),1)
+CFLAGS += -fno-ipa-cp-clone
+endif
+
 # FPGA=1 uses start_fpga.S + auto-incrementing UART pointer; FPGA=0 (default)
 # uses the simulator start.S / UART.
 FPGA ?= 0
