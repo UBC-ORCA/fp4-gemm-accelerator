@@ -505,15 +505,13 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
             }
             );
 
-            // [rbs] PROBE: dump the PURE bias seed (zero accumulation steps) once,
-            // right after seeding and before any do_k_tile. Isolates seed-write from
-            // the rewritten INT MAC array. Compare this across builds.
-            static int seed_dbg = 0;
-            if (seed_dbg == 0) {
-                seed_dbg = 1;
-                print_str("\n>>> PURE BIAS SEED (before any accumulation)\n");
-                dump_bram_checkpoint(1);   // tile 0 only
-            }
+            // [rbs] checkpoint: dump the bias
+            // static int seed_dbg = 0;
+            // if (seed_dbg == 0) {
+            //     seed_dbg = 1;
+            //     print_str("\n>>> PURE BIAS SEED (before any accumulation)\n");
+            //     dump_bram_checkpoint(1);   // tile 0 only
+            // }
 
             for (int K = 0; K < KK; K += (NVREG*BS))
             {
@@ -559,8 +557,6 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
     // Hidden layers read out to FP4 activations; the final layer argmaxes straight from the banks
     static uint32_t z1_packed[L1_DIM], z2_packed[L2_DIM];
 
-    print_str("[DEBUG] Running Layer 1 GEMM...\n");
-
     PC_LAYER(0);
     gemm(inputs, w1_fp4, bias1_packed, IN_DIM, L1_DIM, wscale1, ascale1);
     TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM));       // hidden layer -> FP4 activations
@@ -590,7 +586,8 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
 int main(void) {
     // Store one word per pixel for all batch lanes
     static uint32_t image_packed[NVREG*BS];
-    //static uint32_t image_packed[IN_DIM];   
+    // Raw pixels for the whole batch
+    static uint32_t stage_buf[BATCH][IN_REAL/4];
     int predictions[BATCH];
 
     build_pix_lut();
@@ -613,24 +610,41 @@ int main(void) {
 
         // Pack the batch of images
         TIME(pc_imgq, {
-            // Leave unused lanes and the K pad tail (784..799) as zero
-            for (int p = 0; p < IN_DIM; p++) {
-                image_packed[p] = 0;
-            }
+            // Drain the staging buffer, one image at a time
             for (int j = 0; j < n; j++) {
                 image_load(s + j);
                 const volatile uint32_t *stage32 = (const volatile uint32_t *)IMG_STAGE;
-                int sh = 4 * j;
                 for (int w = 0; w < IN_REAL/4; w++) {   // 196 words = 784 real pixels
-                    uint32_t four = stage32[w];
-                    int p = w * 4;
-                    image_packed[p+0] |= (uint32_t)pix_to_fp4[(four      ) & 0xFF] << sh;
-                    image_packed[p+1] |= (uint32_t)pix_to_fp4[(four >>  8) & 0xFF] << sh;
-                    image_packed[p+2] |= (uint32_t)pix_to_fp4[(four >> 16) & 0xFF] << sh;
-                    image_packed[p+3] |= (uint32_t)pix_to_fp4[(four >> 24) & 0xFF] << sh;
+                    stage_buf[j][w] = stage32[w];
                 }
                 truth[j] = *IMG_LABEL;
                 ref[j]   = *IMG_PRED;
+            }
+
+            // Sample inner, so each word is built in a register and stored once
+            for (int w = 0; w < IN_REAL/4; w++) {
+                uint32_t a0 = 0;
+                uint32_t a1 = 0;
+                uint32_t a2 = 0;
+                uint32_t a3 = 0;
+                for (int j = 0; j < n; j++) {
+                    uint32_t four = stage_buf[j][w];
+                    int sh = 4 * j;
+                    a0 |= (uint32_t)pix_to_fp4[(four      ) & 0xFF] << sh;
+                    a1 |= (uint32_t)pix_to_fp4[(four >>  8) & 0xFF] << sh;
+                    a2 |= (uint32_t)pix_to_fp4[(four >> 16) & 0xFF] << sh;
+                    a3 |= (uint32_t)pix_to_fp4[(four >> 24) & 0xFF] << sh;
+                }
+                int p = w * 4;
+                image_packed[p+0] = a0;
+                image_packed[p+1] = a1;
+                image_packed[p+2] = a2;
+                image_packed[p+3] = a3;
+            }
+
+            // K pad tail (784..799) carries no pixels and must read as zero
+            for (int p = IN_REAL; p < IN_DIM; p++) {
+                image_packed[p] = 0;
             }
         });
 
