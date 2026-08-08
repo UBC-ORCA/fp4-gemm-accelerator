@@ -148,6 +148,7 @@ int main(int argc, char** argv) {
   if (argc < 2) {
     std::cerr << "Usage: " << argv[0]
               << " <inference.hex> [--data FILE] [--max-cycles N] [--print-every N]"
+                 " [--stall-after N]"
                  " [--trace-if] [--trace-d] [--no-uart] [--uart-file NAME]\n";
     return 1;
   }
@@ -156,6 +157,8 @@ int main(int argc, char** argv) {
   std::string data_path;
   uint64_t max_cycles    = 50000000;
   uint64_t print_every   = 1000000;
+  // Cycles of UART silence before declaring a stall and dumping state. 0 = off.
+  uint64_t stall_after   = 2000000;
   bool trace_if          = false;
   bool trace_d           = false;
   bool uart_file         = true;   // tee UART to a file (disable: --no-uart)
@@ -166,6 +169,7 @@ int main(int argc, char** argv) {
     if (a == "--data" && i+1 < argc)         data_path   = argv[++i];
     else if (a == "--max-cycles" && i+1 < argc)   max_cycles  = std::stoull(argv[++i]);
     else if (a == "--print-every" && i+1 < argc) print_every = std::stoull(argv[++i]);
+    else if (a == "--stall-after" && i+1 < argc) stall_after = std::stoull(argv[++i]);
     else if (a == "--trace-if") trace_if = true;
     else if (a == "--trace-d")  trace_d  = true;
     else if (a == "--no-uart")  uart_file = false;
@@ -222,6 +226,13 @@ int main(int argc, char** argv) {
 
   bool if_resp_due  = false;
   uint32_t if_resp_addr = 0;
+
+  // Stall watchdog: ring of the last fetched PCs, plus when UART last moved
+  static const int PC_RING = 32;
+  uint32_t pc_ring[PC_RING] = {0};
+  int      pc_ring_n = 0;
+  uint64_t last_uart_chars = 0;
+  uint64_t last_uart_cyc   = 0;
   bool d_resp_due   = false;
   uint32_t d_resp_addr  = 0;
   bool d_resp_is_write  = false;
@@ -294,6 +305,8 @@ int main(int argc, char** argv) {
     if (if_fire) {
       if_resp_due  = true;
       if_resp_addr = (uint32_t)dut->instr_addr_o;
+      pc_ring[pc_ring_n % PC_RING] = if_resp_addr;
+      pc_ring_n++;
       if (trace_if) std::printf("[IF] accept pc=0x%08x\n", if_resp_addr);
     }
 
@@ -353,6 +366,41 @@ int main(int argc, char** argv) {
       std::printf("[TB] cyc=%llu uart_chars=%llu sleep=%d\n",
                   (unsigned long long)cyc, (unsigned long long)uart_chars,
                   (int)dut->core_sleep_o);
+
+    //------------------------------------------------------------------
+    // Stall watchdog. UART goes quiet when the program stops making
+    // progress; dump where the core is and what it is waiting on.
+    //------------------------------------------------------------------
+    if (uart_chars != last_uart_chars) {
+      last_uart_chars = uart_chars;
+      last_uart_cyc   = cyc;
+    } else if (stall_after && !done_seen && cyc > last_uart_cyc + stall_after) {
+      std::printf("\n[TB] STALL: no UART for %llu cycles (cyc=%llu)\n",
+                  (unsigned long long)(cyc - last_uart_cyc),
+                  (unsigned long long)cyc);
+      std::printf("[TB]   fetch : req=%d gnt=%d rvalid=%d pc=0x%08x\n",
+                  (int)dut->instr_req_o, (int)dut->instr_gnt_i,
+                  (int)dut->instr_rvalid_i, (uint32_t)dut->instr_addr_o);
+      std::printf("[TB]   data  : req=%d gnt=%d rvalid=%d we=%d addr=0x%08x\n",
+                  (int)dut->data_req_o, (int)dut->data_gnt_i,
+                  (int)dut->data_rvalid_i, (int)dut->data_we_o,
+                  (uint32_t)dut->data_addr_o);
+      std::printf("[TB]   sleep=%d  fetches=%d\n",
+                  (int)dut->core_sleep_o, pc_ring_n);
+
+      // Last fetched PCs, oldest first. A single repeated address means the
+      // core is stalled on one instruction; a short cycle means a spin loop.
+      int n = pc_ring_n < PC_RING ? pc_ring_n : PC_RING;
+      int start = pc_ring_n < PC_RING ? 0 : (pc_ring_n % PC_RING);
+      std::printf("[TB]   last %d fetched PCs:\n", n);
+      for (int k = 0; k < n; k++) {
+        if (k % 8 == 0) std::printf("[TB]    ");
+        std::printf(" 0x%08x", pc_ring[(start + k) % PC_RING]);
+        if (k % 8 == 7 || k == n - 1) std::printf("\n");
+      }
+      std::fflush(stdout);
+      break;
+    }
 
     dut->clk_i = 1;
     dut->eval();
