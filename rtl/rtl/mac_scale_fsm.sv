@@ -14,9 +14,14 @@ module mac_scale_fsm #(
     output logic                 scale_write_o,
     output logic                 scale_done_o,
 
-    // Read coordinates (pushed to BRAM & Scale Muxes)
+    // Read coordinates (pushed to BRAM on cycle T)
     output logic [2:0]           scale_rd_col_o,
     output logic [1:0]           scale_rd_row_group_o,
+
+    // Context coordinates (T+1): aligned with the returning BRAM read data,
+    // so the snapshot/scale muxes pair with the accumulator of the same cell
+    output logic [2:0]           scale_ctx_col_o,
+    output logic [1:0]           scale_ctx_row_group_o,
 
     // Write coordinates (pushed to BRAM on cycle T+4)
     output logic [2:0]           scale_wr_col_o,
@@ -156,6 +161,11 @@ module mac_scale_fsm #(
     // Export decoupled read and write indices
     assign scale_rd_col_o       = rd_col_q;
     assign scale_rd_row_group_o = rd_row_grp_q;
+
+    // BRAM read data lands 1 cycle after the address, so stage 0 is the
+    // coordinate whose accumulator is on the bus right now
+    assign scale_ctx_col_o       = wr_col_pipe_q[0];
+    assign scale_ctx_row_group_o = wr_row_pipe_q[0];
 
     assign scale_wr_col_o       = wr_col_pipe_q[3];
     assign scale_wr_row_group_o = wr_row_pipe_q[3];

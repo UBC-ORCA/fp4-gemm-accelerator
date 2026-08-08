@@ -179,6 +179,8 @@ module cve2_cf_mac_unit
     logic        scale_rd_en;
     logic [2:0]  scale_rd_col;
     logic [1:0]  scale_rd_row_group;
+    logic [2:0]  scale_ctx_col;
+    logic [1:0]  scale_ctx_row_group;
     logic [2:0]  scale_wr_col;
     logic [1:0]  scale_wr_row_group;
 
@@ -339,16 +341,20 @@ module cve2_cf_mac_unit
         .scale_rd_en_o        (scale_rd_en),
         .scale_write_o        (scale_write),
         .scale_done_o         (scale_done),
+        .scale_ctx_col_o      (scale_ctx_col),
+        .scale_ctx_row_group_o(scale_ctx_row_group),
         .scale_rd_col_o       (scale_rd_col),
         .scale_rd_row_group_o (scale_rd_row_group),
         .scale_wr_col_o       (scale_wr_col),
         .scale_wr_row_group_o (scale_wr_row_group)
     );
 
-    // FIX: Map multiplexers to read signals (scale_rd) to line up with the 3-cycle module latency
+    // Use the T+1 context coordinate: the snapshot is combinational but the
+    // accumulator comes back from BRAM a cycle late, and mac_scale_accum latches
+    // both into the same stage-1 register, so they must be presented together.
     always_comb begin
-        scale_tile_value[0] = ctx_tile_snapshot[{scale_rd_row_group,1'b0}][scale_rd_col];
-        scale_tile_value[1] = ctx_tile_snapshot[{scale_rd_row_group,1'b0}+1][scale_rd_col];
+        scale_tile_value[0] = ctx_tile_snapshot[{scale_ctx_row_group,1'b0}][scale_ctx_col];
+        scale_tile_value[1] = ctx_tile_snapshot[{scale_ctx_row_group,1'b0}+1][scale_ctx_col];
     end
 
     logic [7:0] scaleA [0:1];
@@ -375,9 +381,9 @@ module cve2_cf_mac_unit
         .accumulator_out(scale_accum_out[1])
     );
 
-    // FIX: Switched Mux selectors from write columns to read columns
+    // Scale muxes track the same T+1 context coordinate as the tile snapshot
     always_comb begin
-        case(scale_rd_row_group)
+        case(scale_ctx_row_group)
             2'd0: begin
                 scaleA[0] = ctx_act_scale_lo[7:0];
                 scaleA[1] = ctx_act_scale_lo[15:8];
@@ -396,12 +402,12 @@ module cve2_cf_mac_unit
             end
         endcase
 
-        if (scale_rd_col < 4) begin
-            scaleB[0] = ctx_weight_scale_lo[scale_rd_col*8 +: 8];
-            scaleB[1] = ctx_weight_scale_lo[scale_rd_col*8 +: 8];
+        if (scale_ctx_col < 4) begin
+            scaleB[0] = ctx_weight_scale_lo[scale_ctx_col*8 +: 8];
+            scaleB[1] = ctx_weight_scale_lo[scale_ctx_col*8 +: 8];
         end else begin
-            scaleB[0] = ctx_weight_scale_hi[(scale_rd_col-4)*8 +: 8];
-            scaleB[1] = ctx_weight_scale_hi[(scale_rd_col-4)*8 +: 8];
+            scaleB[0] = ctx_weight_scale_hi[(scale_ctx_col-4)*8 +: 8];
+            scaleB[1] = ctx_weight_scale_hi[(scale_ctx_col-4)*8 +: 8];
         end
     end
 
