@@ -21,7 +21,7 @@ module cve2_cf_mac_unit
     input  logic                        rst_ni,
 
     input  logic                        req_valid_i,
-    input  cve2_pkg::mac_op_e           cf_req_op_i,
+    input  cve2_pkg::mac_op_e            cf_req_op_i,
     input  logic [31:0]                 req_instr_i,
     input  logic [31:0]                 req_rs1_i,
     input  logic [31:0]                 req_rs2_i,
@@ -48,11 +48,11 @@ module cve2_cf_mac_unit
     assign weight_addr = weight_base + imm12;
 
     // BRAM_RD returns the accumulator read pair; MV ops return the raw tile.
+    logic [31:0] bram_rd_data; 
     assign scalar_wdata_o = bram_rd_data;
 
     logic [4:0]  scalar_waddr;
     assign scalar_waddr = req_instr_i[11:7];
-
 
     logic signed [15:0] scale_tile_value [0:1]; 
 
@@ -78,8 +78,6 @@ module cve2_cf_mac_unit
     logic [31:0]        ctx_weight_scale_hi;
     logic signed [15:0] ctx_tile_snapshot [0:TT-1][0:TT-1];
 
-    // Execution isolated registers (Active scale datapath context)
-
     logic                context_ready;
     logic                context_accept;
     logic                scale_busy;
@@ -88,7 +86,7 @@ module cve2_cf_mac_unit
 
     assign context_ready = snapshot_valid_q && act_scale_valid_q && weight_scale_valid_q;
 
-    // Staging Context Logic
+// Staging Context Logic
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
             snapshot_valid_q     <= 1'b0;
@@ -100,41 +98,37 @@ module cve2_cf_mac_unit
             ctx_weight_scale_hi  <= '0;
             ctx_tile_snapshot    <= '{default: '{default: '0}};
         end else begin
+            // Capture the matrix tile snapshot directly
             if (snapshot_valid && !snapshot_valid_q) begin
                 snapshot_valid_q  <= 1'b1;
                 ctx_tile_snapshot <= tile_snapshot;
-		// help with inst reordering
-                ctx_act_scale_lo  <= act_scale_lo_safe;
-                ctx_act_scale_hi  <= act_scale_hi_safe;
-                ctx_weight_scale_lo  <= weight_scale_lo_safe;
-                ctx_weight_scale_hi  <= weight_scale_hi_safe;
             end
+            
+            // FIX: Capture the raw wires directly into the execution context 
+            // when the ready handshake hits to prevent 1-cycle sampling gaps.
             if (act_scale_ready && !act_scale_valid_q) begin
                 act_scale_valid_q <= 1'b1;
-                //ctx_act_scale_lo  <= act_scale_lo;
-                //ctx_act_scale_hi  <= act_scale_hi;
-                act_scale_lo_safe  <= act_scale_lo;
-                act_scale_hi_safe  <= act_scale_hi;
+                ctx_act_scale_lo  <= act_scale_lo;
+                ctx_act_scale_hi  <= act_scale_hi;
             end
+            
             if (weight_scale_ready && !weight_scale_valid_q) begin
                 weight_scale_valid_q <= 1'b1;
-                //ctx_weight_scale_lo  <= weight_scale_lo;
-                //ctx_weight_scale_hi  <= weight_scale_hi;
-                weight_scale_lo_safe  <= weight_scale_lo;
-                weight_scale_hi_safe  <= weight_scale_hi;
+                ctx_weight_scale_lo  <= weight_scale_lo;
+                ctx_weight_scale_hi  <= weight_scale_hi;
             end
+            
+            // Clear down tokens once the FSM starts processing the context block
             if (context_accept) begin
                 snapshot_valid_q     <= 1'b0;
                 act_scale_valid_q    <= 1'b0;
                 weight_scale_valid_q <= 1'b0;
             end
         end
-    end
-
+    end   
+ 
     //------------------------------------------------------------
     // Dynamic Tile Selection Logic
-    // Current accumulator tile/bank selected by accBank(T).
-    // Persists until the next accBank.
     //------------------------------------------------------------
     logic [4:0] current_tile_q;
     always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -144,15 +138,12 @@ module cve2_cf_mac_unit
             current_tile_q <= req_rs1_i[4:0];
     end
 
-    // Frozen target bank for the in-flight fold (latched at context_accept)
     logic [4:0] scale_tile_q;
-
-    // Scaler Private Isolated Context Latching
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
             scale_tile_q          <= 5'b0;
         end else if (context_accept) begin
-            scale_tile_q          <= current_tile_q;   // Freeze bank choice for this fold
+            scale_tile_q          <= current_tile_q;   
         end
     end
 
@@ -163,14 +154,13 @@ module cve2_cf_mac_unit
     logic [4:0]  bram_rd_tile;
     logic [2:0]  bram_rd_row;
     logic [2:0]  bram_rd_col;
-    logic [31:0] bram_rd_data; 
 
     logic        bram_wr_en;
     logic [4:0]  bram_wr_tile;
     logic [2:0]  bram_wr_row;
     logic [2:0]  bram_wr_col;
     logic [31:0] bram_wr_data;
-    logic        bram_wr_pair;   // 1 = paired (scale) write, 0 = single-cell (bias) write
+    logic        bram_wr_pair;   
 
     logic        ctrl_accum_rd_en;
     logic [4:0]  ctrl_accum_rd_tile;
@@ -186,19 +176,15 @@ module cve2_cf_mac_unit
     logic [15:0] scale_accum_in  [0:1];
     logic [15:0] scale_accum_out [0:1];
 
-//PATCH
-// Wire declarations for pipeline scaling
     logic        scale_rd_en;
     logic [2:0]  scale_rd_col;
     logic [1:0]  scale_rd_row_group;
     logic [2:0]  scale_wr_col;
     logic [1:0]  scale_wr_row_group;
-//PATCH_end
 
     always_comb begin
         if (scale_busy) begin
-            //bram_rd_en   = 1'b1;
-		bram_rd_en   = scale_rd_en;
+            bram_rd_en   = scale_rd_en;
             bram_rd_tile = scale_tile_q;
             bram_rd_row  = {scale_rd_row_group, 1'b0};
             bram_rd_col  = scale_rd_col;
@@ -208,7 +194,7 @@ module cve2_cf_mac_unit
             bram_wr_row  = {scale_wr_row_group, 1'b0};
             bram_wr_col  = scale_wr_col;
             bram_wr_data = {scale_accum_out[1], scale_accum_out[0]};
-            bram_wr_pair = 1'b1;   // Scale fold writes row pairs
+            bram_wr_pair = 1'b1;   
         end else begin
             bram_rd_en   = ctrl_accum_rd_en;
             bram_rd_tile = ctrl_accum_rd_tile;
@@ -220,11 +206,10 @@ module cve2_cf_mac_unit
             bram_wr_row  = ctrl_accum_wr_row;
             bram_wr_col  = ctrl_accum_wr_col;
             bram_wr_data = {16'b0, ctrl_accum_wr_data};
-            bram_wr_pair = 1'b0;   // Single-cell write
+            bram_wr_pair = 1'b0;   
         end
     end
 
-    // Direct unpack from fast single-cycle BRAM read channel
     always_comb begin
         scale_accum_in[0] = bram_rd_data[15:0];  
         scale_accum_in[1] = bram_rd_data[31:16]; 
@@ -244,11 +229,16 @@ module cve2_cf_mac_unit
     logic [3:0]  mem_be;
     logic [31:0] mem_wdata;
 
-    assign data_req_o   = mem_req;
-    assign data_addr_o  = mem_addr;
-    assign data_we_o    = mem_we;
-    assign data_be_o    = mem_be;
-    assign data_wdata_o = mem_wdata;
+    assign data_req_o    = mem_req;
+    assign data_addr_o   = mem_addr;
+    assign data_we_o     = mem_we;
+    assign data_be_o     = mem_be;
+    assign data_wdata_o  = mem_wdata;
+
+    logic busy_main;
+    assign busy_o = busy_main || scale_busy;
+    logic done_main;
+    assign done_o = done_main || scale_done;
 
     mac_controller #(
         .VL(32),
@@ -292,9 +282,7 @@ module cve2_cf_mac_unit
         .scale_busy_i         (scale_busy),
         .scale_done_i         (scale_done),
         .req_ready_o          (req_ready_o),
-        //.busy_o               (busy_o),
-        //.done_o               (done_o),
-	.busy_o               (busy_main),
+        .busy_o               (busy_main),
         .done_o               (done_main),
         .accum_rd_en_o        (ctrl_accum_rd_en),
         .accum_rd_tile_o      (ctrl_accum_rd_tile),
@@ -307,13 +295,6 @@ module cve2_cf_mac_unit
         .accum_wr_col_o       (ctrl_accum_wr_col),
         .accum_wr_data_o      (ctrl_accum_wr_data)
     );
-
-//[stev] - handshake
-
-logic busy_main;
-assign busy_o = busy_main || scale_busy;
-logic done_main;
-assign done_o = done_main || scale_done;
 
     mac_array #(
         .TT(TT)
@@ -355,7 +336,7 @@ assign done_o = done_main || scale_done;
         .context_ready_i      (context_ready),
         .context_accept_o     (context_accept),
         .scale_busy_o         (scale_busy),
-.scale_rd_en_o        (scale_rd_en),
+        .scale_rd_en_o        (scale_rd_en),
         .scale_write_o        (scale_write),
         .scale_done_o         (scale_done),
         .scale_rd_col_o       (scale_rd_col),
@@ -364,16 +345,19 @@ assign done_o = done_main || scale_done;
         .scale_wr_row_group_o (scale_wr_row_group)
     );
 
+    // FIX: Map multiplexers to read signals (scale_rd) to line up with the 3-cycle module latency
     always_comb begin
-        // use write col: BRAM read is 1 cycle late, so it lines up with the accumulator
-        scale_tile_value[0] = ctx_tile_snapshot[{scale_wr_row_group,1'b0}][scale_wr_col];
-        scale_tile_value[1] = ctx_tile_snapshot[{scale_wr_row_group,1'b0}+1][scale_wr_col];
+        scale_tile_value[0] = ctx_tile_snapshot[{scale_rd_row_group,1'b0}][scale_rd_col];
+        scale_tile_value[1] = ctx_tile_snapshot[{scale_rd_row_group,1'b0}+1][scale_rd_col];
     end
 
     logic [7:0] scaleA [0:1];
     logic [7:0] scaleB [0:1];
 
+    // FIX: Connected clk_i and rst_ni so the internal pipeline registers actually clock data
     mac_scale_accum u_scale_accum0 (
+        .clk_i(clk_i),
+        .rst_ni(rst_ni),
         .tile_value(scale_tile_value[0]),
         .scaleA(scaleA[0]),
         .scaleB(scaleB[0]),
@@ -382,6 +366,8 @@ assign done_o = done_main || scale_done;
     );
 
     mac_scale_accum u_scale_accum1 (
+        .clk_i(clk_i),
+        .rst_ni(rst_ni),
         .tile_value(scale_tile_value[1]),
         .scaleA(scaleA[1]),
         .scaleB(scaleB[1]),
@@ -389,10 +375,9 @@ assign done_o = done_main || scale_done;
         .accumulator_out(scale_accum_out[1])
     );
 
-    // Dynamic Scale Muxing Logic
+    // FIX: Switched Mux selectors from write columns to read columns
     always_comb begin
-        // scaleA by write row group (matches the late read)
-        case(scale_wr_row_group)
+        case(scale_rd_row_group)
             2'd0: begin
                 scaleA[0] = ctx_act_scale_lo[7:0];
                 scaleA[1] = ctx_act_scale_lo[15:8];
@@ -411,22 +396,21 @@ assign done_o = done_main || scale_done;
             end
         endcase
 
-        // scaleB by write col (matches the late read)
-        if (scale_wr_col < 4) begin
-            scaleB[0] = ctx_weight_scale_lo[scale_wr_col*8 +: 8];
-            scaleB[1] = ctx_weight_scale_lo[scale_wr_col*8 +: 8];
+        if (scale_rd_col < 4) begin
+            scaleB[0] = ctx_weight_scale_lo[scale_rd_col*8 +: 8];
+            scaleB[1] = ctx_weight_scale_lo[scale_rd_col*8 +: 8];
         end else begin
-            scaleB[0] = ctx_weight_scale_hi[(scale_wr_col-4)*8 +: 8];
-            scaleB[1] = ctx_weight_scale_hi[(scale_wr_col-4)*8 +: 8];
+            scaleB[0] = ctx_weight_scale_hi[(scale_rd_col-4)*8 +: 8];
+            scaleB[1] = ctx_weight_scale_hi[(scale_rd_col-4)*8 +: 8];
         end
     end
 
 `ifdef BRAM_DEBUG
-    // debug: log write col vs product col per fold write (should match after the fix)
+    // FIX: Clear display trace that avoids mixed unaligned signals
     always_ff @(posedge clk_i) begin
         if (rst_ni && scale_busy && scale_write && scale_tile_q == 5'd0) begin
-            $display("[CF_SCALE] wr_col=%0d prod_col(rd)=%0d | tile0=%4h scaleB0=%2h | accIn0=%4h -> accOut0=%4h",
-                     scale_wr_col, scale_rd_col,
+            $display("[CF_SCALE] Transaction Committed | Active Write Col = %0d", scale_wr_col);
+            $display("           Lower Vector -> Tile val: 0x%4h | ScaleB: 0x%2h | Base BRAM Acc In: 0x%4h -> Pipe Out: 0x%4h",
                      scale_tile_value[0], scaleB[0], scale_accum_in[0], scale_accum_out[0]);
         end
     end

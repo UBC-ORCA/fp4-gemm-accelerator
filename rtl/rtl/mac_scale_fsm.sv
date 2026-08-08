@@ -18,7 +18,7 @@ module mac_scale_fsm #(
     output logic [2:0]           scale_rd_col_o,
     output logic [1:0]           scale_rd_row_group_o,
 
-    // Write coordinates (pushed to BRAM on cycle T+1)
+    // Write coordinates (pushed to BRAM on cycle T+4)
     output logic [2:0]           scale_wr_col_o,
     output logic [1:0]           scale_wr_row_group_o
 );
@@ -26,8 +26,8 @@ module mac_scale_fsm #(
     typedef enum logic [1:0] {
         IDLE,
         INIT_RD,    // Prime the memory pipeline with the first read
-        STREAM,     // Continuous pipeline: read N+1, compute/write N
-        DRAIN       // Flush remaining pipeline write N_last
+        STREAM,     // Continuous pipeline: read N+4, compute/write N
+        DRAIN       // Flush remaining pipeline writes
     } state_e;
 
     state_e state_q, state_d;
@@ -36,12 +36,13 @@ module mac_scale_fsm #(
     logic [2:0] rd_col_q, rd_col_d;
     logic [1:0] rd_row_grp_q, rd_row_grp_d;
 
-    // Pipeline Write Tracking Registers (Delay 1 cycle behind Read)
-    logic [2:0] wr_col_q;
-    logic [1:0] wr_row_grp_q;
-    logic       write_valid_q;
+    // 4-Stage Pipeline Shift Registers (1 cycle BRAM read + 3 cycles Accumulator)
+    logic [2:0] wr_col_pipe_q  [0:3];
+    logic [1:0] wr_row_pipe_q  [0:3];
+    logic [3:0] wr_valid_pipe_q;
 
-    // Flag indicating read pipeline priming status
+    // Drain cycle countdown tracking
+    logic [2:0] drain_cnt_q;
     logic       rd_init_q;
 
     // Read counter increment helper flag
@@ -53,30 +54,44 @@ module mac_scale_fsm #(
     //--------------------------------------------------------------------------
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
-            state_q       <= IDLE;
-            rd_col_q      <= '0;
-            rd_row_grp_q  <= '0;
-            wr_col_q      <= '0;
-            wr_row_grp_q  <= '0;
-            write_valid_q <= 1'b0;
-            rd_init_q     <= 1'b0;
+            state_q          <= IDLE;
+            rd_col_q         <= '0;
+            rd_row_grp_q     <= '0;
+            wr_valid_pipe_q  <= '0;
+            drain_cnt_q      <= '0;
+            rd_init_q        <= 1'b0;
+            for (int i = 0; i < 4; i++) begin
+                wr_col_pipe_q[i] <= '0;
+                wr_row_pipe_q[i] <= '0;
+            end
         end else begin
             state_q      <= state_d;
             rd_col_q     <= rd_col_d;
             rd_row_grp_q <= rd_row_grp_d;
 
-            // Write pipeline delay line (captures read address on active read)
-            if (state_q == INIT_RD || state_q == STREAM) begin
-                wr_col_q     <= rd_col_q;
-                wr_row_grp_q <= rd_row_grp_q;
+            // Pipeline Stage 0: Sample current read info on active read cycle
+            wr_col_pipe_q[0]  <= rd_col_q;
+            wr_row_pipe_q[0]  <= rd_row_grp_q;
+            wr_valid_pipe_q[0]<= (state_q == INIT_RD || state_q == STREAM);
+
+            // Pipeline Stages 1-3: Shift down every clock cycle
+            for (int i = 1; i < 4; i++) begin
+                wr_col_pipe_q[i]   <= wr_col_pipe_q[i-1];
+                wr_row_pipe_q[i]   <= wr_row_pipe_q[i-1];
+                wr_valid_pipe_q[i] <= wr_valid_pipe_q[i-1];
             end
 
-            // Write enable valid 1 cycle after read starts
-            write_valid_q <= (state_q == STREAM) || (state_q == DRAIN);
+            // Drain tracking logic: hold DRAIN for exactly 4 cycles to empty pipeline
+            if (state_q == STREAM && rd_last) begin
+                drain_cnt_q <= 3'd4;
+            end else if (state_q == DRAIN && drain_cnt_q != 0) begin
+                drain_cnt_q <= drain_cnt_q - 1'b1;
+            end
 
             // Prime status tracking
             if (state_q == INIT_RD) begin
                 rd_init_q <= 1'b1;
+            // Fix: Reverted safely back to exact clean syntax
             end else if (state_q == IDLE || state_q == DRAIN) begin
                 rd_init_q <= 1'b0;
             end
@@ -101,8 +116,6 @@ module mac_scale_fsm #(
             end
 
             INIT_RD: begin
-                // Kick off 1st read at (0,0), step read counter on next cycle
-                //rd_col_d = rd_col_q + 1'b1;
                 state_d  = STREAM;
             end
 
@@ -120,8 +133,9 @@ module mac_scale_fsm #(
             end
 
             DRAIN: begin
-                // Drain last element write, then return to IDLE
-                state_d = IDLE;
+                if (drain_cnt_q == 3'd0) begin
+                    state_d = IDLE;
+                end
             end
 
             default: state_d = IDLE;
@@ -134,21 +148,22 @@ module mac_scale_fsm #(
     assign context_accept_o = (state_q == IDLE) && context_ready_i;
     assign scale_busy_o     = (state_q != IDLE);
     assign scale_rd_en_o    = (state_q == INIT_RD) || (state_q == STREAM);
-    assign scale_write_o    = write_valid_q;
-    assign scale_done_o     = (state_q == DRAIN);
+    
+    // Drive write assignments directly from the terminal pipeline stage (T+4)
+    assign scale_write_o        = wr_valid_pipe_q[3];
+    assign scale_done_o         = (state_q == DRAIN) && (drain_cnt_q == 3'd0);
 
     // Export decoupled read and write indices
     assign scale_rd_col_o       = rd_col_q;
     assign scale_rd_row_group_o = rd_row_grp_q;
 
-    assign scale_wr_col_o       = wr_col_q;
-    assign scale_wr_row_group_o = wr_row_grp_q;
+    assign scale_wr_col_o       = wr_col_pipe_q[3];
+    assign scale_wr_row_group_o = wr_row_pipe_q[3];
 
 //--------------------------------------------------------------------------
     // Simulation Debug Prints
     //--------------------------------------------------------------------------
 `ifdef BRAM_DEBUG
-
     always @(posedge clk_i) begin
         if (rst_ni && ((state_q != IDLE) || context_ready_i)) begin
             $display("[MAC_SCALE_FSM @ %0t ps] --------------------------------------------------", $time);
@@ -157,11 +172,11 @@ module mac_scale_fsm #(
             $display("  INPUTS   : context_ready=%b | rd_last=%b", 
                      context_ready_i, rd_last);
             $display("  FLAGS    : busy=%b | rd_init_q=%b | write_valid_q=%b | accept=%b | done=%b", 
-                     scale_busy_o, rd_init_q, write_valid_q, context_accept_o, scale_done_o);
+                     scale_busy_o, rd_init_q, wr_valid_pipe_q[3], context_accept_o, scale_done_o);
             $display("  READ ADDR: rd_en=%b | rd_row_grp_q=%0d (next=%0d) | rd_col_q=%0d (next=%0d)",
                      scale_rd_en_o, rd_row_grp_q, rd_row_grp_d, rd_col_q, rd_col_d);
             $display("  WRIT ADDR: wr_en=%b | wr_row_grp_q=%0d          | wr_col_q=%0d",
-                     scale_write_o, wr_row_grp_q, wr_col_q);
+                     wr_valid_pipe_q[3], wr_row_pipe_q[3], wr_col_pipe_q[3]);
         end
     end
 `endif
