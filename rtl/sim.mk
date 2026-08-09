@@ -17,7 +17,7 @@ SHELL := /bin/bash
 CVE2_CONFIG ?= small
 
 TB_BASE := ../../../../sw/tb
-MATMUL_TB_CPP := $(TB_BASE)/matrix_tb/min_tb_matmul8.cpp
+MATMUL_TB_CPP := $(TB_BASE)/inference_tb/min_tb_inference.cpp
 MAC_CELL_TB_CPP := $(TB_BASE)/arith_tb/mac_cell.cpp
 BF16_ADDER_TB_CPP := $(TB_BASE)/arith_tb/bf16_add_tb.cpp
 #MATMUL_TB_CPP := ../../../../sw/tb/inference_tb/min_tb_inference.cpp
