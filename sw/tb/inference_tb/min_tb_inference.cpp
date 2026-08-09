@@ -231,6 +231,12 @@ int main(int argc, char** argv) {
   static const int PC_RING = 32;
   uint32_t pc_ring[PC_RING] = {0};
   int      pc_ring_n = 0;
+  // Accepted data-bus transactions, to see where an address goes bad
+  static const int D_RING = 24;
+  uint32_t d_ring_addr[D_RING] = {0};
+  bool     d_ring_wr[D_RING]   = {false};
+  int      d_ring_n = 0;
+  bool     first_bad_seen = false;
   uint64_t last_uart_chars = 0;
   uint64_t last_uart_cyc   = 0;
   bool d_resp_due   = false;
@@ -314,6 +320,41 @@ int main(int argc, char** argv) {
     if (d_fire) {
       d_resp_addr     = (uint32_t)dut->data_addr_o;
       d_resp_is_write = (bool)dut->data_we_o;
+      // First data access that is neither mapped memory nor a known MMIO port.
+      // Dump the preceding accesses so the good->bad transition is visible.
+      if (!first_bad_seen) {
+        uint32_t tmp = 0;
+        bool mmio  = d_resp_addr == UART_MMIO_ADDR
+                  || d_resp_addr == DONE_MMIO_ADDR
+                  || d_resp_addr == IMG_LOAD_ADDR
+                  || d_resp_addr == IMG_LABEL_ADDR
+                  || d_resp_addr == IMG_PRED_ADDR;
+        bool known = mmio
+                  || ((imem_translate(d_resp_addr, tmp)
+                       || dmem_translate(d_resp_addr, tmp))
+                      && (d_resp_addr & 3) == 0);   // in range AND word aligned
+        if (!known) {
+          first_bad_seen = true;
+          std::printf("\n[TB] FIRST BAD ACCESS at cyc=%llu: %s 0x%08x%s\n",
+                      (unsigned long long)cyc,
+                      d_resp_is_write ? "WR" : "RD", d_resp_addr,
+                      (d_resp_addr & 3) ? "  UNALIGNED" : "");
+          std::printf("[TB]   pc now 0x%08x, preceding accesses:\n",
+                      (uint32_t)dut->instr_addr_o);
+          int pn = d_ring_n < D_RING ? d_ring_n : D_RING;
+          int ps = d_ring_n < D_RING ? 0 : (d_ring_n % D_RING);
+          for (int k = 0; k < pn; k++) {
+            uint32_t a = d_ring_addr[(ps + k) % D_RING];
+            std::printf("[TB]     %s 0x%08x\n",
+                        d_ring_wr[(ps + k) % D_RING] ? "WR" : "RD", a);
+          }
+          std::fflush(stdout);
+        }
+      }
+
+      d_ring_addr[d_ring_n % D_RING] = d_resp_addr;
+      d_ring_wr[d_ring_n % D_RING]   = d_resp_is_write;
+      d_ring_n++;
       uint32_t wdata  = (uint32_t)dut->data_wdata_o;
       uint8_t  be     = (uint8_t)dut->data_be_o;
       d_resp_due      = true;
@@ -397,6 +438,21 @@ int main(int argc, char** argv) {
         if (k % 8 == 0) std::printf("[TB]    ");
         std::printf(" 0x%08x", pc_ring[(start + k) % PC_RING]);
         if (k % 8 == 7 || k == n - 1) std::printf("\n");
+      }
+      // Last accepted data transactions. A run of aligned addresses stepping by
+      // 4 is a VMAC64 weight walk; the point where that becomes an unmapped or
+      // unaligned address is where the base register went bad.
+      int dn = d_ring_n < D_RING ? d_ring_n : D_RING;
+      int dstart = d_ring_n < D_RING ? 0 : (d_ring_n % D_RING);
+      std::printf("[TB]   last %d data transactions (oldest first):\n", dn);
+      for (int k = 0; k < dn; k++) {
+        uint32_t a = d_ring_addr[(dstart + k) % D_RING];
+        uint32_t off = 0;
+        const char *where = imem_translate(a, off) ? "imem"
+                          : dmem_translate(a, off) ? "dmem" : "UNMAPPED";
+        std::printf("[TB]     %s 0x%08x  %-8s%s\n",
+                    d_ring_wr[(dstart + k) % D_RING] ? "WR" : "RD",
+                    a, where, (a & 3) ? "  UNALIGNED" : "");
       }
       std::fflush(stdout);
       break;
