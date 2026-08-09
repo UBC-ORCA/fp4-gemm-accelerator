@@ -382,6 +382,23 @@ The process first generates the FuseSoC file list, patches the generated `.vc`, 
 
 ---
 
+# Synthesis Flow
+
+For the synthesis flow, FuseSoC first generates a Vivado 2023 template project,
+and patches the part used (since this FuseSoC version is too old to specify parts directly), 
+then builds the Vivado project, and runs the synthesis flow from the `.xpr` file generated.
+
+The synthesis flow then writes the area, timing summary, FMAX reports; and writes 
+a design checkpoint file for platform implementation. 
+
+To run the synthesis flow, `sim.mk` already integrates all of this in one command. 
+
+```
+make -f sim.mk vivado_syn
+```
+
+---
+
 # Output
 
 Successful completion produces:

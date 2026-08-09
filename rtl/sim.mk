@@ -141,7 +141,7 @@ fuse: rtl/fp4_mul_int9.sv
 #  VIVADO MAKE COMMAND
 ################################################################################
 .PHONY: vivado
-vivado:
+$(VIVADO_DIR)/openhwgroup_cve2_cve2_top_0.1.xpr:
 	@echo "Running Vivado synthesis..."
 	VERILATOR_OPTIONS="-Wno-fatal" \
 		PATH="$(PWD)/venv_cve2/bin:$$PATH" \
@@ -159,9 +159,11 @@ vivado:
 		$(MAKE) openhwgroup_cve2_cve2_top_0.1.xpr
 
 .PHONY: vivado_syn
-vivado_syn: vivado $(VIVADO_DIR)/openhwgroup_cve2_cve2_top_0.1.xpr
-	vivado -mode batch -source scripts/vivado/lint_synth.tcl \
-	$(VIVADO_DIR)/openhwgroup_cve2_cve2_top_0.1.xpr
+vivado_syn: $(VIVADO_DIR)/openhwgroup_cve2_cve2_top_0.1.xpr
+	mkdir -p $(PWD)/logs/vivado
+	vivado -mode batch -notrace -source scripts/vivado/lint_synth.tcl \
+	$(VIVADO_DIR)/openhwgroup_cve2_cve2_top_0.1.xpr \
+	2>&1 | tee logs/vivado/syn.log
 	@echo "Vivado synthesis complete."
 
 .PHONY: clean_vivado
