@@ -45,6 +45,21 @@ module cve2_cf_mac_unit
     assign vs1         = req_instr_i[11:7];
     assign imm12       = req_instr_i[31:20];
     assign weight_base = req_rs1_i;
+
+    int unsigned badptr_n = 0;
+    always_ff @(posedge clk_i) begin
+        if (rst_ni && req_valid_i && req_ready_o &&
+            (cf_req_op_i == cve2_pkg::OP_VMAC) && (req_rs1_i[1:0] != 2'b00)) begin
+            if (badptr_n < 20) begin
+                $display("[CF_BADPTR] t=%0t rs1=%08h instr=%08h vs1=%0d rs1field=x%0d",
+                         $time, req_rs1_i, req_instr_i,
+                         req_instr_i[11:7], req_instr_i[19:15]);
+                if (badptr_n == 19)
+                    $display("[CF_BADPTR] further reports suppressed");
+            end
+            badptr_n <= badptr_n + 1;
+        end
+    end
     assign weight_addr = weight_base + imm12;
 
     // BRAM_RD returns the accumulator read pair; MV ops return the raw tile.
