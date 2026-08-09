@@ -339,8 +339,19 @@ int main(int argc, char** argv) {
                       (unsigned long long)cyc,
                       d_resp_is_write ? "WR" : "RD", d_resp_addr,
                       (d_resp_addr & 3) ? "  UNALIGNED" : "");
-          std::printf("[TB]   pc now 0x%08x, preceding accesses:\n",
+          // instr_addr_o is the next fetch address, not the culprit PC. The
+          // fetched-PC ring is what shows the instruction stream that led here.
+          std::printf("[TB]   next fetch addr 0x%08x (not the culprit PC)\n",
                       (uint32_t)dut->instr_addr_o);
+          int qn = pc_ring_n < PC_RING ? pc_ring_n : PC_RING;
+          int qs = pc_ring_n < PC_RING ? 0 : (pc_ring_n % PC_RING);
+          std::printf("[TB]   last %d fetched PCs:\n", qn);
+          for (int k = 0; k < qn; k++) {
+            if (k % 8 == 0) std::printf("[TB]    ");
+            std::printf(" 0x%08x", pc_ring[(qs + k) % PC_RING]);
+            if (k % 8 == 7 || k == qn - 1) std::printf("\n");
+          }
+          std::printf("[TB]   preceding data accesses:\n");
           int pn = d_ring_n < D_RING ? d_ring_n : D_RING;
           int ps = d_ring_n < D_RING ? 0 : (d_ring_n % D_RING);
           for (int k = 0; k < pn; k++) {
