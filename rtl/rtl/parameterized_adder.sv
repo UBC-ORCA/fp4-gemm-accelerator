@@ -65,19 +65,18 @@ import fp4_pkg::*;
         endcase
     end
 
+    /* 
+        Default initializations
+    */
+    logic [EXT_MANT_WIDTH-1:0] lost_bits;
+    logic [7:0] r_mant;
+    logic  g, r, s, round_up;
+    logic signed [EXP_WIDTH:0] op_a_exp_signed;
+    logic signed [EXP_WIDTH:0] op_b_exp_signed;
 
     always_comb begin 
-
-        /* 
-            Default initializations
-        */
-        logic [EXT_MANT_WIDTH-1:0] lost_bits = 'b0;
-        logic [7:0] r_mant = 'b0;
-        logic  g, r, s, round_up;
-        logic signed [EXP_WIDTH:0] op_a_exp_signed;
-        logic signed [EXP_WIDTH:0] op_b_exp_signed;
-
-
+        lost_bits = 'b0;
+        r_mant = 'b0;
         g = 1'b0;
         r = 1'b0;
         s = 'b0;
@@ -94,7 +93,7 @@ import fp4_pkg::*;
         exp_diff = op_a_exp_signed - op_b_exp_signed;
 
         {max_op, min_op, exp_diff} = exp_diff >= 0 ? {op_a, op_b, exp_diff}
-                                                     : {op_b, op_a, -exp_diff};
+                                                    : {op_b, op_a, -exp_diff};
 
         // Optimization for flush to 0: 
         // Check if max_op.exp != 0,
@@ -162,7 +161,7 @@ import fp4_pkg::*;
         // 4. ROUNDING (Round to Nearest, Ties to Even) & PACKING
         // ---------------------------------------------------------------------
         if (sum_mant_ext != '0) begin
- 
+
             // --- FIXED BIT INDEXING HERE ---
             g      = norm_mant[2];   // Guard bit
             r      = norm_mant[1];   // Round bit
@@ -173,14 +172,9 @@ import fp4_pkg::*;
 
             // toggle if eff_sub is 1, and there's a sign flip.
             op_res.sign = max_op.sign ^ eff_sub_sign;
-            op_res.mant = r_mant[6:0];
-            op_res.exp = final_exp + r_mant[7];
-
-            // Infinity/Overflow Saturation Guard
-            if (final_exp_overflow) begin
-                op_res.exp  = 8'hFF;
-                op_res.mant = '0;
-            end
+            {op_res.exp, op_res.mant} = (final_exp_overflow) ? {8'hFF, 7'b0} 
+                : { (final_exp[7:0] + {7'b0, r_mant[7]}), r_mant[6:0]};
+            
         end
     end
 

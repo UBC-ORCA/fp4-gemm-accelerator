@@ -94,7 +94,7 @@ import mx_pkg::*;
     logic signed [9:0] sgn_scale_a;
     logic signed [9:0] sgn_scale_b;
     logic signed [9:0] sgn_bf16_exp;
-    logic signed [9:0] sgn_int16_bias = {9'd0, INT16_BIAS};
+    logic signed [9:0] sgn_int16_bias = {6'd0, INT16_BIAS};
 
     logic signed [9:0] round_up_exp_increase;       
     logic round_exp_ov;
@@ -105,8 +105,8 @@ import mx_pkg::*;
     assign sgn_scale_b = {2'b0, scale_b};
     assign sgn_bf16_exp = {5'b0, lzc};
 
-    assign rounded_scaled_exp = sgn_scale_a + sgn_scale_b + 
-        round_up_exp_increase - sgn_bf16_exp - (10'sd112 + sgn_int16_bias);
+    assign rounded_scaled_exp = (sgn_scale_a + sgn_scale_b + round_up_exp_increase)
+                                 - (sgn_bf16_exp + 10'sd112 + sgn_int16_bias);
 
     assign round_exp_ov = ~rounded_scaled_exp[9] & (rounded_scaled_exp[8]
                             | &rounded_scaled_exp[7:0]);
