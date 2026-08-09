@@ -143,6 +143,41 @@ clean_vivado:
 	rm -rf $(VIVADO_DIR)/*
 
 
+################################################################################
+#  PLATFORM IMPLEMENTATION -> .xsa hardware handoff
+#
+#  Full chain: FPGA firmware -> program.mem -> Vivado impl -> accelerator_top.xsa
+#    make -f sim.mk platform_impl
+################################################################################
+SUPPORT_IP    := ../support_ip
+SW_HW_DIR     := ../sw/inference_hardware
+XPR           := $(VIVADO_DIR)/openhwgroup_cve2_cve2_top_0.1.xpr
+XSA           := output/accelerator_top.xsa
+PROGRAM_MEM   := $(SUPPORT_IP)/program.mem
+INFERENCE_HEX := $(SW_HW_DIR)/inference.hex
+SUPPORT_SRCS  := $(SUPPORT_IP)/accelerator_top.sv $(SUPPORT_IP)/memory_system.sv
+
+# Build the FPGA firmware (delegates incrementality to inference.mk)
+$(INFERENCE_HEX): FORCE
+	$(MAKE) -C $(SW_HW_DIR) -f inference.mk FPGA=1
+
+# Pack the firmware hex into program.mem (BRAM init image)
+$(PROGRAM_MEM): $(INFERENCE_HEX)
+	cd $(SUPPORT_IP) && python mem_extractor.py \
+		../sw/inference_hardware/inference.hex program.mem 80000
+
+# Open the fusesoc-generated .xpr and run platform_impl.tcl to export the .xsa
+.PHONY: platform_impl
+platform_impl: $(XSA)
+$(XSA): $(XPR) $(PROGRAM_MEM) $(SUPPORT_SRCS)
+	mkdir -p logs/vivado
+	vivado -mode batch -notrace -source scripts/vivado/platform_impl.tcl \
+		$(XPR) 2>&1 | tee logs/vivado/platform_impl.log
+	@echo "XSA written to $(PWD)/$(XSA)"
+
+FORCE:
+
+
 ###############################################################################
 # STEP 2: Patch VC file
 ###############################################################################

@@ -4,6 +4,8 @@
 
 # Top level design from environment variable 
 
+source [file join [file dirname [info script]] util.tcl]
+
 set FPGA_PART xczu7ev-ffvc1156-2-e
 set TOP_LEVEL cve2_top
 set SYN_REPORT_DIR output/rpts/syn
@@ -19,23 +21,6 @@ set_param general.maxThreads $MAX_THREADS
 file mkdir $REPORT_DIR
 file mkdir $CKPTS_DIR
 
-
-proc report_fmax {rpt_file} {
-
-    # Get WNS
-    set wns [get_property SLACK [get_timing_paths -delay_type max -max_paths 1]]
-
-    # Get clock freq
-    set clk_period_ns [get_property PERIOD [get_clocks clk_i]]
-
-    set fmax [expr 1.0 / ($clk_period_ns - $wns) * 1000.0]  
-
-    set fmax_rpt_file "$rpt_file"
-    set fmax_fd [open $fmax_rpt_file "w"]
-    puts $fmax_fd "WNS: $wns ns"
-    puts $fmax_fd "Maximum Frequency (FMAX): $fmax MHz"
-    close $fmax_fd
-}
 
 puts "Running Vivado synthesis for CVE2"
 synth_design -top $TOP_LEVEL -part $FPGA_PART -flatten_hierarchy rebuilt \
@@ -60,7 +45,7 @@ puts "Writing timing max paths report to $REPORT_DIR/cve2_top_timing_max_paths.r
 report_timing -max_paths 10 -file $REPORT_DIR/cve2_top_timing_max_paths.rpt
 
 puts "Writing timing max paths report to $REPORT_DIR/cve2_top_timing_max_paths.rpt"
-report_fmax $REPORT_DIR/cve2_top_fmax.rpt
+report_fmax $REPORT_DIR/cve2_top_fmax.rpt clk_i
 
 puts "Synthesis complete. Check $REPORT_DIR for reports"
 
