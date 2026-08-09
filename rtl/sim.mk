@@ -106,6 +106,39 @@ fuse: rtl/fp4_mul_int9.sv
 		openhwgroup:cve2:cve2_top:0.1 \
 		$$(./util/cve2_config.py $(CVE2_CONFIG) fusesoc_opts)
 
+
+################################################################################
+#  VIVADO MAKE COMMAND
+################################################################################
+.PHONY: vivado
+vivado:
+	@echo "Running Vivado synthesis..."
+	VERILATOR_OPTIONS="-Wno-fatal" \
+		PATH="$(PWD)/venv_cve2/bin:$$PATH" \
+		fusesoc --cores-root=. run \
+			--target=syn \
+			--tool=vivado \
+			--setup \
+			--no-export \
+			openhwgroup:cve2:cve2_top:0.1 \
+			$$(./util/cve2_config.py $(CVE2_CONFIG) fusesoc_opts)
+		# Make the .xpr file
+		cd $(VIVADO_DIR) && \
+		sed -i 's/-force$$/-force -part xczu7ev-ffvc1156-2-e/' openhwgroup_cve2_cve2_top_0.1.tcl \
+		openhwgroup_cve2_cve2_top_0.1.tcl && \
+		$(MAKE) openhwgroup_cve2_cve2_top_0.1.xpr
+
+.PHONY: vivado_syn
+vivado_syn: vivado $(VIVADO_DIR)/openhwgroup_cve2_cve2_top_0.1.xpr
+	vivado -mode batch -source scripts/vivado/lint_synth.tcl \
+	$(VIVADO_DIR)/openhwgroup_cve2_cve2_top_0.1.xpr
+	@echo "Vivado synthesis complete."
+
+.PHONY: clean_vivado
+clean_vivado:
+	rm -rf $(VIVADO_DIR)/*
+
+
 ###############################################################################
 # STEP 2: Patch VC file
 ###############################################################################

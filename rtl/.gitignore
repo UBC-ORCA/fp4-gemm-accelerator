@@ -42,6 +42,11 @@ modelsim.ini
 /scripts/sec/reports
 /scripts/sec/ref_design
 
+# Synthesis flow reports and design checkpoints
+/output/ckpts/**
+/output/rpts/**
+
+
 # Python Virtual Environment directory eventually created
 venv_cve2build/
 venv_cve2/
@@ -49,3 +54,4 @@ build/
 venv_cve2/
 build/
 venv_cve2/
+
