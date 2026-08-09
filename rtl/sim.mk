@@ -157,7 +157,9 @@ vivado:
 		openhwgroup_cve2_cve2_top_0.1.tcl && \
 		$(MAKE) openhwgroup_cve2_cve2_top_0.1.xpr
 
-
+.PHONY: clean_vivado
+clean_vivado:
+	rm -rf $(VIVADO_DIR)/*
 
 
 ###############################################################################
@@ -221,6 +223,6 @@ run: fuse gen-vc build-sim
 # CLEAN
 ###############################################################################
 .PHONY: clean
-clean: clean_mac_cell
+clean: clean_mac_cell clean_bf16_adder clean_vivado
 	rm -rf build/*/lint-verilator/obj_dir
 	rm -f build/*/lint-verilator/*_patched.vc
