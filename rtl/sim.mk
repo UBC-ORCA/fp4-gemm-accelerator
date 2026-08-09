@@ -28,6 +28,8 @@ TOP_MODULE := cve2_top
 VC_NAME := openhwgroup_cve2_cve2_top_0.1.vc
 VC_PATCHED := openhwgroup_cve2_cve2_top_0.1_patched.vc
 
+VIVADO_DIR := build/openhwgroup_cve2_cve2_top_0.1/syn-vivado
+
 RTL := rtl
 
 ###############################################################################
