@@ -16,10 +16,16 @@
 #define NVREG      32             // Number of vector register
 #define NTILES     32             // Number of tiles that fit in BRAM
 #define AV          8             // Activation matrix vertical size
-//#define WH  out_dim             // Weight martix horizontal size
-//#define KK   in_dim             // Shared activation/weight matrix size
 
-#define BS       K1_STEP_HDR      // Number of K elements per inner block
+// MAC array is TT x TT cells
+#define MAC_UNITS       (TT * TT)
+// Useful MACs per image
+#define MACS_PER_IMAGE  ((uint64_t)IN_REAL * L1_DIM + \
+                         (uint64_t)L1_DIM  * L2_DIM + \
+                         (uint64_t)L2_DIM  * OUT_DIM)
+
+// Number of K elements per inner block
+#define BS  K1_STEP_HDR
 
 // Read-out multiply: scale up by 2^RDOUT_SHIFT so [-0.5,0.5] fills the FP4 grid;
 // MAC_AS undoes it via ascale = 2^-(bias+2) (should be bias+1 but +2 performs better)
@@ -96,7 +102,8 @@ static uint64_t pc_gemm[3];
 static uint64_t pc_qact[2];    // hidden read-out + FP4 quantize (readout_fp4)
 static uint64_t pc_argmax;     // final read-out + argmax
 static uint64_t pc_bias[3];
-static int      pc_layer;      
+static uint64_t pc_total;      // whole sample loop, the utilization denominator
+static int      pc_layer;
 
 #define PC_LAYER(n)     (pc_layer = (n))
 #define TIME(acc, stmt) do { uint32_t _t = rdcyc(); stmt; (acc) += (uint32_t)(rdcyc() - _t); } while (0)
@@ -123,6 +130,22 @@ static void pc_line(const char *name, uint64_t v) {
     print_str("\n");
 }
 
+// Print part/whole as a percentage with 2 decimals, since there is no FP here
+static void pc_percent(const char *name, uint64_t part, uint64_t whole) {
+    uint64_t scaled  = whole ? (part * 10000) / whole : 0;  // percent, times 100
+    uint64_t percent = scaled / 100;
+    uint64_t frac    = scaled % 100;
+
+    print_str("  ");
+    print_str(name);
+    print_str(" ");
+    putdec64(percent);
+    putchar_uart('.');
+    if (frac < 10) putchar_uart('0');
+    putdec64(frac);
+    print_str(" %\n");
+}
+
 static void pc_report(void) {
     print_str("\n[PERF] cycles over run\n");
     pc_line("imgq   |", pc_imgq);       // image load and quant
@@ -140,19 +163,31 @@ static void pc_report(void) {
     pc_line("bias_2 |", pc_bias[1]);
     pc_line("bias_3 |", pc_bias[2]);
 
+    // datapath only: gemm compute minus the bias seed
+    uint64_t gemm_x = pc_gemm[0] + pc_gemm[1] + pc_gemm[2] -
+                      (pc_bias[0] + pc_bias[1] + pc_bias[2]);
+
     print_str("\n[PERF] total cycles over run\n");
     // gemm compute (incl. bias) plus every read-out
     pc_line("gemm_T |",
         pc_gemm[0] + pc_gemm[1] + pc_gemm[2] +
         pc_qact[0] + pc_qact[1] + pc_argmax);
-    // datapath only: gemm compute minus the bias seed
-    pc_line("gemm_X |",
-        pc_gemm[0] + pc_gemm[1] + pc_gemm[2] -
-        (pc_bias[0] + pc_bias[1] + pc_bias[2]));
+    pc_line("gemm_X |", gemm_x);
     // total read-out + FP4 quantize
     pc_line("qact_T |", pc_qact[0] + pc_qact[1]);
     // total bias seed
     pc_line("bias_T |", pc_bias[0] + pc_bias[1] + pc_bias[2]);
+
+    // Useful MACs against what the array could have retired in the same cycles
+    uint64_t macs = MACS_PER_IMAGE * (uint64_t)N_SAMPLES;
+
+    print_str("\n[PERF] MAC utilization\n");
+    // pc_line   ("macs   |", macs);
+    // pc_line   ("units  |", MAC_UNITS);
+    // pc_line   ("cycles |", pc_total);
+    // pc_line   ("peak   |", MAC_UNITS * pc_total);
+    pc_percent("usage  |", macs, MAC_UNITS * pc_total);  // whole program
+    pc_percent("gemm_U |", macs, MAC_UNITS * gemm_x);    // gemm datapath only
 }
 #else
 #define PC_LAYER(n)     ((void)0)
@@ -601,7 +636,11 @@ int main(void) {
     // Count correct predictions
     int correct = 0;    
     // Count matches against reference
-    int match = 0;      
+    int match = 0;
+
+#ifdef PERF_COUNTERS
+    uint32_t _rt0 = rdcyc();
+#endif
 
     for (int s = 0; s < N_SAMPLES; s += BATCH) {
         int n = N_SAMPLES - s;
@@ -664,6 +703,10 @@ int main(void) {
             #endif
         }
     }
+
+#ifdef PERF_COUNTERS
+    pc_total = (uint32_t)(rdcyc() - _rt0);
+#endif
 
     print_str("\nACCURACY: ");
     putdec(correct);
