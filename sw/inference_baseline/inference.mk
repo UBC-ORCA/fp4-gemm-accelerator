@@ -35,6 +35,9 @@ OBJCOPY := $(RISCV_PREFIX)-objcopy
 ###############################################################################
 # Output files
 ###############################################################################
+# Selects which headers/<set> the weights and dataset come from
+DATASET ?= mnist
+
 ELF_FILE := inference.elf
 HEX_FILE := inference.hex
 MAP_FILE := inference.map
@@ -100,7 +103,7 @@ endif
 
 LDFLAGS := \
 	-I ../generic \
-	-I ../headers \
+	-I ../headers/$(DATASET) \
 	-T $(LINKER_SCRIPT) \
 	-Wl,-Map=$(MAP_FILE)
 

@@ -159,8 +159,7 @@ int main(int argc, char** argv) {
   std::string data_path;
   uint64_t max_cycles    = 50000000;
   uint64_t print_every   = 1000000;
-  // Cycles of UART silence before declaring a stall and dumping state. 0 = off.
-  uint64_t stall_after   = 2000000;
+  uint64_t stall_after   = 0;
   bool trace_if          = false;
   bool trace_d           = false;
   bool uart_file         = true;   // tee UART to a file (disable: --no-uart)
