@@ -1,4 +1,6 @@
 #include "Vcve2_top.h"
+// Internal model, for reading mac_en inside the accelerator
+#include "Vcve2_top___024root.h"
 #include "verilated.h"
 
 #include <chrono>
@@ -243,6 +245,13 @@ int main(int argc, char** argv) {
   uint32_t d_resp_addr  = 0;
   bool d_resp_is_write  = false;
 
+  // Data bus words moved
+  uint64_t d_reads  = 0;
+  uint64_t d_writes = 0;
+
+  // Cycles the MAC array is enabled
+  uint64_t mac_en_cycles = 0;
+
   bool done_seen        = false;
   uint64_t done_cycle   = 0;
   uint64_t uart_chars   = 0;
@@ -307,6 +316,11 @@ int main(int argc, char** argv) {
     bool if_fire = dut->instr_req_o && dut->instr_gnt_i;
     bool d_fire  = dut->data_req_o  && dut->data_gnt_i;
 
+    // Settled value the coming posedge will latch into the accumulators
+    if (dut->rootp->cve2_top__DOT__u_cve2_core__DOT__cf_unit_i__DOT__mac_en) {
+      mac_en_cycles++;
+    }
+
     if_resp_due = false;
     if (if_fire) {
       if_resp_due  = true;
@@ -320,6 +334,7 @@ int main(int argc, char** argv) {
     if (d_fire) {
       d_resp_addr     = (uint32_t)dut->data_addr_o;
       d_resp_is_write = (bool)dut->data_we_o;
+      if (d_resp_is_write) d_writes++; else d_reads++;
       // First data access that is neither mapped memory nor a known MMIO port.
       // Dump the preceding accesses so the good->bad transition is visible.
       if (!first_bad_seen) {
@@ -482,6 +497,13 @@ int main(int argc, char** argv) {
 
   std::cout << "\n";
   std::cout << "[TB] ELAPSED=" << wall_s << " s (wall clock, reference only)\n";
+
+  std::cout << "[TB] DBUS reads=" << d_reads
+            << " writes=" << d_writes
+            << " bytes=" << (d_reads + d_writes) * 4 << "\n";
+
+  std::cout << "[TB] MACEN cycles=" << mac_en_cycles
+            << " macs=" << mac_en_cycles * 64 << "\n";
 
   if (done_seen)
     std::cout << "[TB] DONE at cycle " << done_cycle << "\n";
