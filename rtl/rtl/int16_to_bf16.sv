@@ -40,8 +40,10 @@ import mx_pkg::*;
 
     // Unrounded exponent calculation based on BF16 bias (127)
     // INT16 MSB (bit 15) represents 2^15 relative to 2^0
+    // Note that there's a -2 bias because of the FP4 encoding.
+    // Therefore the intial_exp = (127 + 15 - 2) - lzc
     logic [7:0] initial_exp;
-    assign initial_exp = 8'd127 + 8'd15 - {4'b0, lzc};
+    assign initial_exp = 8'd140 - {4'b0, lzc};
 
     // Rounding logic: Extract explicit mantissa bits, guard, round, and sticky
     // Normalized string: [15] is hidden bit, [14:8] are target 7 mantissa bits
