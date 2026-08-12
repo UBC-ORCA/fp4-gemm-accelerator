@@ -36,9 +36,6 @@ add_files \
 set_property top accelerator_top [current_fileset]
 update_compile_order -fileset [current_fileset]
 
-synth_design -top $TOP_LEVEL -part $FPGA_PART -flatten_hierarchy rebuilt \
-    -max_dsp 0  
-
 # Generate the bitstream (runs synthesis + implementation + write_bitstream)
 puts "Launching implementation run to generate bitstream"
 launch_runs impl_1 -to_step write_bitstream -jobs $MAX_THREADS
