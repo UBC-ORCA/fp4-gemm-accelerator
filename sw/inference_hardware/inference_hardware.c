@@ -23,6 +23,9 @@
 #define MACS_PER_IMAGE  ((uint64_t)IN_REAL * L1_DIM + \
                          (uint64_t)L1_DIM  * L2_DIM + \
                          (uint64_t)L2_DIM  * OUT_DIM)
+// FlOPS is 2 * MAC
+#define FLOPS_PER_IMAGE   (2 * MACS_PER_IMAGE)
+#define PEAK_FLOPS_CYCLE  (2 * MAC_UNITS)
 
 // Number of K elements per inner block
 #define BS  K1_STEP_HDR
@@ -130,20 +133,35 @@ static void pc_line(const char *name, uint64_t v) {
     print_str("\n");
 }
 
-// Print part/whole as a percentage with 2 decimals, since there is no FP here
-static void pc_percent(const char *name, uint64_t part, uint64_t whole) {
-    uint64_t scaled  = whole ? (part * 10000) / whole : 0;  // percent, times 100
-    uint64_t percent = scaled / 100;
-    uint64_t frac    = scaled % 100;
-
+// Print scaled/100 with 2 decimals
+static void pc_fixed2(const char *name, uint64_t scaled, const char *unit) {
     print_str("  ");
     print_str(name);
     print_str(" ");
-    putdec64(percent);
+    putdec64(scaled / 100);
     putchar_uart('.');
-    if (frac < 10) putchar_uart('0');
-    putdec64(frac);
-    print_str(" %\n");
+    if (scaled % 100 < 10) putchar_uart('0');
+    putdec64(scaled % 100);
+    print_str(unit);
+    print_str("\n");
+}
+
+// part as a percentage of whole
+static void pc_percent(const char *name, uint64_t part, uint64_t whole) {
+    uint64_t scaled = 0;
+    if (whole) {
+        scaled = (part * 10000) / whole;
+    }
+    pc_fixed2(name, scaled, " %");
+}
+
+// how much of count happens per cycle, used for flops per cycle
+static void pc_rate(const char *name, uint64_t count, uint64_t cycles) {
+    uint64_t scaled = 0;
+    if (cycles) {
+        scaled = (count * 100) / cycles;
+    }
+    pc_fixed2(name, scaled, "");
 }
 
 static void pc_report(void) {
@@ -188,6 +206,15 @@ static void pc_report(void) {
     // pc_line   ("peak   |", MAC_UNITS * pc_total);
     pc_percent("usage  |", macs, MAC_UNITS * pc_total);  // whole program
     pc_percent("gemm_U |", macs, MAC_UNITS * gemm_x);    // gemm datapath only
+
+    // MAC array only, scaling and conversion are not counted
+    uint64_t flops = FLOPS_PER_IMAGE * (uint64_t)N_SAMPLES;
+
+    print_str("\n[PERF] flops\n");
+    pc_line("flops  |", flops);
+    pc_rate("f/cyc  |", flops, pc_total);   // achieved, whole program
+    pc_rate("f/cyc_g|", flops, gemm_x);     // achieved, gemm datapath only
+    pc_line("f/cyc_p|", PEAK_FLOPS_CYCLE);  // peak the array can sustain
 }
 #else
 #define PC_LAYER(n)     ((void)0)
