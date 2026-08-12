@@ -163,8 +163,11 @@ $(INFERENCE_HEX): FORCE
 
 # Pack the firmware hex into program.mem (BRAM init image)
 $(PROGRAM_MEM): $(INFERENCE_HEX) 
-	cd $(SUPPORT_IP) && python mem_extractor.py \
+	cd $(SUPPORT_IP) && python3 mem_extractor.py \
 		../sw/inference_hardware/inference.hex program.mem 80000
+
+.PHONY: make_sw
+make_sw: $(PROGRAM_MEM)
 
 # Open the fusesoc-generated .xpr and run platform_impl.tcl to export the .xsa
 .PHONY: platform_impl
@@ -175,11 +178,11 @@ $(XSA): $(XPR) $(PROGRAM_MEM) $(SUPPORT_SRCS)
 		$(XPR) 2>&1 | tee logs/vivado/platform_impl.log
 	@echo "XSA written to $(PWD)/$(XSA)"
 
-FORCE: clean_sw
+FORCE: 
 
 clean_sw:
 	$(MAKE) -C $(SW_HW_DIR) -f inference.mk clean 
-	rm $(SUPPORT_IP)/program.mem
+	rm -f $(SUPPORT_IP)/program.mem
 
 ###############################################################################
 # STEP 2: Patch VC file

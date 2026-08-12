@@ -22,8 +22,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git make build-essential \
       python3 python3-pip python3-dev \
       autoconf flex bison libfl-dev help2man perl ccache \
-      zlib1g-dev libelf-dev vim nano \
- && rm -rf /var/lib/apt/lists/*
+      zlib1g-dev libelf-dev vim nano locales libtinfo5 libtinfo6 && \
+      locale-gen en_US.UTF-8 && \
+      rm -rf /var/lib/apt/lists/*
 
 
 # 2. RISC-V bare-metal toolchain (xPack riscv-none-elf, with rv32im multilib)
@@ -62,7 +63,7 @@ RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel && \
 
 # 5. Project sources: rtl/ and sw/
 WORKDIR /work
-COPY rtl/ /work/rtl/
-COPY sw/  /work/sw/
+# COPY rtl/ /work/rtl/
+# COPY sw/  /work/sw/
 
 CMD ["/bin/bash"]

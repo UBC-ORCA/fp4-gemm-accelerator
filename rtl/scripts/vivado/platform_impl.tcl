@@ -10,7 +10,7 @@ set FPGA_PART xczu7ev-ffvc1156-2-e
 set TOP_LEVEL cve2_top
 set IMPL_REPORT_DIR output/rpts/impl
 set OUTPUT_DIR output
-set MAX_THREADS 12
+set MAX_THREADS 32
 
 # Verilog files for support IP
 set SUPPORT_IP_DIR [file normalize "../support_ip"]

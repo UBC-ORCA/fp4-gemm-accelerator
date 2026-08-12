@@ -5,6 +5,8 @@
 
 # CHANGE THIS
 set REPO_ROOT /home/khaditio/fp4-gemm-accelerator
+set PLATFORM_NAME fp4_gemm
+set PLATFORM_DIR "$REPO_ROOT/platform/$PLATFORM_NAME"
 
 
 connect
@@ -19,14 +21,14 @@ exec sleep 1
 
 targets -set -nocase -filter {name =~ "*PS TAP*"}
 # bitstream
-fpga "$REPO_ROOT/fp4-platform/fp4/hw/accelerator_top.bit"
+fpga "$PLATFORM_DIR/hw/accelerator_top.bit"
 exec sleep 1
 
 # Write pmufw
 targets -set -nocase -filter {name =~ "*PSU*"}
 mask_write 0xFFCA0038 0x1C0 0x1C0
 targets -set -nocase -filter {name =~ "*MicroBlaze PMU*"}
-dow "$REPO_ROOT/fp4-platform/fp4/export/fp4/sw/fp4/boot/pmufw.elf"
+dow "$PLATFORM_DIR/export/$PLATFORM_NAME/sw/$PLATFORM_NAME/boot/pmufw.elf"
 con
 exec sleep 1
 targets -set -nocase -filter {name =~ "*PSU*"}
@@ -37,7 +39,7 @@ targets -set -nocase -filter {name =~ "*APU*"}
 mwr 0xffff0000 0x14000000
 mask_write 0xFD1A0104 0x501 0x0
 targets -set -nocase -filter {name =~ "PSU"}
-source "$REPO_ROOT/fp4-platform/fp4/hw/psu_init.tcl"
+source "$PLATFORM_DIR/hw/psu_init.tcl"
 psu_init
 after 500
 psu_post_config
