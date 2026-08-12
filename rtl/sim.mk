@@ -162,21 +162,24 @@ $(INFERENCE_HEX): FORCE
 	$(MAKE) -C $(SW_HW_DIR) -f inference.mk FPGA=1
 
 # Pack the firmware hex into program.mem (BRAM init image)
-$(PROGRAM_MEM): $(INFERENCE_HEX)
+$(PROGRAM_MEM): $(INFERENCE_HEX) 
 	cd $(SUPPORT_IP) && python mem_extractor.py \
 		../sw/inference_hardware/inference.hex program.mem 80000
 
 # Open the fusesoc-generated .xpr and run platform_impl.tcl to export the .xsa
 .PHONY: platform_impl
 platform_impl: $(XSA)
-$(XSA): $(XPR) $(PROGRAM_MEM) $(SUPPORT_SRCS)
+$(XSA): $(XPR) $(PROGRAM_MEM) $(SUPPORT_SRCS) 
 	mkdir -p logs/vivado
 	vivado -mode batch -notrace -source scripts/vivado/platform_impl.tcl \
 		$(XPR) 2>&1 | tee logs/vivado/platform_impl.log
 	@echo "XSA written to $(PWD)/$(XSA)"
 
-FORCE:
+FORCE: clean_sw
 
+clean_sw:
+	$(MAKE) -C $(SW_HW_DIR) -f inference.mk clean 
+	rm $(SUPPORT_IP)/program.mem
 
 ###############################################################################
 # STEP 2: Patch VC file
@@ -239,6 +242,6 @@ run: fuse gen-vc build-sim
 # CLEAN
 ###############################################################################
 .PHONY: clean
-clean: clean_mac_cell
+clean: clean_mac_cell clean_sw clean_vivado	
 	rm -rf build/*/lint-verilator/obj_dir
 	rm -f build/*/lint-verilator/*_patched.vc
