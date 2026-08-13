@@ -559,7 +559,8 @@ cve2_pkg::mac_op_e     cf_op_dec;
   //             pc_id_i, vec_done_i, vec_scalar_we_i, vec_scalar_waddr_i, vec_scalar_wdata_i, instr_executing);
   //   end
   // end
-  assign rf_we_scalar      = rf_we_raw & instr_executing & ~illegal_csr_insn_i;
+  // instr_done not instr_executing, or a stalled write-back commits every cycle
+  assign rf_we_scalar      = rf_we_raw & instr_done & ~illegal_csr_insn_i;
   assign vec_scalar_we_safe = vec_scalar_we_i & vec_done_i;
 
 // --- [stev] ---
