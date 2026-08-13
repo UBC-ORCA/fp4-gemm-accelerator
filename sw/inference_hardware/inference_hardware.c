@@ -30,10 +30,9 @@
 // Number of K elements per inner block
 #define BS  K1_STEP_HDR
 
-// Read-out multiply: scale up by 2^RDOUT_SHIFT so [-0.5,0.5] fills the FP4 grid;
-// MAC_AS undoes it via ascale = 2^-(bias+2) (should be bias+1 but +2 performs better)
-#define RDOUT_SHIFT  3                     // x8 (exact = 2, x4)
-#define RDOUT_OFF    (125 - RDOUT_SHIFT)   // LUT exponent offset (122)
+// Read-out multiply where activations are scaled up by 2^rdout_shift[layer]
+static const int rdout_shift[3] = RDOUT_SHIFT_HDR;
+#define BF16_EXP_025  125   // bf16 exponent of 0.25, the LUT's lowest boundary
 
 // Enable performance counters
 #define PERF_COUNTERS
@@ -480,24 +479,25 @@ static void build_bf16_fp4_lut(void) {
     }
 }
 
-// bf16 activation -> FP4 code.
-static inline uint32_t fp4_from_bf16(uint16_t bf16) {
+// bf16 activation -> FP4 code
+static inline uint32_t fp4_from_bf16(uint16_t bf16, int lut_floor) {
     int exp  = (bf16 >> 7) & 0xFF;
     int sign = (bf16 >> 15) & 1;
     int code;
-    if (exp < RDOUT_OFF) {                 // below LUT floor -> 0
+    if (exp < lut_floor) {                 // below LUT floor -> 0
         code = 0;
     } else if (exp > 125) {                // |act| >= 0.5 (Hardtanh) -> clamp to top FP4
         code = FP4_40;
-    } else {                               // scale up 2^RDOUT_SHIFT, round via LUT
-        code = bf16_fp4_lut[(((exp - RDOUT_OFF) & 3) << 7) | (bf16 & 0x7F)];
+    } else {                               // scale up by the shift, round via LUT
+        code = bf16_fp4_lut[(((exp - lut_floor) & 3) << 7) | (bf16 & 0x7F)];
     }
     if (code == 0) { return 0; }
     return sign ? (0x8u | code) : (uint32_t)code;
 }
 
-// Read a hidden layer's banks and qaunt to FP4 activations
-static void readout_fp4(uint32_t *z, int WH) {
+// Read banks and qaunt to FP4 activations
+static void readout_fp4(uint32_t *z, int WH, int shift) {
+    int lut_floor = BF16_EXP_025 - shift;
     int tiles = (WH + TT - 1) / TT;
     for (int tile = 0; tile < tiles; tile++) {
         int neuron0 = tile * TT;                   // first neuron of this bank
@@ -511,8 +511,8 @@ static void readout_fp4(uint32_t *z, int WH) {
                 uint32_t pair   = bram_rd(tile, 2 * row, col);
                 int neuron = neuron0 + col;        // column picks the neuron
                 // the shift is 4 bits per FP4 code times the sample index
-                z[neuron] |= fp4_from_bf16((uint16_t)(pair & 0xFFFF)) << (4 * row);          // sample = row
-                z[neuron] |= fp4_from_bf16((uint16_t)(pair >> 16))    << (4 * (row + TT/2)); // sample = row + TT/2
+                z[neuron] |= fp4_from_bf16((uint16_t)(pair & 0xFFFF), lut_floor) << (4 * row);          // sample = row
+                z[neuron] |= fp4_from_bf16((uint16_t)(pair >> 16),    lut_floor) << (4 * (row + TT/2)); // sample = row + TT/2
             }
         }
     }
@@ -621,7 +621,7 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
 
     PC_LAYER(0);
     gemm(inputs, w1_fp4, bias1_packed, IN_DIM, L1_DIM, wscale1, ascale1);
-    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM));       // hidden layer -> FP4 activations
+    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, rdout_shift[1]));   // feeds layer 2
 
 //[stev]
  // ==================== CHECKPOINT HERE ====================
@@ -638,7 +638,7 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
 
     PC_LAYER(1);
     gemm(z1_packed, w2_fp4, bias2_packed, L1_DIM, L2_DIM, wscale2, ascale2);
-    TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM));       // hidden layer -> FP4 activations
+    TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM, rdout_shift[2]));   // feeds layer 3
 
     PC_LAYER(2);
     gemm(z2_packed, w3_fp4, bias3_packed, L2_DIM, OUT_DIM, wscale3, ascale3);
