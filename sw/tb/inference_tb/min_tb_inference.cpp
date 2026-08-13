@@ -232,6 +232,17 @@ int main(int argc, char** argv) {
   static const int PC_RING = 32;
   uint32_t pc_ring[PC_RING] = {0};
   int      pc_ring_n = 0;
+
+  // Every change to a3 (x13), which is typicall the weight pointer
+  static const int A3_RING = 24;
+  struct A3Chg {
+    uint64_t cyc;
+    uint32_t old_v, new_v, pc;
+    uint8_t  cf_busy, cf_done, cf_scalar_we, ctx_ready, scale_busy;
+  };
+  A3Chg    a3_ring[A3_RING] = {};
+  int      a3_ring_n = 0;
+  uint32_t a3_prev = 0;
   // Accepted data-bus transactions, to see where an address goes bad
   static const int D_RING = 24;
   uint32_t d_ring_addr[D_RING] = {0};
@@ -320,6 +331,28 @@ int main(int argc, char** argv) {
       mac_en_cycles++;
     }
 
+    // Record every change to a3 with the accelerator state at that cycle
+    {
+      auto *r = dut->rootp;
+      uint32_t a3_now =
+          (uint32_t)r->cve2_top__DOT__u_cve2_core__DOT__register_file_i__DOT__rf_reg[13];
+      if (a3_now != a3_prev) {
+        A3Chg &e = a3_ring[a3_ring_n % A3_RING];
+        e.cyc          = cyc;
+        e.old_v        = a3_prev;
+        e.new_v        = a3_now;
+        e.pc           = (uint32_t)dut->instr_addr_o;
+        e.cf_busy      = (uint8_t)r->cve2_top__DOT__u_cve2_core__DOT__cf_busy;
+        e.cf_done      = (uint8_t)r->cve2_top__DOT__u_cve2_core__DOT__cf_done;
+        e.cf_scalar_we = (uint8_t)r->cve2_top__DOT__u_cve2_core__DOT__cf_scalar_we;
+        e.ctx_ready    = (uint8_t)r->cve2_top__DOT__u_cve2_core__DOT__cf_unit_i__DOT__context_ready;
+        // scale_busy is (state_q != IDLE), and IDLE is 0
+        e.scale_busy   = (uint8_t)(r->cve2_top__DOT__u_cve2_core__DOT__cf_unit_i__DOT__u_scale_fsm__DOT__state_q != 0);
+        a3_ring_n++;
+        a3_prev = a3_now;
+      }
+    }
+
     if_resp_due = false;
     if (if_fire) {
       if_resp_due  = true;
@@ -353,6 +386,38 @@ int main(int argc, char** argv) {
                       (unsigned long long)cyc,
                       d_resp_is_write ? "WR" : "RD", d_resp_addr,
                       (d_resp_addr & 3) ? "  UNALIGNED" : "");
+          // Register file at the fault
+            static const char *abi[32] = {
+              "zero","ra","sp","gp","tp","t0","t1","t2","s0","s1","a0","a1",
+              "a2","a3","a4","a5","a6","a7","s2","s3","s4","s5","s6","s7",
+              "s8","s9","s10","s11","t3","t4","t5","t6"};
+            auto &rf = dut->rootp
+                       ->cve2_top__DOT__u_cve2_core__DOT__register_file_i__DOT__rf_reg;
+            std::printf("[TB]   register file:\n");
+            for (int i = 0; i < 32; i += 4) {
+              std::printf("[TB]    ");
+              for (int j = i; j < i + 4; j++)
+                std::printf(" x%-2d %-4s 0x%08x", j, abi[j], (uint32_t)rf[j]);
+              std::printf("\n");
+            }
+          }
+          // Every change to a3 leading up to the stall
+          {
+            int an = a3_ring_n < A3_RING ? a3_ring_n : A3_RING;
+            int as = a3_ring_n < A3_RING ? 0 : (a3_ring_n % A3_RING);
+            std::printf("[TB]   last %d changes to a3:\n", an);
+            std::printf("[TB]     %-9s %-10s %-10s %-8s %-6s  cf_busy done swe "
+                        "ctx_rdy scale_busy\n", "cyc", "old", "new", "delta", "pc");
+            for (int k = 0; k < an; k++) {
+              const A3Chg &e = a3_ring[(as + k) % A3_RING];
+              std::printf("[TB]     %-9llu 0x%08x 0x%08x %+-8d 0x%04x %s   %d    %d   %d   %d       %d\n",
+                          (unsigned long long)e.cyc, e.old_v, e.new_v,
+                          (int)(e.new_v - e.old_v), e.pc,
+                          (e.new_v & 3) ? "MISALIGNED" : "          ",
+                          e.cf_busy, e.cf_done, e.cf_scalar_we,
+                          e.ctx_ready, e.scale_busy);
+            }
+          }
           // instr_addr_o is the next fetch address, not the culprit PC. The
           // fetched-PC ring is what shows the instruction stream that led here.
           std::printf("[TB]   next fetch addr 0x%08x (not the culprit PC)\n",
