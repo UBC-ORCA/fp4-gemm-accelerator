@@ -31,16 +31,21 @@ RISCV_PREFIX ?= riscv-none-elf
 
 CC      := $(RISCV_PREFIX)-gcc
 OBJCOPY := $(RISCV_PREFIX)-objcopy
+DATASET ?= mnist
 
 ###############################################################################
 # Output files
+#
+# DEV=1 builds inference_dev.c to inference_dev.* so it does not clobber the
+# stock inference.* while that build is running.
 ###############################################################################
-# Selects which headers/<set> the weights and dataset come from
-DATASET ?= mnist
 
-ELF_FILE := inference.elf
-HEX_FILE := inference.hex
-MAP_FILE := inference.map
+NAME     := inference
+MAIN_SRC := inference_novec.c
+
+ELF_FILE := $(NAME).elf
+HEX_FILE := $(NAME).hex
+MAP_FILE := $(NAME).map
 
 ###############################################################################
 # Source files
@@ -51,13 +56,16 @@ MAP_FILE := inference.map
 # uart.c
 #   UART driver and printf support.
 #
-# inference_risc_noaccel.c
-#   Main test program (scalar, no-acceleration baseline).
+# inference.c
+#   Main test program.
+#
+# matmul8_vec.S
+#   Hand-written vector/matrix multiplication assembly.
 ###############################################################################
 SRCS := \
 	../generic/uart.c \
 	../generic/image.c \
-	inference_risc_noaccel.c
+	$(MAIN_SRC)
 
 ###############################################################################
 # Linker script

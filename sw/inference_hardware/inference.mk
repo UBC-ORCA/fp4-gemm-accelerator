@@ -27,7 +27,6 @@
 #
 # Assumes the RISC-V GCC toolchain is available in PATH.
 ###############################################################################
-#RISCV_PREFIX ?= riscv32-unknown-elf
 RISCV_PREFIX ?= riscv-none-elf
 
 CC      := $(RISCV_PREFIX)-gcc

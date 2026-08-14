@@ -4,7 +4,7 @@
 #
 #   ./run_inference.sh <version> [dataset] [options]
 #
-#   version : baseline | hardware   (required)
+#   version : baseline | novec | hardware   (required)
 #   dataset : 8 | 80 | 400 | 1k | 2k | 10k               (default: 80)
 #
 # Run ./run_inference.sh --help for the full option list.
@@ -20,6 +20,7 @@ SIM=./build/openhwgroup_cve2_cve2_top_0.1/lint-verilator/Vcve2_top
 # version -> software directory
 declare -A VDIR=(
   [baseline]=inference_baseline
+  [novec]=inference_novec
   [hardware]=inference_hardware
 )
 
@@ -29,7 +30,7 @@ run_inference.sh - launch a CVE2 FP4 MNIST inference build under Verilator
 
   ./run_inference.sh <version> [dataset] [size] [options]
 
-  version : baseline | hardware            (required)
+  version : baseline | novec | hardware    (required)
   dataset : mnist | fashion                (default: mnist)
   size    : 8 | 80 | 400 | 1k | 2k | 10k   (default: 80 | UPDATE IN C)
 
@@ -37,8 +38,8 @@ Run ./run_inference.sh --help for the full option list.
 
 Versions:
   baseline   FP4 read as signed int4, no accel (inaccurate, speed reference)
-  software   the hardware instructions emulated in plain C
-  hardware   accelerated build using vmac64, vle32, zzMAC64, mv
+  novec      scalar + MAC array, vector length 1 (one word per vle32)
+  hardware   scalar + vector + MAC array, full length vector loads
 
 Options:
   --traces          enable instruction and data traces
@@ -69,7 +70,7 @@ YES=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    baseline|hardware) VERSION="$1" ;;
+    baseline|novec|hardware) VERSION="$1" ;;
     mnist|fashion)     DATASET="$1" ;;
     8|test_8|test8)          SIZE=8 ;;
     80|test_80|test80)          SIZE=80 ;;
@@ -95,7 +96,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$VERSION" ]]; then
-  echo "error: version required (baseline|hardware)" >&2
+  echo "error: version required (baseline|novec|hardware)" >&2
   usage; exit 1
 fi
 
