@@ -237,9 +237,12 @@ static void pc_report(void) {
 //   BRAM_RD(rd,p)   BRAMRD   f7=0x0E   read the bram pair at p into register rd
 //   VSETVLI(avl)    vsetvli  OPV=0x57  set vl=avl, e32,m1,ta,ma
 //   VLE32(N,ptr)    vle32.v  0x07      load vl words at ptr -> vN
-#define VMAC64(N,ptr)  __asm__ volatile(".insn i 0x2b,0x0,x" #N ",%0,0" :: "r"(ptr))
-#define MAC_AS(a,b)    __asm__ volatile(".insn r 0x5b,0x0,0x0a, x0,%0,%1" :: "r"(a),"r"(b))
-#define MAC_WS(a,b)    __asm__ volatile(".insn r 0x5b,0x0,0x0b, x0,%0,%1" :: "r"(a),"r"(b))
+//#define VMAC64(N,ptr)  __asm__ volatile(".insn i 0x2b,0x0,x" #N ",%0,0" :: "r"(ptr))
+#define VMAC64(N,wgt,act)  __asm__ volatile("mul x0,%0,%1" :: "r"(wgt),"r"(act) )
+//#define MAC_AS(a,b)    __asm__ volatile(".insn r 0x5b,0x0,0x0a, x0,%0,%1" :: "r"(a),"r"(b))
+//#define MAC_WS(a,b)    __asm__ volatile(".insn r 0x5b,0x0,0x0b, x0,%0,%1" :: "r"(a),"r"(b))
+#define MAC_AS(a,b)    __asm__ volatile("mul x0,%0,%1" :: "r"(a),"r"(b))
+#define MAC_WS(a,b)    __asm__ volatile("mul x0,%0,%1" :: "r"(a),"r"(b))
 #define MAC_BIAS(p,v)  __asm__ volatile(".insn r 0x5b,0x0,0x0c, x0,%0,%1" :: "r"(p),"r"(v))
 #define ACC_BANK(t)    __asm__ volatile(".insn r 0x5b,0x0,0x0d, x0,%0,x0" :: "r"(t))
 #define BRAM_RD(rd,p)  __asm__ volatile(".insn r 0x5b,0x0,0x0e, %0,%1,x0" : "=r"(rd) : "r"(p))
@@ -296,44 +299,13 @@ static const uint32_t vreg_zeros[VL_MAC] = { 0 };
 
 // One K element reduction, the activation sits in element 0 of vreg
 static inline __attribute__((always_inline))
-void do_k_tile(int vreg, const uint32_t *As, const uint32_t *Ws, const uint32_t *weights) {
-    switch (vreg) {
-        case  0: VMAC64(0,  weights +  0); break;
-        case  1: VMAC64(1,  weights +  1); break;
-        case  2: VMAC64(2,  weights +  2); break;
-        case  3: VMAC64(3,  weights +  3); break;
-        case  4: VMAC64(4,  weights +  4); break;
-        case  5: VMAC64(5,  weights +  5); break;
-        case  6: VMAC64(6,  weights +  6); break;
-        case  7: VMAC64(7,  weights +  7); break;
-        case  8: VMAC64(8,  weights +  8); break;
-        case  9: VMAC64(9,  weights +  9); break;
-        case 10: VMAC64(10, weights + 10); break;
-        case 11: VMAC64(11, weights + 11); break;
-        case 12: VMAC64(12, weights + 12); break;
-        case 13: VMAC64(13, weights + 13); break;
-        case 14: VMAC64(14, weights + 14); break;
-        case 15: VMAC64(15, weights + 15); break;
-        case 16: VMAC64(16, weights + 16); break;
-        case 17: VMAC64(17, weights + 17); break;
-        case 18: VMAC64(18, weights + 18); break;
-        case 19: VMAC64(19, weights + 19); break;
-        case 20: VMAC64(20, weights + 20); break;
-        case 21: VMAC64(21, weights + 21); break;
-        case 22: VMAC64(22, weights + 22); break;
-        case 23: VMAC64(23, weights + 23); break;
-        case 24: VMAC64(24, weights + 24); break;
-        case 25: VMAC64(25, weights + 25); break;
-        case 26: VMAC64(26, weights + 26); break;
-        case 27: VMAC64(27, weights + 27); break;
-        case 28: VMAC64(28, weights + 28); break;
-        case 29: VMAC64(29, weights + 29); break;
-        case 30: VMAC64(30, weights + 30); break;
-        case 31: VMAC64(31, weights + 31); break;
-        default: break;
-    }
-    MAC_AS(As[0], As[1]);   // apply activation scales
-    MAC_WS(Ws[0], Ws[1]);   // apply weight scales
+void do_k_tile(int vreg, const uint32_t *As, const uint32_t *Ws, const uint32_t *weights, const uint32_t *acts) {
+  #pragma GCC unroll 32
+  for( vreg=0 ; i<32; i++ ) {
+    VMAC64(0,  weights[vreg], acts[vreg] );
+  }
+  MAC_AS(As[0], As[1]);   // apply activation scales
+  MAC_WS(Ws[0], Ws[1]);   // apply weight scales
 }
 
 // Load one activation word (1 element) into vector register vreg
@@ -586,9 +558,11 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
 
                 // Activation loads into v0..v(elems-1), one word each
                 VSETVLI(VL_NOVEC);
+#if 0
                 #pragma GCC unroll 32
                 for (int vreg = 0; vreg < elems; vreg++)
                     load_vreg(vreg, &A[K + vreg]);
+#endif
 
                 // NVREG == BS, so the whole chunk sits in one scaling block
                 const uint32_t* Ascales = &ascale_words[(K/BS)*2];
@@ -600,9 +574,9 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
                 {
                     ACC_BANK(T);   // target accumulator bank T for this tile
 
-                    #pragma GCC unroll 32
+                    //#pragma GCC unroll 32
                     for (int vreg = 0; vreg < elems; vreg++) {
-                        do_k_tile(vreg, Ascales, Wscales, weights);
+                        do_k_tile(vreg, Ascales, Wscales, weights, &A[K+vreg] );
                     }
 
                     Wscales += num_blocks*2;   // step one tile-column of Wscales  [(KK/BS)*TT bytes]
