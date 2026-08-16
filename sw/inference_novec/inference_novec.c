@@ -31,9 +31,6 @@
 // Number of K elements per inner block
 #define BS  K1_STEP_HDR
 
-// Elements moved by one vector load, the whole point of this version
-#define VL_NOVEC  1
-
 // Read-out multiply where activations are scaled up by 2^rdout_shift[layer]
 static const int rdout_shift[3] = RDOUT_SHIFT_HDR;
 #define BF16_EXP_025  125   // bf16 exponent of 0.25, the LUT's lowest boundary
@@ -108,11 +105,17 @@ static uint64_t pc_gemm[3];
 static uint64_t pc_qact[2];    // hidden read-out + FP4 quantize (readout_fp4)
 static uint64_t pc_argmax;     // final read-out + argmax
 static uint64_t pc_bias[3];
+static uint64_t pc_load[3];    // activation vector loads, inside gemm
+static uint64_t pc_ktile[3];   // do_k_tile loop only, inside gemm
 static uint64_t pc_total;      // whole sample loop, the utilization denominator
 static int      pc_layer;
 
 #define PC_LAYER(n)     (pc_layer = (n))
 #define TIME(acc, stmt) do { uint32_t _t = rdcyc(); stmt; (acc) += (uint32_t)(rdcyc() - _t); } while (0)
+
+// Begin/end pair for regions carrying a GCC pragma, which cannot sit in a macro argument
+#define TIME_BEG(t)      uint32_t t = rdcyc()
+#define TIME_END(acc, t) (acc) += (uint32_t)(rdcyc() - (t))
 
 // Print 64 bit integer since totals can exceed 32 bits
 static void putdec64(uint64_t n) {
@@ -184,20 +187,32 @@ static void pc_report(void) {
     pc_line("bias_2 |", pc_bias[1]);
     pc_line("bias_3 |", pc_bias[2]);
 
-    // datapath only: gemm compute minus the bias seed
-    uint64_t gemm_x = pc_gemm[0] + pc_gemm[1] + pc_gemm[2] -
-                      (pc_bias[0] + pc_bias[1] + pc_bias[2]);
+    pc_line("load_1 |", pc_load[0]);    // activation vector loads (subset of gemm)
+    pc_line("load_2 |", pc_load[1]);
+    pc_line("load_3 |", pc_load[2]);
+
+    pc_line("ktile_1|", pc_ktile[0]);   // do_k_tile loop only (subset of gemm)
+    pc_line("ktile_2|", pc_ktile[1]);
+    pc_line("ktile_3|", pc_ktile[2]);
+
+    // widest view is the whole gemm function, narrowest is the do_k_tile loop
+    uint64_t gemm_t = pc_gemm[0]  + pc_gemm[1]  + pc_gemm[2];
+    uint64_t gemm_k = pc_ktile[0] + pc_ktile[1] + pc_ktile[2];
+    uint64_t load_t = pc_load[0]  + pc_load[1]  + pc_load[2];
+    uint64_t bias_t = pc_bias[0]  + pc_bias[1]  + pc_bias[2];
 
     print_str("\n[PERF] total cycles over run\n");
-    // gemm compute (incl. bias) plus every read-out
-    pc_line("gemm_T |",
-        pc_gemm[0] + pc_gemm[1] + pc_gemm[2] +
-        pc_qact[0] + pc_qact[1] + pc_argmax);
-    pc_line("gemm_X |", gemm_x);
+    // gemm() only; read-out and argmax sit outside the function
+    pc_line("gemm_T |", gemm_t);
+    // the MAC datapath on its own
+    pc_line("gemm_K |", gemm_k);
+    // activation loads and bias seed, both inside gemm
+    pc_line("load_T |", load_t);
+    pc_line("bias_T |", bias_t);
+    // rest of gemm: bank select, pointer steps, loop control
+    pc_line("gemm_R |", gemm_t - gemm_k - load_t - bias_t);
     // total read-out + FP4 quantize
     pc_line("qact_T |", pc_qact[0] + pc_qact[1]);
-    // total bias seed
-    pc_line("bias_T |", pc_bias[0] + pc_bias[1] + pc_bias[2]);
 
     // Useful MACs against what the array could have retired in the same cycles
     uint64_t macs = MACS_PER_IMAGE * (uint64_t)N_SAMPLES;
@@ -208,7 +223,7 @@ static void pc_report(void) {
     // pc_line   ("cycles |", pc_total);
     // pc_line   ("peak   |", MAC_UNITS * pc_total);
     pc_percent("usage  |", macs, MAC_UNITS * pc_total);  // whole program
-    pc_percent("gemm_U |", macs, MAC_UNITS * gemm_x);    // gemm datapath only
+    pc_percent("gemm_U |", macs, MAC_UNITS * gemm_k);    // do_k_tile loop only
 
     // MAC array only, scaling and conversion are not counted
     uint64_t flops = FLOPS_PER_IMAGE * (uint64_t)N_SAMPLES;
@@ -216,13 +231,15 @@ static void pc_report(void) {
     print_str("\n[PERF] flops\n");
     pc_line("flops  |", flops);
     pc_rate("f/cyc  |", flops, pc_total);   // achieved, whole program
-    pc_rate("f/cyc_g|", flops, gemm_x);     // achieved, gemm datapath only
+    pc_rate("f/cyc_g|", flops, gemm_k);     // achieved, do_k_tile loop only
     pc_line("f/cyc_p|", PEAK_FLOPS_CYCLE);  // peak the array can sustain
 }
 #else
-#define PC_LAYER(n)     ((void)0)
-#define TIME(acc, stmt) do { stmt; } while (0)
-#define pc_report()     ((void)0)
+#define PC_LAYER(n)      ((void)0)
+#define TIME(acc, stmt)  do { stmt; } while (0)
+#define TIME_BEG(t)      ((void)0)
+#define TIME_END(acc, t) ((void)0)
+#define pc_report()      ((void)0)
 #endif
 
 // =======================================
@@ -294,71 +311,20 @@ static void dump_bram_checkpoint(int max_tiles) {
     print_str("=== END BRAM CHECKPOINT DUMP ===\n\n");
 }
 
-#define VL_MAC   32               // elements one vmac64 reduces, fixed in hardware
-static const uint32_t vreg_zeros[VL_MAC] = { 0 };
-
-// One K element reduction, the activation sits in element 0 of vreg
+// One K block: gen1 style, one MAC per K element, no vector register in the path.
+// Both operands come from memory, so each MAC costs two loads plus the multiply.
+// The scales apply once per BS block, which is what this call covers.
 static inline __attribute__((always_inline))
-void do_k_tile(int vreg, const uint32_t *As, const uint32_t *Ws, const uint32_t *weights, const uint32_t *acts) {
+void do_k_tile(const uint32_t *As, const uint32_t *Ws,
+               const uint32_t *weights, const uint32_t *acts) {
   #pragma GCC unroll 32
-  for( vreg=0 ; i<32; i++ ) {
-    VMAC64(0,  weights[vreg], acts[vreg] );
+  for (int k = 0; k < NVREG; k++) {
+    VMAC64(0, weights[k], acts[k]);
   }
   MAC_AS(As[0], As[1]);   // apply activation scales
   MAC_WS(Ws[0], Ws[1]);   // apply weight scales
 }
 
-// Load one activation word (1 element) into vector register vreg
-static inline __attribute__((always_inline))
-void load_vreg(int vreg, const uint32_t *ptr) {
-    switch (vreg) {
-        case  0: VLE32(0,  ptr); break;
-        case  1: VLE32(1,  ptr); break;
-        case  2: VLE32(2,  ptr); break;
-        case  3: VLE32(3,  ptr); break;
-        case  4: VLE32(4,  ptr); break;
-        case  5: VLE32(5,  ptr); break;
-        case  6: VLE32(6,  ptr); break;
-        case  7: VLE32(7,  ptr); break;
-        case  8: VLE32(8,  ptr); break;
-        case  9: VLE32(9,  ptr); break;
-        case 10: VLE32(10, ptr); break;
-        case 11: VLE32(11, ptr); break;
-        case 12: VLE32(12, ptr); break;
-        case 13: VLE32(13, ptr); break;
-        case 14: VLE32(14, ptr); break;
-        case 15: VLE32(15, ptr); break;
-        case 16: VLE32(16, ptr); break;
-        case 17: VLE32(17, ptr); break;
-        case 18: VLE32(18, ptr); break;
-        case 19: VLE32(19, ptr); break;
-        case 20: VLE32(20, ptr); break;
-        case 21: VLE32(21, ptr); break;
-        case 22: VLE32(22, ptr); break;
-        case 23: VLE32(23, ptr); break;
-        case 24: VLE32(24, ptr); break;
-        case 25: VLE32(25, ptr); break;
-        case 26: VLE32(26, ptr); break;
-        case 27: VLE32(27, ptr); break;
-        case 28: VLE32(28, ptr); break;
-        case 29: VLE32(29, ptr); break;
-        case 30: VLE32(30, ptr); break;
-        case 31: VLE32(31, ptr); break;
-        default: break;
-    }
-}
-
-// Zero elements 1 to VL_MAC-1 of every register
-static void prime_act_vregs(void) {
-    VSETVLI(VL_MAC);                   // only wide loads in the program
-
-    #pragma GCC unroll 32
-    for (int vreg = 0; vreg < NVREG; vreg++) {
-        load_vreg(vreg, vreg_zeros);
-    }
-
-    VSETVLI(VL_NOVEC);                 // every later load moves one element
-}
 
 // =======================================
 // FP4 Quantization
@@ -508,13 +474,11 @@ static void readout_fp4(uint32_t *z, int WH, int shift) {
 // AV is the batch of 8 samples, assume one column strip (WH <= NTILES*TT)
 void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
           int KK, int WH, const uint32_t* wscale_words, const uint32_t* ascale_words) {
-#ifdef PERF_COUNTERS
-    uint32_t _gt0 = rdcyc();
-#endif
     // Results are left in the BRAM accumulator
     assert( AV == TT );          // else BRAM must be saved after each I iteration
     assert( WH <= NTILES * TT ); // else BRAM must be saved+reloaded each J iteration
-    assert( NVREG == BS );
+    assert( NVREG == BS );       // else a chunk would straddle two scaling blocks
+    assert( KK % NVREG == 0 );   // else the last chunk is short and needs its own path
 
     int num_blocks = (KK + BS - 1) / BS;   // K split into BS-blocks
     int num_tiles  = (WH + TT - 1) / TT;   // columns split into TTxTT tiles
@@ -552,18 +516,6 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
             // covers NVREG elements of K instead of NVREG*BS
             for (int K = 0; K < KK; K += NVREG)
             {
-                // number of K elements reduced in this chunk
-                int elems = KK - K;
-                if (elems > NVREG) elems = NVREG;
-
-                // Activation loads into v0..v(elems-1), one word each
-                VSETVLI(VL_NOVEC);
-#if 0
-                #pragma GCC unroll 32
-                for (int vreg = 0; vreg < elems; vreg++)
-                    load_vreg(vreg, &A[K + vreg]);
-#endif
-
                 // NVREG == BS, so the whole chunk sits in one scaling block
                 const uint32_t* Ascales = &ascale_words[(K/BS)*2];
                 const uint32_t* Wscales = &wscale_words[(K/BS)*2];
@@ -574,10 +526,9 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
                 {
                     ACC_BANK(T);   // target accumulator bank T for this tile
 
-                    //#pragma GCC unroll 32
-                    for (int vreg = 0; vreg < elems; vreg++) {
-                        do_k_tile(vreg, Ascales, Wscales, weights, &A[K+vreg] );
-                    }
+                    TIME_BEG(_kt);
+                    do_k_tile(Ascales, Wscales, weights, &A[K]);
+                    TIME_END(pc_ktile[pc_layer], _kt);
 
                     Wscales += num_blocks*2;   // step one tile-column of Wscales  [(KK/BS)*TT bytes]
                     weights += num_blocks*BS;  // step one tile-column of weights  [(KK/2)*TT bytes]
@@ -586,9 +537,6 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
             // result now lives in the accumulator banks
         }
     }
-#ifdef PERF_COUNTERS
-    pc_gemm[pc_layer] += (uint32_t)(rdcyc() - _gt0);
-#endif
 }
 
 // Run the forward pass on a batch of samples
@@ -597,15 +545,15 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
     static uint32_t z1_packed[L1_DIM], z2_packed[L2_DIM];
 
     PC_LAYER(0);
-    gemm(inputs, w1_fp4, bias1_packed, IN_DIM, L1_DIM, wscale1, ascale1);
+    TIME(pc_gemm[0], gemm(inputs, w1_fp4, bias1_packed, IN_DIM, L1_DIM, wscale1, ascale1));
     TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, rdout_shift[1]));   // feeds layer 2
 
     PC_LAYER(1);
-    gemm(z1_packed, w2_fp4, bias2_packed, L1_DIM, L2_DIM, wscale2, ascale2);
+    TIME(pc_gemm[1], gemm(z1_packed, w2_fp4, bias2_packed, L1_DIM, L2_DIM, wscale2, ascale2));
     TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM, rdout_shift[2]));   // feeds layer 3
 
     PC_LAYER(2);
-    gemm(z2_packed, w3_fp4, bias3_packed, L2_DIM, OUT_DIM, wscale3, ascale3);
+    TIME(pc_gemm[2], gemm(z2_packed, w3_fp4, bias3_packed, L2_DIM, OUT_DIM, wscale3, ascale3));
     TIME(pc_argmax, argmax(predictions, OUT_DIM));  // final layer -> argmax
 }
 
@@ -618,7 +566,6 @@ int main(void) {
 
     build_pix_lut();
     build_bf16_fp4_lut();
-    prime_act_vregs();
 
     // Print prediction, truth, and reference format
     #ifdef PTM_PRINTS
@@ -630,9 +577,7 @@ int main(void) {
     // Count matches against reference
     int match = 0;
 
-#ifdef PERF_COUNTERS
-    uint32_t _rt0 = rdcyc();
-#endif
+    TIME_BEG(_rt0);
 
     for (int s = 0; s < N_SAMPLES; s += BATCH) {
         int n = N_SAMPLES - s;
@@ -696,9 +641,7 @@ int main(void) {
         }
     }
 
-#ifdef PERF_COUNTERS
-    pc_total = (uint32_t)(rdcyc() - _rt0);
-#endif
+    TIME_END(pc_total, _rt0);
 
     print_str("\nACCURACY: ");
     putdec(correct);
