@@ -70,11 +70,17 @@ static uint64_t pc_imgq;
 static uint64_t pc_gemm[3];
 static uint64_t pc_qact[2];    // requantize to FP4 codes between layers
 static uint64_t pc_argmax;
+static uint64_t pc_bias[3];    // bias seed, inside gemm
+static uint64_t pc_ktile[3];   // innermost k loop only, inside gemm
 static uint64_t pc_total;      // whole sample loop
 static int      pc_layer;
 
 #define PC_LAYER(n)     (pc_layer = (n))
 #define TIME(acc, stmt) do { uint32_t _t = rdcyc(); stmt; (acc) += (uint32_t)(rdcyc() - _t); } while (0)
+
+// Begin/end pair for regions carrying a GCC pragma, which cannot sit in a macro argument
+#define TIME_BEG(t)      uint32_t t = rdcyc()
+#define TIME_END(acc, t) (acc) += (uint32_t)(rdcyc() - (t))
 
 // Print 64 bit integer since totals can exceed 32 bits
 static void putdec64(uint64_t n) {
@@ -124,7 +130,7 @@ static void pc_report(void) {
     print_str("\n[PERF] cycles over run\n");
     pc_line("imgq   |", pc_imgq);       // image load and quant
 
-    pc_line("gemm_1 |", pc_gemm[0]);    // scalar gemm per layer, bias included
+    pc_line("gemm_1 |", pc_gemm[0]);    // whole gemm() call per layer
     pc_line("gemm_2 |", pc_gemm[1]);
     pc_line("gemm_3 |", pc_gemm[2]);
 
@@ -133,11 +139,28 @@ static void pc_report(void) {
 
     pc_line("argmax |", pc_argmax);
 
-    uint64_t gemm_x = pc_gemm[0] + pc_gemm[1] + pc_gemm[2];
+    pc_line("bias_1 |", pc_bias[0]);    // bias seed (subset of gemm)
+    pc_line("bias_2 |", pc_bias[1]);
+    pc_line("bias_3 |", pc_bias[2]);
+
+    pc_line("ktile_1|", pc_ktile[0]);   // innermost k loop only (subset of gemm)
+    pc_line("ktile_2|", pc_ktile[1]);
+    pc_line("ktile_3|", pc_ktile[2]);
+
+    // widest view is the whole gemm function, narrowest is the innermost k loop
+    uint64_t gemm_t = pc_gemm[0]  + pc_gemm[1]  + pc_gemm[2];
+    uint64_t gemm_k = pc_ktile[0] + pc_ktile[1] + pc_ktile[2];
+    uint64_t bias_t = pc_bias[0]  + pc_bias[1]  + pc_bias[2];
 
     print_str("\n[PERF] total cycles over run\n");
-    pc_line("gemm_T |", gemm_x + pc_qact[0] + pc_qact[1] + pc_argmax);
-    pc_line("gemm_X |", gemm_x);
+    // gemm() only; requantize and argmax sit outside the function
+    pc_line("gemm_T |", gemm_t);
+    // the dot product loop on its own
+    pc_line("gemm_K |", gemm_k);
+    // bias seed inside gemm
+    pc_line("bias_T |", bias_t);
+    // rest of gemm: output writeback, loop control
+    pc_line("gemm_R |", gemm_t - gemm_k - bias_t);
     pc_line("qact_T |", pc_qact[0] + pc_qact[1]);
 
     // No MAC array here, so usage and gemm_U do not apply
@@ -146,12 +169,14 @@ static void pc_report(void) {
     print_str("\n[PERF] flops (scalar, 1 mac = 2 flops)\n");
     pc_line("flops  |", flops);
     pc_rate("f/cyc  |", flops, pc_total);   // achieved, whole program
-    pc_rate("f/cyc_g|", flops, gemm_x);     // achieved, gemm only
+    pc_rate("f/cyc_g|", flops, gemm_k);     // achieved, k loop only
 }
 #else
-#define PC_LAYER(n)     ((void)0)
-#define TIME(acc, stmt) do { stmt; } while (0)
-#define pc_report()     ((void)0)
+#define PC_LAYER(n)      ((void)0)
+#define TIME(acc, stmt)  do { stmt; } while (0)
+#define TIME_BEG(t)      ((void)0)
+#define TIME_END(acc, t) ((void)0)
+#define pc_report()      ((void)0)
 #endif
 
 // =======================================
@@ -194,9 +219,6 @@ static void build_pix_lut(void) {
 //   out  : WH int32 accumulators
 static void gemm(const int8_t *A, const uint32_t *W, const uint32_t *bias_packed,
                  int32_t *out, int KK, int WH) {
-#ifdef PERF_COUNTERS
-    uint32_t _gt0 = rdcyc();
-#endif
     int tiles  = (WH + TT - 1) / TT;
     int stride = ((KK + BS - 1) / BS) * BS;   // weights are stored K-padded
 
@@ -204,13 +226,17 @@ static void gemm(const int8_t *A, const uint32_t *W, const uint32_t *bias_packed
         int32_t acc[TT];
 
         // Seed this tile's 8 columns with their bias
+        TIME_BEG(_bt);
         for (int c = 0; c < TT; c++) {
             uint32_t word = bias_packed[T * 32 + (c / 2) * 8];
             acc[c] = (c & 1) ? (int32_t)(int16_t)(word >> 16)
                              : (int32_t)(int16_t)(word & 0xFFFF);
         }
+        TIME_END(pc_bias[pc_layer], _bt);
 
         const uint32_t *tile_weights = W + (uint32_t)T * stride;
+
+        TIME_BEG(_kt);
         for (int k = 0; k < KK; k++) {
             int32_t act  = A[k];                      // feeds all 8 columns
             int32_t w_word = (int32_t)tile_weights[k];  // column 7 sits on top
@@ -221,6 +247,7 @@ static void gemm(const int8_t *A, const uint32_t *W, const uint32_t *bias_packed
                 w_word <<= FP4_BITS;
             }
         }
+        TIME_END(pc_ktile[pc_layer], _kt);
 
         int cols = WH - T * TT;
         if (cols > TT) cols = TT;
@@ -228,9 +255,6 @@ static void gemm(const int8_t *A, const uint32_t *W, const uint32_t *bias_packed
             out[T * TT + c] = acc[c];
         }
     }
-#ifdef PERF_COUNTERS
-    pc_gemm[pc_layer] += (uint32_t)(rdcyc() - _gt0);
-#endif
 }
 
 // Accumulators back down to FP4 codes for the next layer
@@ -258,15 +282,15 @@ static int inference(const int8_t *image) {
     int pred;
 
     PC_LAYER(0);
-    gemm(image, w1_fp4, bias1_packed, z1, IN_REAL, L1_DIM);
+    TIME(pc_gemm[0], gemm(image, w1_fp4, bias1_packed, z1, IN_REAL, L1_DIM));
     TIME(pc_qact[0], requantize(z1, a1, L1_DIM));
 
     PC_LAYER(1);
-    gemm(a1, w2_fp4, bias2_packed, z2, L1_DIM, L2_DIM);
+    TIME(pc_gemm[1], gemm(a1, w2_fp4, bias2_packed, z2, L1_DIM, L2_DIM));
     TIME(pc_qact[1], requantize(z2, a2, L2_DIM));
 
     PC_LAYER(2);
-    gemm(a2, w3_fp4, bias3_packed, logits, L2_DIM, OUT_DIM);
+    TIME(pc_gemm[2], gemm(a2, w3_fp4, bias3_packed, logits, L2_DIM, OUT_DIM));
     TIME(pc_argmax, pred = argmax(logits, OUT_DIM));
 
     return pred;
@@ -287,9 +311,7 @@ int main(void) {
     // Count matches against reference
     int match = 0;
 
-#ifdef PERF_COUNTERS
-    uint32_t _rt0 = rdcyc();
-#endif
+    TIME_BEG(_rt0);
 
     for (int s = 0; s < N_SAMPLES; s++) {
         int truth, ref;
@@ -319,9 +341,7 @@ int main(void) {
         #endif
     }
 
-#ifdef PERF_COUNTERS
-    pc_total = (uint32_t)(rdcyc() - _rt0);
-#endif
+    TIME_END(pc_total, _rt0);
 
     print_str("\nACCURACY: ");
     putdec(correct);

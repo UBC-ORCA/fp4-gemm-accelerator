@@ -104,11 +104,17 @@ static uint64_t pc_gemm[3];
 static uint64_t pc_qact[2];    // hidden read-out + FP4 quantize (readout_fp4)
 static uint64_t pc_argmax;     // final read-out + argmax
 static uint64_t pc_bias[3];
+static uint64_t pc_load[3];    // activation vector loads, inside gemm
+static uint64_t pc_ktile[3];   // do_k_tile loop only, inside gemm
 static uint64_t pc_total;      // whole sample loop, the utilization denominator
 static int      pc_layer;
 
 #define PC_LAYER(n)     (pc_layer = (n))
 #define TIME(acc, stmt) do { uint32_t _t = rdcyc(); stmt; (acc) += (uint32_t)(rdcyc() - _t); } while (0)
+
+// Begin/end pair for regions carrying a GCC pragma, which cannot sit in a macro argument
+#define TIME_BEG(t)      uint32_t t = rdcyc()
+#define TIME_END(acc, t) (acc) += (uint32_t)(rdcyc() - (t))
 
 // Print 64 bit integer since totals can exceed 32 bits
 static void putdec64(uint64_t n) {   
@@ -180,20 +186,32 @@ static void pc_report(void) {
     pc_line("bias_2 |", pc_bias[1]);
     pc_line("bias_3 |", pc_bias[2]);
 
-    // datapath only: gemm compute minus the bias seed
-    uint64_t gemm_x = pc_gemm[0] + pc_gemm[1] + pc_gemm[2] -
-                      (pc_bias[0] + pc_bias[1] + pc_bias[2]);
+    pc_line("load_1 |", pc_load[0]);    // activation vector loads (subset of gemm)
+    pc_line("load_2 |", pc_load[1]);
+    pc_line("load_3 |", pc_load[2]);
+
+    pc_line("ktile_1|", pc_ktile[0]);   // do_k_tile loop only (subset of gemm)
+    pc_line("ktile_2|", pc_ktile[1]);
+    pc_line("ktile_3|", pc_ktile[2]);
+
+    // widest view is the whole gemm function, narrowest is the do_k_tile loop
+    uint64_t gemm_t = pc_gemm[0]  + pc_gemm[1]  + pc_gemm[2];
+    uint64_t gemm_k = pc_ktile[0] + pc_ktile[1] + pc_ktile[2];
+    uint64_t load_t = pc_load[0]  + pc_load[1]  + pc_load[2];
+    uint64_t bias_t = pc_bias[0]  + pc_bias[1]  + pc_bias[2];
 
     print_str("\n[PERF] total cycles over run\n");
-    // gemm compute (incl. bias) plus every read-out
-    pc_line("gemm_T |",
-        pc_gemm[0] + pc_gemm[1] + pc_gemm[2] +
-        pc_qact[0] + pc_qact[1] + pc_argmax);
-    pc_line("gemm_X |", gemm_x);
+    // gemm() only; read-out and argmax sit outside the function
+    pc_line("gemm_T |", gemm_t);
+    // the MAC datapath on its own
+    pc_line("gemm_K |", gemm_k);
+    // activation loads and bias seed, both inside gemm
+    pc_line("load_T |", load_t);
+    pc_line("bias_T |", bias_t);
+    // rest of gemm: bank select, pointer steps, loop control
+    pc_line("gemm_R |", gemm_t - gemm_k - load_t - bias_t);
     // total read-out + FP4 quantize
     pc_line("qact_T |", pc_qact[0] + pc_qact[1]);
-    // total bias seed
-    pc_line("bias_T |", pc_bias[0] + pc_bias[1] + pc_bias[2]);
 
     // Useful MACs against what the array could have retired in the same cycles
     uint64_t macs = MACS_PER_IMAGE * (uint64_t)N_SAMPLES;
@@ -204,7 +222,7 @@ static void pc_report(void) {
     // pc_line   ("cycles |", pc_total);
     // pc_line   ("peak   |", MAC_UNITS * pc_total);
     pc_percent("usage  |", macs, MAC_UNITS * pc_total);  // whole program
-    pc_percent("gemm_U |", macs, MAC_UNITS * gemm_x);    // gemm datapath only
+    pc_percent("gemm_U |", macs, MAC_UNITS * gemm_k);    // do_k_tile loop only
 
     // MAC array only, scaling and conversion are not counted
     uint64_t flops = FLOPS_PER_IMAGE * (uint64_t)N_SAMPLES;
@@ -212,13 +230,15 @@ static void pc_report(void) {
     print_str("\n[PERF] flops\n");
     pc_line("flops  |", flops);
     pc_rate("f/cyc  |", flops, pc_total);   // achieved, whole program
-    pc_rate("f/cyc_g|", flops, gemm_x);     // achieved, gemm datapath only
+    pc_rate("f/cyc_g|", flops, gemm_k);     // achieved, do_k_tile loop only
     pc_line("f/cyc_p|", PEAK_FLOPS_CYCLE);  // peak the array can sustain
 }
 #else
-#define PC_LAYER(n)     ((void)0)
-#define TIME(acc, stmt) do { stmt; } while (0)
-#define pc_report()     ((void)0)
+#define PC_LAYER(n)      ((void)0)
+#define TIME(acc, stmt)  do { stmt; } while (0)
+#define TIME_BEG(t)      ((void)0)
+#define TIME_END(acc, t) ((void)0)
+#define pc_report()      ((void)0)
 #endif
 
 // =======================================
@@ -232,7 +252,8 @@ static void pc_report(void) {
 //   ACC_BANK(t)     ACCBANK  f7=0x0D   select accumulator bank t
 //   BRAM_RD(rd,p)   BRAMRD   f7=0x0E   read the bram pair at p into register rd
 //   VSETVLI(avl)    vsetvli  OPV=0x57  set vl=avl, e32,m1,ta,ma
-//   VLE32(N,ptr)    vle32.v  0x07      load 32 words at ptr -> vN
+//   VLE32(N,ptr)    vle32.v  0x07      load vl words at ptr -> vN
+//   VSE32(N,ptr)    vse32.v  0x27      store vN -> vl words at ptr, vN sits in the rd field (not used currently)
 #define VMAC64(N,ptr)  __asm__ volatile(".insn i 0x2b,0x0,x" #N ",%0,0" :: "r"(ptr))
 #define MAC_AS(a,b)    __asm__ volatile(".insn r 0x5b,0x0,0x0a, x0,%0,%1" :: "r"(a),"r"(b))
 #define MAC_WS(a,b)    __asm__ volatile(".insn r 0x5b,0x0,0x0b, x0,%0,%1" :: "r"(a),"r"(b))
@@ -240,9 +261,9 @@ static void pc_report(void) {
 #define ACC_BANK(t)    __asm__ volatile(".insn r 0x5b,0x0,0x0d, x0,%0,x0" :: "r"(t))
 #define BRAM_RD(rd,p)  __asm__ volatile(".insn r 0x5b,0x0,0x0e, %0,%1,x0" : "=r"(rd) : "r"(p))
 #define VSETVLI(avl)   __asm__ volatile(".insn i 0x57,0x7,x0,%0,0xD0" :: "r"(avl))
-//#define VLE32(N,ptr)   __asm__ volatile(".insn i 0x07,0x6,v" #N ",%0,0x20" :: "r"(ptr))
-#define VLE32(N,ptr)   __asm__ volatile(" vle32.v v" #N ",0(%0)" :: "r"(ptr))
-#define VSE32(N,ptr)   __asm__ volatile(" vse32.v v" #N ",0(%0)" :: "r"(ptr))
+#define VLE32(N,ptr)   __asm__ volatile(".insn i 0x07,0x6,x" #N ",%0,0x20" :: "r"(ptr))
+//#define VSE32(N,ptr)   __asm__ volatile(".insn i 0x27,0x6,x" #N ",%0,0x20" :: "r"(ptr))
+
 
 // Address payload for a bram cell: {tile[10:6], row[5:3], col[2:0]}
 #define BRAM_ADDR(tile, row, col)  (((uint32_t)(tile) << 6) | ((uint32_t)(row) << 3) | (col))
@@ -330,16 +351,6 @@ void do_k_tile(int vreg, const uint32_t *As, const uint32_t *Ws, const uint32_t 
     }
     MAC_AS(As[0], As[1]);   // apply activation scales
     MAC_WS(Ws[0], Ws[1]);   // apply weight scales
-
-    // [rbs] one-fold BRAM-transaction capture: print a fold marker (readback disabled to
-    // avoid cluttering the BRAM_DEBUG log with BRAM_RD reads), halt after fold 3 (first corrupt fold).
-    // static int fold_dbg = 0;
-    // if (fold_dbg < 8) {
-    //     print_str("\n>>> after fold "); putdec((uint32_t)fold_dbg);
-    //     print_str(" (vreg "); putdec((uint32_t)vreg); print_str(")\n");
-    //     dump_bram_checkpoint(1);   // tile 0 bank state, to compare vs robert-sw
-    // }
-    // if (++fold_dbg >= 8) kill_simulation();
 }
 
 // Load one activation block (32 words) into vector register vreg
@@ -419,47 +430,43 @@ static void build_pix_lut(void) {
 // =======================================
 
 // Map a bf16 to an unsigned value that compares in the same order (bf16 is sign-magnitude).
-static inline uint16_t bf16_ordered(uint16_t bf16) {
+static inline uint16_t bf16_ordered_fast(uint16_t bf16) {
     // the if(..) makes this slow, but otherwise it is approx 3 instructions (either path)
     if (bf16 & 0x8000) {
         return (uint16_t)~bf16;                    // negative: flip all bits
     }
     return (uint16_t)(bf16 | 0x8000);              // positive: set the top bit
 }
-static inline uint16_t bf16_ordered_fast(uint16_t bf16) {
-  // get rid of the IF() condition to maybe make this faster (?), 6 instructions with no branch
-  // if( sgn ), XOR with FFFF, else XOR with 8000
-  //     (sgn==8000) ==> msk = FFFF,    (sgn>>15)^1=0
-  //     (sgn==0000) ==> msk = 8000,    (sgn>>15)^1=1
-  // becomes:
-  //     0x7FFF + 0x8000 + (sgn>>15)^1 = 0xFFFF + 0 = 0xFFFF
-  //     0x7FFF +      0 + (sgn>>15)^1 = 0x7FFF + 1 = 0x8000
-    uint16_t sgn = bf16 & 0x8000;                // 1 instruction
-    uint16_t msk = 0x7FFF + sgn + ((sgn>>15)^1); // 4 instructions (2 add, shift, xor)
-    return (uint16_t)bf16 ^ msk;                 // 1 instruction
-}
-static inline uint16_t bf16_ordered_vec( uint32_t *bf16pairs, int vl )
-{
-  uint32_t msk1 = 0x80008000;
-  uint32_t msk2 = 0x7FFF7FFF;
-  int32_t  msk3 = -1;
-  VSETVLI( vl );
-  VLE32( 0, bf16pairs );
-  __asm__ volatile("vand.vx v1,v0,%0" :: "r"(msk1) );
-  __asm__ volatile("vadd.vx v2,v1,%0" :: "r"(msk2) );
-  __asm__ volatile("vshr.vi v1,v1,15" ::           );
-  __asm__ volatile("vxor.vi v1,v1,1"  ::           );
-  __asm__ volatile("vadd.vv v0,v1,v2" ::           ); // 5 V instructions + Vload + Vstore
-  VSE32( 0, bf16pairs );
-}
 
+// static inline uint16_t bf16_ordered_fast(uint16_t bf16) {
+//     // get rid of the IF() condition to maybe make this faster (?), 6 instructions with no branch
+//     // if( sgn ), XOR with FFFF, else XOR with 8000
+//     //     (sgn==8000) ==> msk = FFFF,    (sgn>>15)^1=0
+//     //     (sgn==0000) ==> msk = 8000,    (sgn>>15)^1=1
+//     // becomes:
+//     //     0x7FFF + 0x8000 + (sgn>>15)^1 = 0xFFFF + 0 = 0xFFFF
+//     //     0x7FFF +      0 + (sgn>>15)^1 = 0x7FFF + 1 = 0x8000
+//     uint16_t sgn = bf16 & 0x8000;                // 1 instruction
+//     uint16_t msk = 0x7FFF + sgn + ((sgn>>15)^1); // 4 instructions (2 add, shift, xor)
+//     return (uint16_t)bf16 ^ msk;                 // 1 instruction
+// }
+
+// static inline void bf16_ordered_vec( uint32_t *bf16pairs, int vl )
+// {
+//   uint32_t msk1 = 0x80008000;
+//   uint32_t msk2 = 0x7FFF7FFF;
+//   VSETVLI( vl );
+//   VLE32( 0, bf16pairs );
+//   __asm__ volatile("vand.vx v1,v0,%0" :: "r"(msk1) );
+//   __asm__ volatile("vadd.vx v2,v1,%0" :: "r"(msk2) );
+//   __asm__ volatile("vsrl.vi v1,v1,15" ::          );   // was vshr.vi, not an RVV mnemonic
+//   __asm__ volatile("vxor.vi v1,v1,1"  ::           );  // NOT IMPLEMENTED
+//   __asm__ volatile("vadd.vv v0,v1,v2" ::           ); // 5 V instructions + Vload + Vstore
+//   VSE32( 0, bf16pairs );
+// }
 
 // Predict each sample: the output neuron with the largest logit, read straight from the banks
 static void argmax(int *predictions, int WH) {
-  // call scalar version
-    return argmax( predictions, WH );
-
-  // vector version below 
     int tiles = (WH + TT - 1) / TT;
 
     uint16_t best[BATCH];
@@ -474,8 +481,8 @@ static void argmax(int *predictions, int WH) {
         for (int row = 0; row < TT/2; row++) {
             uint16_t best1 = best[row];
             uint16_t best2 = best[row+TT/2];
-            int      pred1 = predictions[0];
-            int      pred2 = predictions[TT/2];
+            int      pred1 = predictions[row];
+            int      pred2 = predictions[row+TT/2];
             for (int col = 0; col < cols; col++) {
                 int neuron = neuron0 + col;                              // column picks the neuron
                 uint32_t pair = bram_rd(tile, 2 * row, col);
@@ -483,11 +490,11 @@ static void argmax(int *predictions, int WH) {
                 uint16_t hi = bf16_ordered_fast((uint16_t)(pair >> 16)   );   // sample = row + TT/2
                 if (lo > best1) {
                     best1 = lo;
-                    predictions1 = neuron;
+                    pred1 = neuron;
                 }
                 if (hi > best2) {
                     best2 = hi;
-                    predictions2 = neuron;
+                    pred2 = neuron;
                 }
             }
             best[row]      = best1;
@@ -497,60 +504,59 @@ static void argmax(int *predictions, int WH) {
         }
     }
 }
-static void argmax_vec(int *predictions, int WH) {
-    int tiles = (WH + TT - 1) / TT;
 
-    uint16_t best[BATCH];
-    for (int sample = 0; sample < BATCH; sample++) {
-        predictions[sample] = 0;
-        best[sample] = 0;
-    }
-
-    for (int tile = 0; tile < tiles; tile++) {
-        int neuron0 = tile * TT;
-        int cols = (WH - neuron0 < TT) ? (WH - neuron0) : TT;   // real neurons in this bank
-        for (int row = 0; row < TT/2; row++) {
-            uint32_t lohi32[ cols ];
-            uint16_t *lohi16 = (uint16_t *) &lohi32[0];
-            #pragma GCC unroll 8
-            for (int col = 0; col < cols; col++) {
-              lohi32[col] = bram_rd(tile, 2 * row, col);
-            }
-          
-            bf16_ordered_vec( lohimix, cols );
-          
-            uint16_t best1 = best[row];
-            uint16_t best2 = best[row+TT/2];
-            int      pred1 = predictions[0];
-            int      pred2 = predictions[TT/2];
-            #pragma GCC unroll 2
-            for (int col = 0; col < cols; col++) {
-                int neuron = neuron0 + col;                              // column picks the neuron
-                uint16_t lo = lohi16[2*col];
-                uint16_t hi = lohi16[2*col+1];
-                if (lo > best1) {
-                    best1 = lo;
-                    predictions1 = neuron;
-                }
-                if (hi > best2) {
-                    best2 = hi;
-                    predictions2 = neuron;
-                }
-            }
-            best[row]      = best1;
-            best[row+TT/2] = best2;
-            predictions[row]      = pred1;
-            predictions[row+TT/2] = pred2;
-        }
-    }
-}
+// static void argmax_vec(int *predictions, int WH) {
+//     int tiles = (WH + TT - 1) / TT;
+//
+//     uint16_t best[BATCH];
+//     for (int sample = 0; sample < BATCH; sample++) {
+//         predictions[sample] = 0;
+//         best[sample] = 0;
+//     }
+//
+//     for (int tile = 0; tile < tiles; tile++) {
+//         int neuron0 = tile * TT;
+//         int cols = (WH - neuron0 < TT) ? (WH - neuron0) : TT;   // real neurons in this bank
+//         for (int row = 0; row < TT/2; row++) {
+//             uint32_t lohi32[ cols ];
+//             uint16_t *lohi16 = (uint16_t *) &lohi32[0];
+//             #pragma GCC unroll 8
+//             for (int col = 0; col < cols; col++) {
+//               lohi32[col] = bram_rd(tile, 2 * row, col);
+//             }
+//
+//             bf16_ordered_vec( lohi32, cols );
+//
+//             uint16_t best1 = best[row];
+//             uint16_t best2 = best[row+TT/2];
+//             int      pred1 = predictions[row];
+//             int      pred2 = predictions[row+TT/2];
+//             #pragma GCC unroll 2
+//             for (int col = 0; col < cols; col++) {
+//                 int neuron = neuron0 + col;                              // column picks the neuron
+//                 uint16_t lo = lohi16[2*col];
+//                 uint16_t hi = lohi16[2*col+1];
+//                 if (lo > best1) {
+//                     best1 = lo;
+//                     pred1 = neuron;
+//                 }
+//                 if (hi > best2) {
+//                     best2 = hi;
+//                     pred2 = neuron;
+//                 }
+//             }
+//             best[row]      = best1;
+//             best[row+TT/2] = best2;
+//             predictions[row]      = pred1;
+//             predictions[row+TT/2] = pred2;
+//         }
+//     }
+// }
 
 // FP4 E2M1 magnitude codes:  0=0  1=0.5  2=1.0  3=1.5  4=2.0  5=3.0  6=4.0
 enum { FP4_05 = 1, FP4_10 = 2, FP4_15 = 3, FP4_20 = 4, FP4_30 = 5, FP4_40 = 6 };
 
-// Nearest-FP4 rounding grid for a value in [0,4]: index = 2 exp bits << 7 | 7 mantissa.
-// fp4_from_bf16 supplies the exponent offset (the read-out multiply); this table is
-// just the rounding, so it is independent of the multiply.
+// Nearest-FP4 rounding grid for a value in [0,4]: index = 2 exp bits << 7 | 7 mantissa
 static uint8_t bf16_fp4_lut[128 * 4];
 
 static void build_bf16_fp4_lut(void) {
@@ -604,6 +610,7 @@ static void readout_fp4(uint32_t *z, int WH, int shift) {
         }
     }
 }
+
 static void readout_fp4_vec(uint32_t *z, int WH, int shift)
 {
   readout_fp4( z, WH, shift);
@@ -619,9 +626,6 @@ static void readout_fp4_vec(uint32_t *z, int WH, int shift)
 // AV is the batch of 8 samples, assume one column strip (WH <= NTILES*TT)
 void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
           int KK, int WH, const uint32_t* wscale_words, const uint32_t* ascale_words) {
-#ifdef PERF_COUNTERS
-    uint32_t _gt0 = rdcyc();
-#endif
     // Results are left in the BRAM accumulator
     assert( AV == TT );          // else BRAM must be saved after each I iteration
     assert( WH <= NTILES * TT ); // else BRAM must be saved+reloaded each J iteration
@@ -658,14 +662,6 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
             }
             );
 
-            // [rbs] checkpoint: dump the bias
-            // static int seed_dbg = 0;
-            // if (seed_dbg == 0) {
-            //     seed_dbg = 1;
-            //     print_str("\n>>> PURE BIAS SEED (before any accumulation)\n");
-            //     dump_bram_checkpoint(1);   // tile 0 only
-            // }
-
             for (int K = 0; K < KK; K += (NVREG*BS))
             {
                 // number of K-blocks reduced in this chunk
@@ -674,10 +670,12 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
                 if (blks > NVREG) blks = NVREG;
 
                 // Activation loads into v0..v(blks-1)
+                TIME_BEG(_lt);
                 VSETVLI(32);
                 #pragma GCC unroll 32
                 for (int vreg = 0; vreg < blks; vreg++)
                     load_vreg(vreg, &A[K + vreg*BS]);
+                TIME_END(pc_load[pc_layer], _lt);
 
                 const uint32_t* Ascales = &ascale_words[(K/BS)*2];
                 const uint32_t* Wscales = &wscale_words[(K/BS)*2];
@@ -688,10 +686,12 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
                 {
                     ACC_BANK(T);   // target accumulator bank T for this tile
 
+                    TIME_BEG(_kt);
                     #pragma GCC unroll 32
                     for (int vreg = 0; vreg < blks; vreg++) {
                         do_k_tile(vreg, &Ascales[vreg*2], &Wscales[vreg*2], weights);
                     }
+                    TIME_END(pc_ktile[pc_layer], _kt);
 
                     Wscales += num_blocks*2;   // step one tile-column of Wscales  [(KK/BS)*TT bytes]
                     weights += num_blocks*BS;  // step one tile-column of weights  [(KK/2)*TT bytes]
@@ -700,9 +700,6 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
             // result now lives in the accumulator banks
         }
     }
-#ifdef PERF_COUNTERS
-    pc_gemm[pc_layer] += (uint32_t)(rdcyc() - _gt0);
-#endif       
 }
 
 // Run the forward pass on a batch of samples
@@ -711,29 +708,16 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
     static uint32_t z1_packed[L1_DIM], z2_packed[L2_DIM];
 
     PC_LAYER(0);
-    gemm(inputs, w1_fp4, bias1_packed, IN_DIM, L1_DIM, wscale1, ascale1);
+    TIME(pc_gemm[0], gemm(inputs, w1_fp4, bias1_packed, IN_DIM, L1_DIM, wscale1, ascale1));
     TIME(pc_qact[0], readout_fp4_vec(z1_packed, L1_DIM, rdout_shift[1]));   // feeds layer 2
 
-//[stev]
- // ==================== CHECKPOINT HERE ====================
-    // Tile count for Layer 1: L1_DIM (128) / TT (8) = 16 Tiles.
-//     print_str("[DEBUG] Layer 1 GEMM complete! Dumping BRAM Status...\n");
-//     dump_bram_checkpoint(16);
-
-//     print_str("[DEBUG] Terminating execution for hardware validation.\n");
-//    // __builtin_trap(); // Force halt / trigger trap
-// // Kill simulation cleanly via MMIO
-//     kill_simulation();
-
-//end
-
     PC_LAYER(1);
-    gemm(z1_packed, w2_fp4, bias2_packed, L1_DIM, L2_DIM, wscale2, ascale2);
+    TIME(pc_gemm[1], gemm(z1_packed, w2_fp4, bias2_packed, L1_DIM, L2_DIM, wscale2, ascale2));
     TIME(pc_qact[1], readout_fp4_vec(z2_packed, L2_DIM, rdout_shift[2]));   // feeds layer 3
 
     PC_LAYER(2);
-    gemm(z2_packed, w3_fp4, bias3_packed, L2_DIM, OUT_DIM, wscale3, ascale3);
-    TIME(pc_argmax, argmax_vec(predictions, OUT_DIM));  // final layer -> argmax
+    TIME(pc_gemm[2], gemm(z2_packed, w3_fp4, bias3_packed, L2_DIM, OUT_DIM, wscale3, ascale3));
+    TIME(pc_argmax, argmax(predictions, OUT_DIM));  // final layer -> argmax
 }
 
 int main(void) {
@@ -756,9 +740,7 @@ int main(void) {
     // Count matches against reference
     int match = 0;
 
-#ifdef PERF_COUNTERS
-    uint32_t _rt0 = rdcyc();
-#endif
+    TIME_BEG(_rt0);
 
     for (int s = 0; s < N_SAMPLES; s += BATCH) {
         int n = N_SAMPLES - s;
@@ -822,9 +804,7 @@ int main(void) {
         }
     }
 
-#ifdef PERF_COUNTERS
-    pc_total = (uint32_t)(rdcyc() - _rt0);
-#endif
+    TIME_END(pc_total, _rt0);
 
     print_str("\nACCURACY: ");
     putdec(correct);
