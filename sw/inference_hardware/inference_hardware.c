@@ -429,27 +429,18 @@ static void build_pix_lut(void) {
 // Reading the accumulator banks back out
 // =======================================
 
-// Map a bf16 to an unsigned value that compares in the same order (bf16 is sign-magnitude).
-static inline uint16_t bf16_ordered_fast(uint16_t bf16) {
-    // the if(..) makes this slow, but otherwise it is approx 3 instructions (either path)
-    if (bf16 & 0x8000) {
-        return (uint16_t)~bf16;                    // negative: flip all bits
-    }
-    return (uint16_t)(bf16 | 0x8000);              // positive: set the top bit
+static inline uint16_t bf16_ordered(uint16_t bf16) {
+    // get rid of the IF() condition to maybe make this faster (?), 6 instructions with no branch
+    // if( sgn ), XOR with FFFF, else XOR with 8000
+    //     (sgn==8000) ==> msk = FFFF,    (sgn>>15)^1=0
+    //     (sgn==0000) ==> msk = 8000,    (sgn>>15)^1=1
+    // becomes:
+    //     0x7FFF + 0x8000 + (sgn>>15)^1 = 0xFFFF + 0 = 0xFFFF
+    //     0x7FFF +      0 + (sgn>>15)^1 = 0x7FFF + 1 = 0x8000
+    uint16_t sgn = bf16 & 0x8000;                // 1 instruction
+    uint16_t msk = 0x7FFF + sgn + ((sgn>>15)^1); // 4 instructions (2 add, shift, xor)
+    return (uint16_t)bf16 ^ msk;                 // 1 instruction
 }
-
-// static inline uint16_t bf16_ordered_fast(uint16_t bf16) {
-//     // get rid of the IF() condition to maybe make this faster (?), 6 instructions with no branch
-//     // if( sgn ), XOR with FFFF, else XOR with 8000
-//     //     (sgn==8000) ==> msk = FFFF,    (sgn>>15)^1=0
-//     //     (sgn==0000) ==> msk = 8000,    (sgn>>15)^1=1
-//     // becomes:
-//     //     0x7FFF + 0x8000 + (sgn>>15)^1 = 0xFFFF + 0 = 0xFFFF
-//     //     0x7FFF +      0 + (sgn>>15)^1 = 0x7FFF + 1 = 0x8000
-//     uint16_t sgn = bf16 & 0x8000;                // 1 instruction
-//     uint16_t msk = 0x7FFF + sgn + ((sgn>>15)^1); // 4 instructions (2 add, shift, xor)
-//     return (uint16_t)bf16 ^ msk;                 // 1 instruction
-// }
 
 // static inline void bf16_ordered_vec( uint32_t *bf16pairs, int vl )
 // {
@@ -486,8 +477,8 @@ static void argmax(int *predictions, int WH) {
             for (int col = 0; col < cols; col++) {
                 int neuron = neuron0 + col;                              // column picks the neuron
                 uint32_t pair = bram_rd(tile, 2 * row, col);
-                uint16_t lo = bf16_ordered_fast((uint16_t)(pair & 0xFFFF));   // sample = row
-                uint16_t hi = bf16_ordered_fast((uint16_t)(pair >> 16)   );   // sample = row + TT/2
+                uint16_t lo = bf16_ordered((uint16_t)(pair & 0xFFFF));   // sample = row
+                uint16_t hi = bf16_ordered((uint16_t)(pair >> 16)   );   // sample = row + TT/2
                 if (lo > best1) {
                     best1 = lo;
                     pred1 = neuron;
