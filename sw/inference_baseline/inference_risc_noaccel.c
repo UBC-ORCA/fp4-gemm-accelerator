@@ -27,7 +27,7 @@
 #define PERF_COUNTERS
 
 // Enable intermediate UART prints (P|T|M results)
-// #define PTM_PRINTS
+#define PTM_PRINTS
 
 // =======================================
 // UART output helpers
@@ -66,13 +66,27 @@ static inline uint32_t rdcyc(void) {
     return c;
 }
 
+// Read mcycle and mcycleh together, retrying if the low half wraps between them
+static inline uint64_t rdcyc64(void) {
+    uint32_t hi, lo, hi2;
+    do {
+        __asm__ volatile (".option push\n\t"
+                          ".option arch, +zicsr\n\t"
+                          "csrr %0, mcycleh\n\t"
+                          "csrr %1, mcycle\n\t"
+                          "csrr %2, mcycleh\n\t"
+                          ".option pop" : "=r"(hi), "=r"(lo), "=r"(hi2));
+    } while (hi != hi2);
+    return ((uint64_t)hi << 32) | lo;
+}
+
 static uint64_t pc_imgq;
 static uint64_t pc_gemm[3];
 static uint64_t pc_qact[2];    // requantize to FP4 codes between layers
 static uint64_t pc_argmax;
 static uint64_t pc_bias[3];    // bias seed, inside gemm
 static uint64_t pc_ktile[3];   // innermost k loop only, inside gemm
-static uint64_t pc_total;      // whole sample loop
+static uint64_t pc_total;      // whole sample loop, one span, loop control included
 static int      pc_layer;
 
 #define PC_LAYER(n)     (pc_layer = (n))
@@ -81,6 +95,10 @@ static int      pc_layer;
 // Begin/end pair for regions carrying a GCC pragma, which cannot sit in a macro argument
 #define TIME_BEG(t)      uint32_t t = rdcyc()
 #define TIME_END(acc, t) (acc) += (uint32_t)(rdcyc() - (t))
+
+// 64 bit pair, only the whole-run span is long enough to need it
+#define TIME_BEG64(t)      uint64_t t = rdcyc64()
+#define TIME_END64(acc, t) (acc) += (rdcyc64() - (t))
 
 // Print 64 bit integer since totals can exceed 32 bits
 static void putdec64(uint64_t n) {
@@ -168,7 +186,7 @@ static void pc_report(void) {
 
     print_str("\n[PERF] flops (scalar, 1 mac = 2 flops)\n");
     pc_line("flops  |", flops);
-    pc_rate("f/cyc  |", flops, pc_total);   // achieved, whole program
+    pc_rate("f/cyc  |", flops, pc_total);   // achieved, whole sample loop
     pc_rate("f/cyc_g|", flops, gemm_k);     // achieved, k loop only
 }
 #else
@@ -176,6 +194,8 @@ static void pc_report(void) {
 #define TIME(acc, stmt)  do { stmt; } while (0)
 #define TIME_BEG(t)      ((void)0)
 #define TIME_END(acc, t) ((void)0)
+#define TIME_BEG64(t)      ((void)0)
+#define TIME_END64(acc, t) ((void)0)
 #define pc_report()      ((void)0)
 #endif
 
@@ -187,7 +207,7 @@ static const uint8_t fp4_mag_lut[16] = {
 };
 
 // Convert input float to the nearest FP4 value
-static int16_t fp4_quantize(float value) {
+int16_t fp4_quantize(float value) {
     int sign = (value < 0.0f);
     float abs_v = sign ? -value : value;
 
@@ -217,7 +237,7 @@ static void build_pix_lut(void) {
 //          Tile T starts at W[T * stride] where stride is KK padded to BS
 //   bias : bf16 words, read as integers since the result is wrong anyway
 //   out  : WH int32 accumulators
-static void gemm(const int8_t *A, const uint32_t *W, const uint32_t *bias_packed,
+void gemm(const int8_t *A, const uint32_t *W, const uint32_t *bias_packed,
                  int32_t *out, int KK, int WH) {
     int tiles  = (WH + TT - 1) / TT;
     int stride = ((KK + BS - 1) / BS) * BS;   // weights are stored K-padded
@@ -276,7 +296,7 @@ static int argmax(const int32_t *logits, int dim) {
 }
 
 // Run the forward pass on one sample
-static int inference(const int8_t *image) {
+int inference(const int8_t *image) {
     static int32_t z1[L1_DIM], z2[L2_DIM], logits[OUT_DIM];
     static int8_t a1[L1_DIM], a2[L2_DIM];
     int pred;
@@ -311,7 +331,7 @@ int main(void) {
     // Count matches against reference
     int match = 0;
 
-    TIME_BEG(_rt0);
+    TIME_BEG64(_rt0);
 
     for (int s = 0; s < N_SAMPLES; s++) {
         int truth, ref;
@@ -339,9 +359,10 @@ int main(void) {
         putdec(ref);
         print_str("\n");
         #endif
+
     }
 
-    TIME_END(pc_total, _rt0);
+    TIME_END64(pc_total, _rt0);
 
     print_str("\nACCURACY: ");
     putdec(correct);

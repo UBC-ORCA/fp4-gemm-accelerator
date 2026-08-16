@@ -39,21 +39,11 @@ static const int rdout_shift[3] = RDOUT_SHIFT_HDR;
 #define PERF_COUNTERS
 
 // Enable intermediate UART prints (P|T|M results)
-// #define PTM_PRINTS
+#define PTM_PRINTS
 
 void __assert_func(const char *f,int l,const char *fn,const char *e){
     (void)f;(void)l;(void)fn;(void)e; __builtin_trap();
 }
-
-//[stev]
-// Define the simulator termination MMIO register
-static volatile uint32_t *const DONE_MMIO = (volatile uint32_t *)0xFFFF0000u;
-
-static inline void kill_simulation(void) {
-    *DONE_MMIO = 0xFF; // Signal simulator testbench to halt
-    while (1);         // Catch pipeline flush before termination
-}
-//[end]
 
 // =======================================
 // UART output helpers
@@ -107,7 +97,7 @@ static uint64_t pc_argmax;     // final read-out + argmax
 static uint64_t pc_bias[3];
 static uint64_t pc_load[3];    // activation vector loads, inside gemm
 static uint64_t pc_ktile[3];   // do_k_tile loop only, inside gemm
-static uint64_t pc_total;      // whole sample loop, the utilization denominator
+static uint64_t pc_total;      // whole sample loop, one span, loop control included
 static int      pc_layer;
 
 #define PC_LAYER(n)     (pc_layer = (n))
@@ -222,7 +212,7 @@ static void pc_report(void) {
     // pc_line   ("units  |", MAC_UNITS);
     // pc_line   ("cycles |", pc_total);
     // pc_line   ("peak   |", MAC_UNITS * pc_total);
-    pc_percent("usage  |", macs, MAC_UNITS * pc_total);  // whole program
+    pc_percent("usage  |", macs, MAC_UNITS * pc_total);  // whole sample loop
     pc_percent("gemm_U |", macs, MAC_UNITS * gemm_k);    // do_k_tile loop only
 
     // MAC array only, scaling and conversion are not counted
@@ -230,7 +220,7 @@ static void pc_report(void) {
 
     print_str("\n[PERF] flops\n");
     pc_line("flops  |", flops);
-    pc_rate("f/cyc  |", flops, pc_total);   // achieved, whole program
+    pc_rate("f/cyc  |", flops, pc_total);   // achieved, whole sample loop
     pc_rate("f/cyc_g|", flops, gemm_k);     // achieved, do_k_tile loop only
     pc_line("f/cyc_p|", PEAK_FLOPS_CYCLE);  // peak the array can sustain
 }
@@ -364,10 +354,9 @@ static void build_pix_lut(void) {
 
 // Map a bf16 to an unsigned value that compares in the same order (bf16 is sign-magnitude).
 static inline uint16_t bf16_ordered(uint16_t bf16) {
-    if (bf16 & 0x8000) {
-        return (uint16_t)~bf16;                    // negative: flip all bits
-    }
-    return (uint16_t)(bf16 | 0x8000);              // positive: set the top bit
+    uint16_t sgn = bf16 & 0x8000;
+    uint16_t msk = 0x7FFF + sgn + ((sgn>>15)^1);
+    return (uint16_t)bf16 ^ msk;
 }
 
 // Predict each sample: the output neuron with the largest logit, read straight from the banks
@@ -384,22 +373,28 @@ static void argmax(int *predictions, int WH) {
         int neuron0 = tile * TT;
         int cols = (WH - neuron0 < TT) ? (WH - neuron0) : TT;   // real neurons in this bank
         for (int row = 0; row < TT/2; row++) {
+            uint16_t best1 = best[row];
+            uint16_t best2 = best[row+TT/2];
+            int      pred1 = predictions[row];
+            int      pred2 = predictions[row+TT/2];
             for (int col = 0; col < cols; col++) {
                 int neuron = neuron0 + col;                              // column picks the neuron
                 uint32_t pair = bram_rd(tile, 2 * row, col);
-
                 uint16_t lo = bf16_ordered((uint16_t)(pair & 0xFFFF));   // sample = row
-                if (lo > best[row]) {
-                    best[row] = lo;
-                    predictions[row] = neuron;
+                uint16_t hi = bf16_ordered((uint16_t)(pair >> 16)   );   // sample = row + TT/2
+                if (lo > best1) {
+                    best1 = lo;
+                    pred1 = neuron;
                 }
-
-                uint16_t hi = bf16_ordered((uint16_t)(pair >> 16));      // sample = row + TT/2
-                if (hi > best[row + TT/2]) {
-                    best[row + TT/2] = hi;
-                    predictions[row + TT/2] = neuron;
+                if (hi > best2) {
+                    best2 = hi;
+                    pred2 = neuron;
                 }
             }
+            best[row]      = best1;
+            best[row+TT/2] = best2;
+            predictions[row]      = pred1;
+            predictions[row+TT/2] = pred2;
         }
     }
 }
@@ -408,8 +403,6 @@ static void argmax(int *predictions, int WH) {
 enum { FP4_05 = 1, FP4_10 = 2, FP4_15 = 3, FP4_20 = 4, FP4_30 = 5, FP4_40 = 6 };
 
 // Nearest-FP4 rounding grid for a value in [0,4]: index = 2 exp bits << 7 | 7 mantissa.
-// fp4_from_bf16 supplies the exponent offset (the read-out multiply); this table is
-// just the rounding, so it is independent of the multiply.
 static uint8_t bf16_fp4_lut[128 * 4];
 
 static void build_bf16_fp4_lut(void) {
