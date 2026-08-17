@@ -106,6 +106,7 @@ ifeq ($(FPGA),1)
 CFLAGS += -DFPGA
 SRCS += ../generic/start_fpga.S
 else
+CFLAGS += -DIMAGE_MODE_MMIO
 SRCS += ../generic/start.S
 endif
 
