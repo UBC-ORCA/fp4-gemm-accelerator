@@ -49,6 +49,13 @@ module mac_controller #(
     output logic [4:0]                  scalar_waddr_o,
     input  logic [4:0]                  scalar_waddr_i,
 
+    // [rbs]
+    // FP4 read-out
+    output logic                        fp4_sel_o,
+    output logic                        fp4_capture_o,
+    output logic [1:0]                  fp4_idx_o,
+    // [rbs - end]
+
     // Optimized Vector Slices
     output logic [3:0]                  act_vector_o    [0:TT-1],
     output logic [3:0]                  weight_vector_o [0:TT-1],
@@ -238,6 +245,22 @@ module mac_controller #(
                         state_d     = DONE;
                     end
                 end
+                // [rbs]
+                else if (op_q == cve2_pkg::OP_BRAM_FP4) begin
+                    // four row pairs
+                    if (!brd_phase_q) begin
+                        brd_phase_d = 1'b1;
+                    end else begin
+                        brd_phase_d = 1'b0;
+                        if (count_q == 3) begin
+                            count_d = '0;
+                            state_d = DONE;
+                        end else begin
+                            count_d = count_q + 1'b1;
+                        end
+                    end
+                end
+                // [rbs - end]
                 else if ((op_q == cve2_pkg::OP_MAC_AS) ||
                          (op_q == cve2_pkg::OP_MAC_WS) ||
                          (op_q == cve2_pkg::OP_MAC_BIAS) ||
@@ -280,6 +303,7 @@ module mac_controller #(
         done_o         = 1'b0;
         scalar_we_o    = 1'b0;
         scalar_waddr_o = scalar_waddr_q;
+        fp4_capture_o  = 1'b0;   // [rbs]
 
         // Clean output decode logic
         mac_en_o = ((state_q == EXEC) && (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i); 
@@ -346,6 +370,21 @@ module mac_controller #(
                             scalar_we_o = 1'b1;
                         end
                     end
+                    // [rbs]
+                    cve2_pkg::OP_BRAM_FP4: begin
+                        if (!brd_phase_q) begin
+                            // phase 0: issue the read for this row pair
+                            accum_rd_en_o   = 1'b1;
+                            accum_rd_tile_o = bias_tile;               // rs1[10:6]
+                            accum_rd_row_o  = {count_q[1:0], 1'b0};    // rows 0,2,4,6
+                            accum_rd_col_o  = bias_col;                // rs1[2:0]
+                        end else begin
+                            // phase 1: data is valid, convert and pack
+                            fp4_capture_o = 1'b1;
+                            if (count_q == 3) scalar_we_o = 1'b1;
+                        end
+                    end
+                    // [rbs - end]
                     default: ;
                 endcase
 
@@ -374,6 +413,11 @@ module mac_controller #(
             assign weight_vector_o[k] = weight_packed[4*k +: 4];
         end
     endgenerate
+
+    // [rbs]
+    assign fp4_idx_o = count_q[1:0];
+    assign fp4_sel_o = (op_q == cve2_pkg::OP_BRAM_FP4);
+    // [rbs - end]
 
     // Simulation debugging hooks
 `ifdef MAC_DEBUG

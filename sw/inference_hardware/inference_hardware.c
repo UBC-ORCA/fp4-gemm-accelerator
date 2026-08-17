@@ -30,15 +30,14 @@
 // Number of K elements per inner block
 #define BS  K1_STEP_HDR
 
-// Read-out multiply where activations are scaled up by 2^rdout_shift[layer]
+// Read-out shift per layer (already in hardware, used for assert)
 static const int rdout_shift[3] = RDOUT_SHIFT_HDR;
-#define BF16_EXP_025  125   // bf16 exponent of 0.25, the LUT's lowest boundary
 
 // Enable performance counters
 #define PERF_COUNTERS
 
 // Enable intermediate UART prints (P|T|M results)
-#define PTM_PRINTS
+// #define PTM_PRINTS
 
 void __assert_func(const char *f,int l,const char *fn,const char *e){
     (void)f;(void)l;(void)fn;(void)e; __builtin_trap();
@@ -101,7 +100,7 @@ static inline uint32_t rdcyc(void) {
 
 static uint64_t pc_imgq;
 static uint64_t pc_gemm[3];
-static uint64_t pc_qact[2];    // hidden read-out + FP4 quantize (readout_fp4)
+static uint64_t pc_qact[2];    // hidden read-out as packed FP4 (readout_fp4)
 static uint64_t pc_argmax;     // final read-out + argmax
 static uint64_t pc_bias[3];
 static uint64_t pc_load[3];    // activation vector loads, inside gemm
@@ -245,23 +244,25 @@ static void pc_report(void) {
 // MAC accelerator instructions
 // =======================================
 // Encodings mirror matmul8_vec.S. CUSTOM1=0x2b, CUSTOM2=0x5b, funct3=0 unless noted
-//   VMAC64(N,ptr)   VMAC64   CUSTOM1   vN x weight block at ptr -> raw tile
-//   MAC_AS(a,b)     MAC_AS   f7=0x0A   apply act scale words a,b to the tile
-//   MAC_WS(a,b)     MAC_WS   f7=0x0B   apply wgt scale words a,b -> fold into bank
-//   MAC_BIAS(p,v)   MACBIAS  f7=0x0C   seed bf16 v into the cell addressed by p
-//   ACC_BANK(t)     ACCBANK  f7=0x0D   select accumulator bank t
-//   BRAM_RD(rd,p)   BRAMRD   f7=0x0E   read the bram pair at p into register rd
-//   VSETVLI(avl)    vsetvli  OPV=0x57  set vl=avl, e32,m1,ta,ma
-//   VLE32(N,ptr)    vle32.v  0x07      load vl words at ptr -> vN
-//   VSE32(N,ptr)    vse32.v  0x27      store vN -> vl words at ptr, vN sits in the rd field (not used currently)
-#define VMAC64(N,ptr)  __asm__ volatile(".insn i 0x2b,0x0,x" #N ",%0,0" :: "r"(ptr))
-#define MAC_AS(a,b)    __asm__ volatile(".insn r 0x5b,0x0,0x0a, x0,%0,%1" :: "r"(a),"r"(b))
-#define MAC_WS(a,b)    __asm__ volatile(".insn r 0x5b,0x0,0x0b, x0,%0,%1" :: "r"(a),"r"(b))
-#define MAC_BIAS(p,v)  __asm__ volatile(".insn r 0x5b,0x0,0x0c, x0,%0,%1" :: "r"(p),"r"(v))
-#define ACC_BANK(t)    __asm__ volatile(".insn r 0x5b,0x0,0x0d, x0,%0,x0" :: "r"(t))
-#define BRAM_RD(rd,p)  __asm__ volatile(".insn r 0x5b,0x0,0x0e, %0,%1,x0" : "=r"(rd) : "r"(p))
-#define VSETVLI(avl)   __asm__ volatile(".insn i 0x57,0x7,x0,%0,0xD0" :: "r"(avl))
-#define VLE32(N,ptr)   __asm__ volatile(".insn i 0x07,0x6,x" #N ",%0,0x20" :: "r"(ptr))
+//   VMAC64(N,ptr)      VMAC64   CUSTOM1   vN x weight block at ptr -> raw tile
+//   MAC_AS(a,b)        MAC_AS   f7=0x0A   apply act scale words a,b to the tile
+//   MAC_WS(a,b)        MAC_WS   f7=0x0B   apply wgt scale words a,b -> fold into bank
+//   MAC_BIAS(p,v)      MACBIAS  f7=0x0C   seed bf16 v into the cell addressed by p
+//   ACC_BANK(t)        ACCBANK  f7=0x0D   select accumulator bank t
+//   BRAM_RD(rd,p)      BRAMRD   f7=0x0E   read the bram pair at p into register rd
+//   BRAM_RD_FP4(rd,p)  BRAMFP4  f7=0x08   read tile/col at p, 8 samples -> packed fp4
+//   VSETVLI(avl)       vsetvli  OPV=0x57  set vl=avl, e32,m1,ta,ma
+//   VLE32(N,ptr)       vle32.v  0x07      load vl words at ptr -> vN
+//   VSE32(N,ptr)       vse32.v  0x27      store vN -> vl words at ptr, vN sits in the rd field (not used currently)
+#define VMAC64(N,ptr)       __asm__ volatile(".insn i 0x2b,0x0,x" #N ",%0,0" :: "r"(ptr))
+#define MAC_AS(a,b)         __asm__ volatile(".insn r 0x5b,0x0,0x0a, x0,%0,%1" :: "r"(a),"r"(b))
+#define MAC_WS(a,b)         __asm__ volatile(".insn r 0x5b,0x0,0x0b, x0,%0,%1" :: "r"(a),"r"(b))
+#define MAC_BIAS(p,v)       __asm__ volatile(".insn r 0x5b,0x0,0x0c, x0,%0,%1" :: "r"(p),"r"(v))
+#define ACC_BANK(t)         __asm__ volatile(".insn r 0x5b,0x0,0x0d, x0,%0,x0" :: "r"(t))
+#define BRAM_RD(rd,p)       __asm__ volatile(".insn r 0x5b,0x0,0x0e, %0,%1,x0" : "=r"(rd) : "r"(p))
+#define BRAM_RD_FP4(rd,p)   __asm__ volatile(".insn r 0x5b,0x0,0x08, %0,%1,x0" : "=r"(rd) : "r"(p))
+#define VSETVLI(avl)        __asm__ volatile(".insn i 0x57,0x7,x0,%0,0xD0" :: "r"(avl))
+#define VLE32(N,ptr)        __asm__ volatile(".insn i 0x07,0x6,x" #N ",%0,0x20" :: "r"(ptr))
 //#define VSE32(N,ptr)   __asm__ volatile(".insn i 0x27,0x6,x" #N ",%0,0x20" :: "r"(ptr))
 
 
@@ -544,67 +545,16 @@ static void argmax(int *predictions, int WH) {
 //     }
 // }
 
-// FP4 E2M1 magnitude codes:  0=0  1=0.5  2=1.0  3=1.5  4=2.0  5=3.0  6=4.0
-enum { FP4_05 = 1, FP4_10 = 2, FP4_15 = 3, FP4_20 = 4, FP4_30 = 5, FP4_40 = 6 };
-
-// Nearest-FP4 rounding grid for a value in [0,4]: index = 2 exp bits << 7 | 7 mantissa
-static uint8_t bf16_fp4_lut[128 * 4];
-
-static void build_bf16_fp4_lut(void) {
-    int code = 0;                                   // start: value below 0.25 -> 0
-    for (int i = 0; i < 128 * 4; i++) {
-        if (i >= (0 * 128) +  1) { code = FP4_05; } // past 0.25 -> 0.5   (0   / 0.5 boundary)
-        if (i >= (1 * 128) + 64) { code = FP4_10; } // past 0.75 -> 1.0   (0.5 / 1.0 boundary)
-        if (i >= (2 * 128) + 33) { code = FP4_15; } // past 1.25 -> 1.5   (1.0 / 1.5 boundary)
-        if (i >= (2 * 128) + 96) { code = FP4_20; } // past 1.75 -> 2.0   (1.5 / 2.0 boundary)
-        if (i >= (3 * 128) + 33) { code = FP4_30; } // past 2.5  -> 3.0   (2.0 / 3.0 boundary)
-        if (i >= (3 * 128) + 96) { code = FP4_40; } // past 3.5  -> 4.0   (3.0 / 4.0 boundary)
-        bf16_fp4_lut[i] = (uint8_t)code;
-    }
-}
-
-// bf16 activation -> FP4 code
-static inline uint32_t fp4_from_bf16(uint16_t bf16, int lut_floor) {
-    int exp  = (bf16 >> 7) & 0xFF;
-    int sign = (bf16 >> 15) & 1;
-    int code;
-    if (exp < lut_floor) {                 // below LUT floor -> 0
-        code = 0;
-    } else if (exp > 125) {                // |act| >= 0.5 (Hardtanh) -> clamp to top FP4
-        code = FP4_40;
-    } else {                               // scale up by the shift, round via LUT
-        code = bf16_fp4_lut[(((exp - lut_floor) & 3) << 7) | (bf16 & 0x7F)];
-    }
-    if (code == 0) { return 0; }
-    return sign ? (0x8u | code) : (uint32_t)code;
-}
-
-// Read banks and qaunt to FP4 activations
-static void readout_fp4(uint32_t *z, int WH, int shift) {
-    int lut_floor = BF16_EXP_025 - shift;
+// Read banks back out as FP4 activations
+static void readout_fp4(uint32_t *z, int WH) {
     int tiles = (WH + TT - 1) / TT;
     for (int tile = 0; tile < tiles; tile++) {
         int neuron0 = tile * TT;                   // first neuron of this bank
+        #pragma GCC unroll 8 // TT
         for (int col = 0; col < TT; col++) {
-            z[neuron0 + col] = 0;                  // clear this bank's 8 neurons
-        }
-        for (int row = 0; row < TT/2; row++) {
-
-            #pragma GCC unroll 8 // TT
-            for (int col = 0; col < TT; col++) {
-                uint32_t pair   = bram_rd(tile, 2 * row, col);
-                int neuron = neuron0 + col;        // column picks the neuron
-                // the shift is 4 bits per FP4 code times the sample index
-                z[neuron] |= fp4_from_bf16((uint16_t)(pair & 0xFFFF), lut_floor) << (4 * row);          // sample = row
-                z[neuron] |= fp4_from_bf16((uint16_t)(pair >> 16),    lut_floor) << (4 * (row + TT/2)); // sample = row + TT/2
-            }
+            BRAM_RD_FP4(z[neuron0+col], BRAM_ADDR(tile, 0, col));
         }
     }
-}
-
-static void readout_fp4_vec(uint32_t *z, int WH, int shift)
-{
-  readout_fp4( z, WH, shift);
 }
 
 // =======================================
@@ -700,11 +650,11 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
 
     PC_LAYER(0);
     TIME(pc_gemm[0], gemm(inputs, w1_fp4, bias1_packed, IN_DIM, L1_DIM, wscale1, ascale1));
-    TIME(pc_qact[0], readout_fp4_vec(z1_packed, L1_DIM, rdout_shift[1]));   // feeds layer 2
+    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM));   // feeds layer 2
 
     PC_LAYER(1);
     TIME(pc_gemm[1], gemm(z1_packed, w2_fp4, bias2_packed, L1_DIM, L2_DIM, wscale2, ascale2));
-    TIME(pc_qact[1], readout_fp4_vec(z2_packed, L2_DIM, rdout_shift[2]));   // feeds layer 3
+    TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM));   // feeds layer 3
 
     PC_LAYER(2);
     TIME(pc_gemm[2], gemm(z2_packed, w3_fp4, bias3_packed, L2_DIM, OUT_DIM, wscale3, ascale3));
@@ -712,6 +662,7 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
 }
 
 int main(void) {
+    assert(rdout_shift[1] == 3 && rdout_shift[2] == 3);
     // Store one word per pixel for all batch lanes
     static uint32_t image_packed[NVREG*BS];
     // Raw pixels for the whole batch
@@ -719,7 +670,6 @@ int main(void) {
     int predictions[BATCH];
 
     build_pix_lut();
-    build_bf16_fp4_lut();
 
     // Print prediction, truth, and reference format
     #ifdef PTM_PRINTS

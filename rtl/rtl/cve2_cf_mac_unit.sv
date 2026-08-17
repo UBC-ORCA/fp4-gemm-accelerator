@@ -64,7 +64,6 @@ module cve2_cf_mac_unit
 
     // BRAM_RD returns the accumulator read pair; MV ops return the raw tile.
     logic [31:0] bram_rd_data; 
-    assign scalar_wdata_o = bram_rd_data;
 
     logic [4:0]  scalar_waddr;
     assign scalar_waddr = req_instr_i[11:7];
@@ -188,6 +187,12 @@ module cve2_cf_mac_unit
     logic [2:0]  ctrl_accum_wr_col;
     logic [15:0] ctrl_accum_wr_data;
 
+    // [rbs]
+    logic        ctrl_fp4_sel;
+    logic        ctrl_fp4_capture;
+    logic [1:0]  ctrl_fp4_idx;
+    // [rbs - end]
+
     logic [15:0] scale_accum_in  [0:1];
     logic [15:0] scale_accum_out [0:1];
 
@@ -310,7 +315,12 @@ module cve2_cf_mac_unit
         .accum_wr_tile_o      (ctrl_accum_wr_tile),
         .accum_wr_row_o       (ctrl_accum_wr_row),
         .accum_wr_col_o       (ctrl_accum_wr_col),
-        .accum_wr_data_o      (ctrl_accum_wr_data)
+        .accum_wr_data_o      (ctrl_accum_wr_data),
+        // [rbs]
+        .fp4_sel_o            (ctrl_fp4_sel),
+        .fp4_capture_o        (ctrl_fp4_capture),
+        .fp4_idx_o            (ctrl_fp4_idx)
+        // [rbs - end]
     );
 
     mac_array #(
@@ -395,6 +405,29 @@ module cve2_cf_mac_unit
         .accumulator(scale_accum_in[1]),
         .accumulator_out(scale_accum_out[1])
     );
+
+    // [rbs]
+    logic [3:0]     fp4_lo, fp4_hi;
+    logic [31:0]    fp4_pack_q, fp4_pack_d;
+
+    bf16_to_fp4 u_fp4_lo (.bf16_i(bram_rd_data[15:0]),  .fp4_o(fp4_lo));
+    bf16_to_fp4 u_fp4_hi (.bf16_i(bram_rd_data[31:16]), .fp4_o(fp4_hi));
+
+    always_comb begin
+        fp4_pack_d = fp4_pack_q;
+        if (ctrl_fp4_capture) begin
+            fp4_pack_d[{1'b0, ctrl_fp4_idx, 2'b00} +: 4] = fp4_lo;   // nibble k
+            fp4_pack_d[{1'b1, ctrl_fp4_idx, 2'b00} +: 4] = fp4_hi;   // nibble k+4
+        end
+    end
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) fp4_pack_q <= '0;
+        else         fp4_pack_q <= fp4_pack_d;
+    end
+
+    assign scalar_wdata_o = ctrl_fp4_sel ? fp4_pack_d : bram_rd_data;
+    // [rbs - end]
 
     // Scale muxes track the same T+1 context coordinate as the tile snapshot
     always_comb begin

@@ -280,7 +280,7 @@ typedef enum logic [3:0] {
   OP_MVE  = 4'd5,
   OP_MV2  = 4'd6,
   OP_LD2  = 4'd7,
-  OP_ST2  = 4'd8,
+  OP_BRAM_FP4  = 4'd8, // [rbs]
   OP_VMAC  = 4'd9,
   OP_MAC_AS  = 4'd10,
   OP_MAC_WS  = 4'd11,
