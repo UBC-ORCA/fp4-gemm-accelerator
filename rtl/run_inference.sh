@@ -108,7 +108,7 @@ if [[ $YES -eq 0 && -t 0 ]]; then
   case "$SIZE" in 8) N=8 ;; 80) N=80 ;; 400) N=400 ;; 1k) N=1000 ;; 2k) N=2000 ;; 10k) N=10000 ;; *) N="$SIZE" ;; esac
   echo "version: $VERSION"
   echo "dataset: $DATASET"
-  echo "dataset size (check c code): $N"
+  echo "dataset size: $N"
   read -rp "confirm [y/n] " ans
   [[ "$ans" == [yY] || "$ans" == [yY][eE][sS] ]] || { echo "aborted"; exit 1; }
 fi
@@ -116,8 +116,14 @@ fi
 # preflight checks with actionable messages
 [[ -x "$SIM"  ]] || { echo "error: sim binary not found: $SIM" >&2
                       echo "       build the Verilator model first (make -f sim.mk build-sim)" >&2; exit 1; }
-[[ -f "$HEX"  ]] || { echo "error: hex not found: $HEX  (build it: make -C ../sw/$DIR -f inference.mk)" >&2; exit 1; }
 [[ -f "$DATA" ]] || { echo "error: dataset not found: $DATA" >&2; exit 1; }
+
+# rebuild the firmware so N_SAMPLES always matches the dataset being run
+echo "[build] $DIR  dataset=$DATASET size=test_${SIZE}.bin"
+make -C "../sw/$DIR" -f inference.mk DATASET="$DATASET" SIZE="$SIZE" -B \
+  || { echo "error: firmware build failed" >&2; exit 1; }
+
+[[ -f "$HEX"  ]] || { echo "error: hex not found after build: $HEX" >&2; exit 1; }
 
 # assemble the launch command
 ARGS=("$HEX" --data "$DATA" --max-cycles "$MAX_CYCLES" --print-every "$PRINT_EVERY")

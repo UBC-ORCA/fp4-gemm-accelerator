@@ -3,9 +3,14 @@
 
 #include <stdint.h>
 
-// #define IMAGE_MODE_MMIO
-#define IMAGE_BIN_FILE "test_400.bin"
-#define N_SAMPLES 400 
+// inference.mk passes these from its SIZE variable
+#ifndef IMAGE_BIN_FILE
+#define IMAGE_BIN_FILE "test_80.bin"
+#endif
+
+#ifndef N_SAMPLES
+#define N_SAMPLES 80
+#endif
 
 #ifdef IMAGE_MODE_MMIO
 #define IMG_LOAD  ((volatile unsigned int  *) 0xFFFF0010)

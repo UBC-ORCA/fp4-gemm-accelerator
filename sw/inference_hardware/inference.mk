@@ -32,6 +32,9 @@ RISCV_PREFIX ?= riscv-none-elf
 CC      := $(RISCV_PREFIX)-gcc
 OBJCOPY := $(RISCV_PREFIX)-objcopy
 DATASET ?= mnist
+# dataset size: 8, 80, 400, 1k, 2k, 10k
+SIZE ?= 80
+N_SAMPLES := $(patsubst %k,%000,$(SIZE))
 
 ###############################################################################
 # Output files
@@ -101,6 +104,8 @@ CFLAGS := \
 
 # FPGA=1 uses start_fpga.S + auto-incrementing UART pointer; FPGA=0 (default)
 # uses the simulator start.S / UART.
+CFLAGS += -DIMAGE_BIN_FILE='"test_$(SIZE).bin"' -DN_SAMPLES=$(N_SAMPLES)
+
 FPGA ?= 0
 ifeq ($(FPGA),1)
 CFLAGS += -DFPGA
