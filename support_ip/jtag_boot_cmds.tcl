@@ -6,7 +6,7 @@
 # CHANGE THIS
 set REPO_ROOT /home/khaditio/fp4-gemm-accelerator
 set PLATFORM_NAME fp4_gemm
-set PLATFORM_DIR "$REPO_ROOT/platform/$PLATFORM_NAME"
+set PLATFORM_DIR "$REPO_ROOT/support_ip/platform/$PLATFORM_NAME"
 
 
 connect
@@ -21,7 +21,7 @@ exec sleep 1
 
 targets -set -nocase -filter {name =~ "*PS TAP*"}
 # bitstream
-fpga "$PLATFORM_DIR/hw/accelerator_top.bit"
+fpga "$REPO_ROOT/rtl/output/accelerator_top.bit"
 exec sleep 1
 
 # Write pmufw

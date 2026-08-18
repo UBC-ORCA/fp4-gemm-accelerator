@@ -8,7 +8,7 @@
 // * [0x00000000 + MMIO_SIZE] mmio memory
 
 module memory_system#(
-  parameter PROGRAM_SIZE = 32'h00080000,
+  parameter PROGRAM_SIZE = 32'h00100000,
   parameter MMIO_SIZE =    32'h00001000,
   parameter MMIO_START =   32'h10000000
 )(
