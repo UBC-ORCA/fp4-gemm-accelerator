@@ -27,7 +27,7 @@
 #define PERF_COUNTERS
 
 // Enable intermediate UART prints (P|T|M results)
-#define PTM_PRINTS
+// #define PTM_PRINTS
 
 // =======================================
 // UART output helpers
@@ -86,6 +86,7 @@ static uint64_t pc_qact[2];    // requantize to FP4 codes between layers
 static uint64_t pc_argmax;
 static uint64_t pc_bias[3];    // bias seed, inside gemm
 static uint64_t pc_ktile[3];   // innermost k loop only, inside gemm
+static uint64_t pc_out[3];     // accumulators out to memory, inside gemm
 static uint64_t pc_total;      // whole sample loop, one span, loop control included
 static int      pc_layer;
 
@@ -165,10 +166,18 @@ static void pc_report(void) {
     pc_line("ktile_2|", pc_ktile[1]);
     pc_line("ktile_3|", pc_ktile[2]);
 
+    pc_line("out_1  |", pc_out[0]);     // accumulator writeback (subset of gemm)
+    pc_line("out_2  |", pc_out[1]);
+    pc_line("out_3  |", pc_out[2]);
+
     // widest view is the whole gemm function, narrowest is the innermost k loop
     uint64_t gemm_t = pc_gemm[0]  + pc_gemm[1]  + pc_gemm[2];
     uint64_t gemm_k = pc_ktile[0] + pc_ktile[1] + pc_ktile[2];
     uint64_t bias_t = pc_bias[0]  + pc_bias[1]  + pc_bias[2];
+    uint64_t out_t  = pc_out[0]   + pc_out[1]   + pc_out[2];
+    uint64_t qact_t = pc_qact[0]  + pc_qact[1];
+    // end to end inference, imgq left out since real inputs arrive as FP4
+    uint64_t infer_t = gemm_t + qact_t + pc_argmax;
 
     print_str("\n[PERF] total cycles over run\n");
     // gemm() only; requantize and argmax sit outside the function
@@ -177,16 +186,21 @@ static void pc_report(void) {
     pc_line("gemm_K |", gemm_k);
     // bias seed inside gemm
     pc_line("bias_T |", bias_t);
-    // rest of gemm: output writeback, loop control
-    pc_line("gemm_R |", gemm_t - gemm_k - bias_t);
-    pc_line("qact_T |", pc_qact[0] + pc_qact[1]);
+    // accumulator writeback inside gemm
+    pc_line("out_T  |", out_t);
+    // requantize to FP4 codes between layers
+    pc_line("qact_T |", qact_t);
+    // end to end inference, the runtime every ratio below is taken over
+    pc_line("infer_T|", infer_t);
+    // whole sample loop for reference, imgq and loop control included
+    pc_line("total  |", pc_total);
 
     // No MAC array here, so usage and gemm_U do not apply
     uint64_t flops = FLOPS_PER_IMAGE * (uint64_t)N_SAMPLES;
 
     print_str("\n[PERF] flops (scalar, 1 mac = 2 flops)\n");
     pc_line("flops  |", flops);
-    pc_rate("f/cyc  |", flops, pc_total);   // achieved, whole sample loop
+    pc_rate("f/cyc  |", flops, infer_t);    // achieved, end to end inference
     pc_rate("f/cyc_g|", flops, gemm_k);     // achieved, k loop only
 }
 #else
@@ -254,9 +268,8 @@ void gemm(const int8_t *A, const uint32_t *W, const uint32_t *bias_packed,
         }
         TIME_END(pc_bias[pc_layer], _bt);
 
-        const uint32_t *tile_weights = W + (uint32_t)T * stride;
-
         TIME_BEG(_kt);
+        const uint32_t *tile_weights = W + (uint32_t)T * stride;
         for (int k = 0; k < KK; k++) {
             int32_t act  = A[k];                      // feeds all 8 columns
             int32_t w_word = (int32_t)tile_weights[k];  // column 7 sits on top
@@ -269,11 +282,14 @@ void gemm(const int8_t *A, const uint32_t *W, const uint32_t *bias_packed,
         }
         TIME_END(pc_ktile[pc_layer], _kt);
 
+        TIME_BEG(_ot);
         int cols = WH - T * TT;
         if (cols > TT) cols = TT;
+        #pragma GCC unroll 8 // TT
         for (int c = 0; c < cols; c++) {
             out[T * TT + c] = acc[c];
         }
+        TIME_END(pc_out[pc_layer], _ot);
     }
 }
 
