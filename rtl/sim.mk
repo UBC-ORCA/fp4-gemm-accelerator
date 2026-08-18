@@ -164,7 +164,7 @@ $(INFERENCE_HEX): FORCE
 # Pack the firmware hex into program.mem (BRAM init image)
 $(PROGRAM_MEM): $(INFERENCE_HEX) 
 	cd $(SUPPORT_IP) && python3 mem_extractor.py \
-		../sw/inference_hardware/inference.hex program.mem 100000
+		../sw/inference_hardware/inference.hex program.mem 80000
 
 .PHONY: make_sw
 make_sw: $(PROGRAM_MEM)

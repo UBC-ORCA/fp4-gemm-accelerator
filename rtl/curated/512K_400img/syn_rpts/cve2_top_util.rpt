@@ -1,0 +1,285 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2023 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2023.1 (lin64) Build 3865809 Sun May  7 15:04:56 MDT 2023
+| Date         : Mon Aug 17 23:25:46 2026
+| Host         : mxp running 64-bit Ubuntu 22.04.5 LTS
+| Command      : report_utilization -file output/rpts/syn/20260817_2323/cve2_top_util.rpt -hierarchical
+| Design       : cve2_top
+| Device       : xczu7ev-ffvc1156-2-e
+| Speed File   : -2
+| Design State : Synthesized
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++-----------------------------------------------------------------+------------------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+|                             Instance                            |            Module            | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs | RAMB36 | RAMB18 | URAM | DSP Blocks |
++-----------------------------------------------------------------+------------------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+| cve2_top                                                        |                        (top) |       8363 |       8363 |       0 |    0 | 5355 |      2 |      2 |    0 |          0 |
+|   (cve2_top)                                                    |                        (top) |          1 |          1 |       0 |    0 |    2 |      0 |      0 |    0 |          0 |
+|   core_clock_gate_i                                             |              cve2_clock_gate |          1 |          1 |       0 |    0 |    1 |      0 |      0 |    0 |          0 |
+|   u_cve2_core                                                   |                    cve2_core |       8361 |       8361 |       0 |    0 | 5352 |      2 |      2 |    0 |          0 |
+|     (u_cve2_core)                                               |                    cve2_core |          1 |          1 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|     cf_unit_i                                                   |             cve2_cf_mac_unit |       2177 |       2177 |       0 |    0 | 2734 |      0 |      2 |    0 |          0 |
+|       (cf_unit_i)                                               |             cve2_cf_mac_unit |         13 |         13 |       0 |    0 | 1197 |      0 |      0 |    0 |          0 |
+|       u_accum_bram                                              |               mac_accum_bram |         59 |         59 |       0 |    0 |   55 |      0 |      2 |    0 |          0 |
+|       u_array                                                   |                    mac_array |       1032 |       1032 |       0 |    0 | 1024 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[0].GEN_COL[0].u_mac                             |                     mac_cell |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_206 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_207 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[0].GEN_COL[1].u_mac                             |                  mac_cell_19 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_204 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_205 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[0].GEN_COL[2].u_mac                             |                  mac_cell_20 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_202 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_203 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[0].GEN_COL[3].u_mac                             |                  mac_cell_21 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_200 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_201 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[0].GEN_COL[4].u_mac                             |                  mac_cell_22 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_198 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_199 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[0].GEN_COL[5].u_mac                             |                  mac_cell_23 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_196 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_197 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[0].GEN_COL[6].u_mac                             |                  mac_cell_24 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_194 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_195 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[0].GEN_COL[7].u_mac                             |                  mac_cell_25 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_192 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_193 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[1].GEN_COL[0].u_mac                             |                  mac_cell_26 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_190 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_191 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[1].GEN_COL[1].u_mac                             |                  mac_cell_27 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_188 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_189 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[1].GEN_COL[2].u_mac                             |                  mac_cell_28 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_186 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_187 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[1].GEN_COL[3].u_mac                             |                  mac_cell_29 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_184 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_185 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[1].GEN_COL[4].u_mac                             |                  mac_cell_30 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_182 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_183 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[1].GEN_COL[5].u_mac                             |                  mac_cell_31 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_180 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_181 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[1].GEN_COL[6].u_mac                             |                  mac_cell_32 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_178 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_179 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[1].GEN_COL[7].u_mac                             |                  mac_cell_33 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_176 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_177 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[2].GEN_COL[0].u_mac                             |                  mac_cell_34 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_174 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_175 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[2].GEN_COL[1].u_mac                             |                  mac_cell_35 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_172 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_173 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[2].GEN_COL[2].u_mac                             |                  mac_cell_36 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_170 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_171 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[2].GEN_COL[3].u_mac                             |                  mac_cell_37 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_168 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_169 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[2].GEN_COL[4].u_mac                             |                  mac_cell_38 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_166 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_167 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[2].GEN_COL[5].u_mac                             |                  mac_cell_39 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_164 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_165 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[2].GEN_COL[6].u_mac                             |                  mac_cell_40 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_162 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_163 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[2].GEN_COL[7].u_mac                             |                  mac_cell_41 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_160 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_161 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[3].GEN_COL[0].u_mac                             |                  mac_cell_42 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_158 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_159 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[3].GEN_COL[1].u_mac                             |                  mac_cell_43 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_156 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_157 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[3].GEN_COL[2].u_mac                             |                  mac_cell_44 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_154 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_155 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[3].GEN_COL[3].u_mac                             |                  mac_cell_45 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_152 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_153 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[3].GEN_COL[4].u_mac                             |                  mac_cell_46 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_150 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_151 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[3].GEN_COL[5].u_mac                             |                  mac_cell_47 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_148 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_149 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[3].GEN_COL[6].u_mac                             |                  mac_cell_48 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_146 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_147 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[3].GEN_COL[7].u_mac                             |                  mac_cell_49 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_144 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_145 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[4].GEN_COL[0].u_mac                             |                  mac_cell_50 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_142 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_143 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[4].GEN_COL[1].u_mac                             |                  mac_cell_51 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_140 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_141 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[4].GEN_COL[2].u_mac                             |                  mac_cell_52 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_138 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_139 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[4].GEN_COL[3].u_mac                             |                  mac_cell_53 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_136 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_137 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[4].GEN_COL[4].u_mac                             |                  mac_cell_54 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_134 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_135 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[4].GEN_COL[5].u_mac                             |                  mac_cell_55 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_132 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_133 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[4].GEN_COL[6].u_mac                             |                  mac_cell_56 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_130 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_131 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[4].GEN_COL[7].u_mac                             |                  mac_cell_57 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_128 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_129 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[5].GEN_COL[0].u_mac                             |                  mac_cell_58 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_126 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_127 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[5].GEN_COL[1].u_mac                             |                  mac_cell_59 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_124 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_125 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[5].GEN_COL[2].u_mac                             |                  mac_cell_60 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_122 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_123 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[5].GEN_COL[3].u_mac                             |                  mac_cell_61 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_120 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_121 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[5].GEN_COL[4].u_mac                             |                  mac_cell_62 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_118 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_119 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[5].GEN_COL[5].u_mac                             |                  mac_cell_63 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_116 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_117 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[5].GEN_COL[6].u_mac                             |                  mac_cell_64 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_114 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_115 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[5].GEN_COL[7].u_mac                             |                  mac_cell_65 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_112 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_113 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[6].GEN_COL[0].u_mac                             |                  mac_cell_66 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_110 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_111 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[6].GEN_COL[1].u_mac                             |                  mac_cell_67 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_108 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_109 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[6].GEN_COL[2].u_mac                             |                  mac_cell_68 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_106 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_107 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[6].GEN_COL[3].u_mac                             |                  mac_cell_69 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_104 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_105 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[6].GEN_COL[4].u_mac                             |                  mac_cell_70 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_102 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_103 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[6].GEN_COL[5].u_mac                             |                  mac_cell_71 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |          accumulator_reg_100 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |              sat16_adder_101 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[6].GEN_COL[6].u_mac                             |                  mac_cell_72 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |           accumulator_reg_98 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |               sat16_adder_99 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[6].GEN_COL[7].u_mac                             |                  mac_cell_73 |         16 |         16 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |           accumulator_reg_96 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |               sat16_adder_97 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[7].GEN_COL[0].u_mac                             |                  mac_cell_74 |         17 |         17 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |           accumulator_reg_94 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |               sat16_adder_95 |          9 |          9 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[7].GEN_COL[1].u_mac                             |                  mac_cell_75 |         17 |         17 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |           accumulator_reg_92 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |               sat16_adder_93 |          9 |          9 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[7].GEN_COL[2].u_mac                             |                  mac_cell_76 |         17 |         17 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |           accumulator_reg_90 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |               sat16_adder_91 |          9 |          9 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[7].GEN_COL[3].u_mac                             |                  mac_cell_77 |         17 |         17 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |           accumulator_reg_88 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |               sat16_adder_89 |          9 |          9 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[7].GEN_COL[4].u_mac                             |                  mac_cell_78 |         17 |         17 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |           accumulator_reg_86 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |               sat16_adder_87 |          9 |          9 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[7].GEN_COL[5].u_mac                             |                  mac_cell_79 |         17 |         17 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |           accumulator_reg_84 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |               sat16_adder_85 |          9 |          9 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[7].GEN_COL[6].u_mac                             |                  mac_cell_80 |         17 |         17 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |           accumulator_reg_82 |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |               sat16_adder_83 |          9 |          9 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|         GEN_ROW[7].GEN_COL[7].u_mac                             |                  mac_cell_81 |         17 |         17 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_acc                                                 |              accumulator_reg |          8 |          8 |       0 |    0 |   16 |      0 |      0 |    0 |          0 |
+|           u_add                                                 |                  sat16_adder |          9 |          9 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|       u_ctrl                                                    |               mac_controller |        120 |        120 |       0 |    0 |  184 |      0 |      0 |    0 |          0 |
+|       u_scale_accum0                                            |              mac_scale_accum |        286 |        286 |       0 |    0 |  126 |      0 |      0 |    0 |          0 |
+|         (u_scale_accum0)                                        |              mac_scale_accum |        278 |        278 |       0 |    0 |  126 |      0 |      0 |    0 |          0 |
+|         u_add                                                   |           bf16_accumulate_17 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|           u_fp_adder                                            |       parameterized_adder_18 |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|       u_scale_accum1                                            |           mac_scale_accum_16 |        297 |        297 |       0 |    0 |  110 |      0 |      0 |    0 |          0 |
+|         (u_scale_accum1)                                        |           mac_scale_accum_16 |        289 |        289 |       0 |    0 |  110 |      0 |      0 |    0 |          0 |
+|         u_add                                                   |              bf16_accumulate |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|           u_fp_adder                                            |          parameterized_adder |          8 |          8 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|       u_scale_fsm                                               |                mac_scale_fsm |        370 |        370 |       0 |    0 |   38 |      0 |      0 |    0 |          0 |
+|     cs_registers_i                                              |            cve2_cs_registers |        259 |        259 |       0 |    0 |  871 |      0 |      0 |    0 |          0 |
+|       (cs_registers_i)                                          |            cve2_cs_registers |          1 |          1 |       0 |    0 |   14 |      0 |      0 |    0 |          0 |
+|       gen_cntrs[0].gen_imp.mcounters_variable_i                 |                 cve2_counter |         44 |         44 |       0 |    0 |   40 |      0 |      0 |    0 |          0 |
+|       gen_cntrs[1].gen_imp.mcounters_variable_i                 |               cve2_counter_0 |          1 |          1 |       0 |    0 |   40 |      0 |      0 |    0 |          0 |
+|       gen_cntrs[2].gen_imp.mcounters_variable_i                 |               cve2_counter_1 |          1 |          1 |       0 |    0 |   40 |      0 |      0 |    0 |          0 |
+|       gen_cntrs[3].gen_imp.mcounters_variable_i                 |               cve2_counter_2 |          1 |          1 |       0 |    0 |   40 |      0 |      0 |    0 |          0 |
+|       gen_cntrs[4].gen_imp.mcounters_variable_i                 |               cve2_counter_3 |         44 |         44 |       0 |    0 |   40 |      0 |      0 |    0 |          0 |
+|       gen_cntrs[5].gen_imp.mcounters_variable_i                 |               cve2_counter_4 |          1 |          1 |       0 |    0 |   40 |      0 |      0 |    0 |          0 |
+|       gen_cntrs[6].gen_imp.mcounters_variable_i                 |               cve2_counter_5 |          5 |          5 |       0 |    0 |   40 |      0 |      0 |    0 |          0 |
+|       gen_cntrs[7].gen_imp.mcounters_variable_i                 | cve2_counter__parameterized0 |          4 |          4 |       0 |    0 |   40 |      0 |      0 |    0 |          0 |
+|       gen_cntrs[8].gen_imp.mcounters_variable_i                 |               cve2_counter_6 |         42 |         42 |       0 |    0 |   40 |      0 |      0 |    0 |          0 |
+|       gen_cntrs[9].gen_imp.mcounters_variable_i                 |               cve2_counter_7 |          1 |          1 |       0 |    0 |   40 |      0 |      0 |    0 |          0 |
+|       gen_trigger_regs.g_dbg_tmatch_reg[0].u_tmatch_control_csr |                     cve2_csr |          3 |          3 |       0 |    0 |    1 |      0 |      0 |    0 |          0 |
+|       gen_trigger_regs.g_dbg_tmatch_reg[0].u_tmatch_value_csr   |     cve2_csr__parameterized0 |          2 |          2 |       0 |    0 |   32 |      0 |      0 |    0 |          0 |
+|       mcycle_counter_i                                          | cve2_counter__parameterized1 |          0 |          0 |       0 |    0 |   64 |      0 |      0 |    0 |          0 |
+|       minstret_counter_i                                        | cve2_counter__parameterized2 |          0 |          0 |       0 |    0 |   64 |      0 |      0 |    0 |          0 |
+|       u_dcsr_csr                                                |     cve2_csr__parameterized5 |          7 |          7 |       0 |    0 |    9 |      0 |      0 |    0 |          0 |
+|       u_depc_csr                                                |   cve2_csr__parameterized0_8 |         18 |         18 |       0 |    0 |   31 |      0 |      0 |    0 |          0 |
+|       u_dscratch0_csr                                           |   cve2_csr__parameterized0_9 |          0 |          0 |       0 |    0 |   32 |      0 |      0 |    0 |          0 |
+|       u_dscratch1_csr                                           |  cve2_csr__parameterized0_10 |          3 |          3 |       0 |    0 |   32 |      0 |      0 |    0 |          0 |
+|       u_mcause_csr                                              |     cve2_csr__parameterized3 |          7 |          7 |       0 |    0 |    7 |      0 |      0 |    0 |          0 |
+|       u_mepc_csr                                                |  cve2_csr__parameterized0_11 |         18 |         18 |       0 |    0 |   31 |      0 |      0 |    0 |          0 |
+|       u_mie_csr                                                 |     cve2_csr__parameterized2 |         41 |         41 |       0 |    0 |   19 |      0 |      0 |    0 |          0 |
+|       u_mscratch_csr                                            |  cve2_csr__parameterized0_12 |          0 |          0 |       0 |    0 |   32 |      0 |      0 |    0 |          0 |
+|       u_mstack_cause_csr                                        |  cve2_csr__parameterized3_13 |          3 |          3 |       0 |    0 |    7 |      0 |      0 |    0 |          0 |
+|       u_mstack_csr                                              |     cve2_csr__parameterized6 |          0 |          0 |       0 |    0 |    3 |      0 |      0 |    0 |          0 |
+|       u_mstack_epc_csr                                          |  cve2_csr__parameterized0_14 |          0 |          0 |       0 |    0 |   31 |      0 |      0 |    0 |          0 |
+|       u_mstatus_csr                                             |     cve2_csr__parameterized1 |          1 |          1 |       0 |    0 |    6 |      0 |      0 |    0 |          0 |
+|       u_mtval_csr                                               |  cve2_csr__parameterized0_15 |          5 |          5 |       0 |    0 |   32 |      0 |      0 |    0 |          0 |
+|       u_mtvec_csr                                               |     cve2_csr__parameterized4 |          6 |          6 |       0 |    0 |   24 |      0 |      0 |    0 |          0 |
+|     ex_block_i                                                  |                cve2_ex_block |       1034 |       1034 |       0 |    0 |   74 |      0 |      0 |    0 |          0 |
+|       alu_i                                                     |                     cve2_alu |         19 |         19 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
+|       gen_multdiv_fast.multdiv_i                                |            cve2_multdiv_fast |       1015 |       1015 |       0 |    0 |   74 |      0 |      0 |    0 |          0 |
+|     id_stage_i                                                  |                cve2_id_stage |        489 |        489 |       0 |    0 |   81 |      0 |      0 |    0 |          0 |
+|       (id_stage_i)                                              |                cve2_id_stage |         58 |         58 |       0 |    0 |   69 |      0 |      0 |    0 |          0 |
+|       controller_i                                              |              cve2_controller |        431 |        431 |       0 |    0 |   12 |      0 |      0 |    0 |          0 |
+|     if_stage_i                                                  |                cve2_if_stage |       1682 |       1682 |       0 |    0 |  291 |      0 |      0 |    0 |          0 |
+|       (if_stage_i)                                              |                cve2_if_stage |       1398 |       1398 |       0 |    0 |   92 |      0 |      0 |    0 |          0 |
+|       prefetch_buffer_i                                         |         cve2_prefetch_buffer |        284 |        284 |       0 |    0 |  199 |      0 |      0 |    0 |          0 |
+|         (prefetch_buffer_i)                                     |         cve2_prefetch_buffer |         33 |         33 |       0 |    0 |   66 |      0 |      0 |    0 |          0 |
+|         fifo_i                                                  |              cve2_fetch_fifo |        251 |        251 |       0 |    0 |  133 |      0 |      0 |    0 |          0 |
+|     load_store_unit_i                                           |         cve2_load_store_unit |        145 |        145 |       0 |    0 |   67 |      0 |      0 |    0 |          0 |
+|     register_file_i                                             |        cve2_register_file_ff |        634 |        634 |       0 |    0 |  992 |      0 |      0 |    0 |          0 |
+|     vec_unit_i                                                  |                cve2_vec_unit |       1958 |       1958 |       0 |    0 |  242 |      2 |      0 |    0 |          0 |
+|       (vec_unit_i)                                              |                cve2_vec_unit |        605 |        605 |       0 |    0 |  210 |      0 |      0 |    0 |          0 |
+|       i_vrf                                                     |             cve2_vec_regfile |       1353 |       1353 |       0 |    0 |   32 |      2 |      0 |    0 |          0 |
+|     wb_i                                                        |                      cve2_wb |          1 |          1 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
++-----------------------------------------------------------------+------------------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+
+

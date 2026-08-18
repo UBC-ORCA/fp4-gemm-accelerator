@@ -11,7 +11,7 @@
 # WNS in the post-synth timing summary and compute:
 #   Fmax = 1 / (period_ns - WNS_ns) * 1000   (MHz)
 
-create_clock -name clk_i -period 10.000 [get_ports clk_i]
+create_clock -name clk_i -period 8.000 [get_ports clk_i]
 
 # rst_ni is asynchronous and expected to be synchronized internally;
 # excluded from setup/hold analysis at the top-level port.

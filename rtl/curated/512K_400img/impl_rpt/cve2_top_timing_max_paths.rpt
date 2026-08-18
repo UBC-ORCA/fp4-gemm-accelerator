@@ -1,0 +1,1268 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2023 Advanced Micro Devices, Inc. All Rights Reserved.
+--------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version      : Vivado v.2023.1 (lin64) Build 3865809 Sun May  7 15:04:56 MDT 2023
+| Date              : Mon Aug 17 23:17:00 2026
+| Host              : mxp running 64-bit Ubuntu 22.04.5 LTS
+| Command           : report_timing -max_paths 10 -file output/rpts/impl/20260817_2309/cve2_top_timing_max_paths.rpt
+| Design            : accelerator_top
+| Device            : xczu7ev-ffvc1156
+| Speed File        : -2  PRODUCTION 1.30 05-15-2022
+| Design State      : Routed
+| Temperature Grade : E
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Report
+
+Slack (MET) :             0.373ns  (required time - arrival time)
+  Source:                 u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+                            (rising edge-triggered cell FDCE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[18]/D
+                            (rising edge-triggered cell FDRE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk_pl_0
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk_pl_0 rise@10.000ns - clk_pl_0 rise@0.000ns)
+  Data Path Delay:        9.431ns  (logic 4.796ns (50.852%)  route 4.635ns (49.148%))
+  Logic Levels:           23  (DSP_A_B_DATA=1 DSP_ALU=4 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=4 DSP_PREADD_DATA=1 LUT3=1 LUT5=1 LUT6=8 MUXF7=1)
+  Clock Path Skew:        -0.090ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.903ns = ( 11.903 - 10.000 ) 
+    Source Clock Delay      (SCD):    2.165ns
+    Clock Pessimism Removal (CPR):    0.172ns
+  Clock Uncertainty:      0.130ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.250ns
+    Phase Error              (PE):    0.000ns
+  Clock Net Delay (Source):      1.957ns (routing 0.569ns, distribution 1.388ns)
+  Clock Net Delay (Destination): 1.735ns (routing 0.512ns, distribution 1.223ns)
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk_pl_0 rise edge)
+                                                      0.000     0.000 r  
+    PS8_X0Y0             PS8                          0.000     0.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.180     0.180    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.028     0.208 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.957     2.165    u_cve2_core/if_stage_i/pl_clk0
+    SLICE_X75Y202        FDCE                                         r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X75Y202        FDCE (Prop_DFF_SLICEL_C_Q)
+                                                      0.079     2.244 r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/Q
+                         net (fo=140, routed)         0.541     2.785    u_cve2_core/register_file_i/Q[7]
+    SLICE_X73Y195        MUXF7 (Prop_F7MUX_CD_SLICEM_S_O)
+                                                      0.077     2.862 f  u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3/O
+                         net (fo=1, routed)           0.496     3.358    u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3_n_0
+    SLICE_X79Y195        LUT6 (Prop_G6LUT_SLICEM_I1_O)
+                                                      0.090     3.448 f  u_cve2_core/register_file_i/act_scale_hi_q[21]_i_1/O
+                         net (fo=9, routed)           0.213     3.661    u_cve2_core/vec_unit_i/rf_rdata_b[21]
+    SLICE_X79Y190        LUT3 (Prop_F6LUT_SLICEM_I1_O)
+                                                      0.098     3.759 f  u_cve2_core/vec_unit_i/gen_mult_single_cycle.mult2_res_i_12/O
+                         net (fo=4, routed)           0.367     4.126    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/B[5]
+    DSP48E2_X9Y75        DSP_A_B_DATA (Prop_DSP_A_B_DATA_DSP48E2_B[5]_B2_DATA[5])
+                                                      0.151     4.277 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA_INST/B2_DATA[5]
+                         net (fo=1, routed)           0.000     4.277    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA.B2_DATA<5>
+    DSP48E2_X9Y75        DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_DSP48E2_B2_DATA[5]_B2B1[5])
+                                                      0.073     4.350 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA_INST/B2B1[5]
+                         net (fo=1, routed)           0.000     4.350    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA.B2B1<5>
+    DSP48E2_X9Y75        DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_DSP48E2_B2B1[5]_V[35])
+                                                      0.609     4.959 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER_INST/V[35]
+                         net (fo=1, routed)           0.000     4.959    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER.V<35>
+    DSP48E2_X9Y75        DSP_M_DATA (Prop_DSP_M_DATA_DSP48E2_V[35]_V_DATA[35])
+                                                      0.046     5.005 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA_INST/V_DATA[35]
+                         net (fo=1, routed)           0.000     5.005    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA.V_DATA<35>
+    DSP48E2_X9Y75        DSP_ALU (Prop_DSP_ALU_DSP48E2_V_DATA[35]_ALU_OUT[47])
+                                                      0.571     5.576 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     5.576    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y75        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     5.698 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.038     5.736    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/PCIN[47]
+    DSP48E2_X9Y76        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[47])
+                                                      0.546     6.282 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     6.282    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y76        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     6.404 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.014     6.418    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/PCIN[47]
+    DSP48E2_X9Y77        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[0])
+                                                      0.546     6.964 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, routed)           0.000     6.964    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU.ALU_OUT<0>
+    DSP48E2_X9Y77        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[0]_P[0])
+                                                      0.109     7.073 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_OUTPUT_INST/P[0]
+                         net (fo=4, routed)           0.278     7.351    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][31]_0[0]
+    SLICE_X74Y188        LUT6 (Prop_C6LUT_SLICEM_I3_O)
+                                                      0.088     7.439 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240/O
+                         net (fo=1, routed)           0.149     7.588    u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240_n_0
+    SLICE_X73Y190        LUT6 (Prop_C6LUT_SLICEM_I0_O)
+                                                      0.098     7.686 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_189/O
+                         net (fo=3, routed)           0.150     7.835    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][0]
+    SLICE_X71Y191        LUT6 (Prop_D6LUT_SLICEM_I1_O)
+                                                      0.088     7.923 r  u_cve2_core/if_stage_i/FSM_sequential_state_q[2]_i_16/O
+                         net (fo=2, routed)           0.196     8.119    u_cve2_core/vec_unit_i/i_vrf/program_ram_reg_mux_sel_a_pos_3_0
+    SLICE_X72Y191        LUT6 (Prop_G6LUT_SLICEL_I3_O)
+                                                      0.149     8.268 r  u_cve2_core/vec_unit_i/i_vrf/g_rf_flops[31].rf_reg_q[31][31]_i_31/O
+                         net (fo=2, routed)           0.325     8.593    u_cve2_core/if_stage_i/vec_done
+    SLICE_X73Y203        LUT6 (Prop_G6LUT_SLICEM_I3_O)
+                                                      0.100     8.693 f  u_cve2_core/if_stage_i/g_rf_flops[31].rf_reg_q[31][31]_i_13/O
+                         net (fo=10, routed)          0.296     8.990    u_cve2_core/id_stage_i/controller_i/counter_q[39]_i_4_0
+    SLICE_X76Y207        LUT6 (Prop_H6LUT_SLICEL_I4_O)
+                                                      0.051     9.041 r  u_cve2_core/id_stage_i/controller_i/ctrl_fsm_cs[3]_i_14/O
+                         net (fo=15, routed)          0.263     9.304    u_cve2_core/if_stage_i/instr_addr_q_reg[1]_4
+    SLICE_X76Y215        LUT6 (Prop_G6LUT_SLICEL_I2_O)
+                                                      0.035     9.339 f  u_cve2_core/if_stage_i/counter_upd_i_40__0/O
+                         net (fo=103, routed)         0.541     9.879    u_cve2_core/if_stage_i/counter_upd_i_40__0_n_0
+    SLICE_X82Y230        LUT5 (Prop_F6LUT_SLICEL_I4_O)
+                                                      0.049     9.928 r  u_cve2_core/if_stage_i/counter_upd_i_2__4/O
+                         net (fo=2, routed)           0.318    10.246    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/OPMODE[1]
+    DSP48E2_X10Y92       DSP_ALU (Prop_DSP_ALU_DSP48E2_OPMODE[1]_ALU_OUT[18])
+                                                      0.790    11.036 f  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU_INST/ALU_OUT[18]
+                         net (fo=1, routed)           0.000    11.036    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU.ALU_OUT<18>
+    DSP48E2_X10Y92       DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[18]_P[18])
+                                                      0.109    11.145 r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_OUTPUT_INST/P[18]
+                         net (fo=1, routed)           0.451    11.596    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd_n_87
+    SLICE_X83Y232        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[18]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk_pl_0 rise edge)
+                                                     10.000    10.000 r  
+    PS8_X0Y0             PS8                          0.000    10.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.143    10.143    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.025    10.168 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.735    11.903    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/pl_clk0
+    SLICE_X83Y232        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[18]/C
+                         clock pessimism              0.172    12.075    
+                         clock uncertainty           -0.130    11.945    
+    SLICE_X83Y232        FDRE (Setup_GFF2_SLICEM_C_D)
+                                                      0.025    11.970    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[18]
+  -------------------------------------------------------------------
+                         required time                         11.970    
+                         arrival time                         -11.596    
+  -------------------------------------------------------------------
+                         slack                                  0.373    
+
+Slack (MET) :             0.383ns  (required time - arrival time)
+  Source:                 u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+                            (rising edge-triggered cell FDCE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[32]/D
+                            (rising edge-triggered cell FDRE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk_pl_0
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk_pl_0 rise@10.000ns - clk_pl_0 rise@0.000ns)
+  Data Path Delay:        9.422ns  (logic 4.796ns (50.900%)  route 4.626ns (49.100%))
+  Logic Levels:           23  (DSP_A_B_DATA=1 DSP_ALU=4 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=4 DSP_PREADD_DATA=1 LUT3=1 LUT5=1 LUT6=8 MUXF7=1)
+  Clock Path Skew:        -0.089ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.904ns = ( 11.904 - 10.000 ) 
+    Source Clock Delay      (SCD):    2.165ns
+    Clock Pessimism Removal (CPR):    0.172ns
+  Clock Uncertainty:      0.130ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.250ns
+    Phase Error              (PE):    0.000ns
+  Clock Net Delay (Source):      1.957ns (routing 0.569ns, distribution 1.388ns)
+  Clock Net Delay (Destination): 1.736ns (routing 0.512ns, distribution 1.224ns)
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk_pl_0 rise edge)
+                                                      0.000     0.000 r  
+    PS8_X0Y0             PS8                          0.000     0.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.180     0.180    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.028     0.208 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.957     2.165    u_cve2_core/if_stage_i/pl_clk0
+    SLICE_X75Y202        FDCE                                         r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X75Y202        FDCE (Prop_DFF_SLICEL_C_Q)
+                                                      0.079     2.244 r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/Q
+                         net (fo=140, routed)         0.541     2.785    u_cve2_core/register_file_i/Q[7]
+    SLICE_X73Y195        MUXF7 (Prop_F7MUX_CD_SLICEM_S_O)
+                                                      0.077     2.862 f  u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3/O
+                         net (fo=1, routed)           0.496     3.358    u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3_n_0
+    SLICE_X79Y195        LUT6 (Prop_G6LUT_SLICEM_I1_O)
+                                                      0.090     3.448 f  u_cve2_core/register_file_i/act_scale_hi_q[21]_i_1/O
+                         net (fo=9, routed)           0.213     3.661    u_cve2_core/vec_unit_i/rf_rdata_b[21]
+    SLICE_X79Y190        LUT3 (Prop_F6LUT_SLICEM_I1_O)
+                                                      0.098     3.759 f  u_cve2_core/vec_unit_i/gen_mult_single_cycle.mult2_res_i_12/O
+                         net (fo=4, routed)           0.367     4.126    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/B[5]
+    DSP48E2_X9Y75        DSP_A_B_DATA (Prop_DSP_A_B_DATA_DSP48E2_B[5]_B2_DATA[5])
+                                                      0.151     4.277 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA_INST/B2_DATA[5]
+                         net (fo=1, routed)           0.000     4.277    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA.B2_DATA<5>
+    DSP48E2_X9Y75        DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_DSP48E2_B2_DATA[5]_B2B1[5])
+                                                      0.073     4.350 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA_INST/B2B1[5]
+                         net (fo=1, routed)           0.000     4.350    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA.B2B1<5>
+    DSP48E2_X9Y75        DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_DSP48E2_B2B1[5]_V[35])
+                                                      0.609     4.959 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER_INST/V[35]
+                         net (fo=1, routed)           0.000     4.959    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER.V<35>
+    DSP48E2_X9Y75        DSP_M_DATA (Prop_DSP_M_DATA_DSP48E2_V[35]_V_DATA[35])
+                                                      0.046     5.005 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA_INST/V_DATA[35]
+                         net (fo=1, routed)           0.000     5.005    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA.V_DATA<35>
+    DSP48E2_X9Y75        DSP_ALU (Prop_DSP_ALU_DSP48E2_V_DATA[35]_ALU_OUT[47])
+                                                      0.571     5.576 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     5.576    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y75        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     5.698 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.038     5.736    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/PCIN[47]
+    DSP48E2_X9Y76        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[47])
+                                                      0.546     6.282 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     6.282    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y76        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     6.404 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.014     6.418    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/PCIN[47]
+    DSP48E2_X9Y77        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[0])
+                                                      0.546     6.964 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, routed)           0.000     6.964    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU.ALU_OUT<0>
+    DSP48E2_X9Y77        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[0]_P[0])
+                                                      0.109     7.073 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_OUTPUT_INST/P[0]
+                         net (fo=4, routed)           0.278     7.351    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][31]_0[0]
+    SLICE_X74Y188        LUT6 (Prop_C6LUT_SLICEM_I3_O)
+                                                      0.088     7.439 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240/O
+                         net (fo=1, routed)           0.149     7.588    u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240_n_0
+    SLICE_X73Y190        LUT6 (Prop_C6LUT_SLICEM_I0_O)
+                                                      0.098     7.686 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_189/O
+                         net (fo=3, routed)           0.150     7.835    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][0]
+    SLICE_X71Y191        LUT6 (Prop_D6LUT_SLICEM_I1_O)
+                                                      0.088     7.923 r  u_cve2_core/if_stage_i/FSM_sequential_state_q[2]_i_16/O
+                         net (fo=2, routed)           0.196     8.119    u_cve2_core/vec_unit_i/i_vrf/program_ram_reg_mux_sel_a_pos_3_0
+    SLICE_X72Y191        LUT6 (Prop_G6LUT_SLICEL_I3_O)
+                                                      0.149     8.268 r  u_cve2_core/vec_unit_i/i_vrf/g_rf_flops[31].rf_reg_q[31][31]_i_31/O
+                         net (fo=2, routed)           0.325     8.593    u_cve2_core/if_stage_i/vec_done
+    SLICE_X73Y203        LUT6 (Prop_G6LUT_SLICEM_I3_O)
+                                                      0.100     8.693 f  u_cve2_core/if_stage_i/g_rf_flops[31].rf_reg_q[31][31]_i_13/O
+                         net (fo=10, routed)          0.296     8.990    u_cve2_core/id_stage_i/controller_i/counter_q[39]_i_4_0
+    SLICE_X76Y207        LUT6 (Prop_H6LUT_SLICEL_I4_O)
+                                                      0.051     9.041 r  u_cve2_core/id_stage_i/controller_i/ctrl_fsm_cs[3]_i_14/O
+                         net (fo=15, routed)          0.263     9.304    u_cve2_core/if_stage_i/instr_addr_q_reg[1]_4
+    SLICE_X76Y215        LUT6 (Prop_G6LUT_SLICEL_I2_O)
+                                                      0.035     9.339 f  u_cve2_core/if_stage_i/counter_upd_i_40__0/O
+                         net (fo=103, routed)         0.541     9.879    u_cve2_core/if_stage_i/counter_upd_i_40__0_n_0
+    SLICE_X82Y230        LUT5 (Prop_F6LUT_SLICEL_I4_O)
+                                                      0.049     9.928 r  u_cve2_core/if_stage_i/counter_upd_i_2__4/O
+                         net (fo=2, routed)           0.318    10.246    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/OPMODE[1]
+    DSP48E2_X10Y92       DSP_ALU (Prop_DSP_ALU_DSP48E2_OPMODE[1]_ALU_OUT[32])
+                                                      0.790    11.036 f  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU_INST/ALU_OUT[32]
+                         net (fo=1, routed)           0.000    11.036    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU.ALU_OUT<32>
+    DSP48E2_X10Y92       DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[32]_P[32])
+                                                      0.109    11.145 r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_OUTPUT_INST/P[32]
+                         net (fo=1, routed)           0.442    11.587    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd_n_73
+    SLICE_X83Y234        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[32]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk_pl_0 rise edge)
+                                                     10.000    10.000 r  
+    PS8_X0Y0             PS8                          0.000    10.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.143    10.143    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.025    10.168 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.736    11.904    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/pl_clk0
+    SLICE_X83Y234        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[32]/C
+                         clock pessimism              0.172    12.076    
+                         clock uncertainty           -0.130    11.946    
+    SLICE_X83Y234        FDRE (Setup_EFF_SLICEM_C_D)
+                                                      0.025    11.971    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[32]
+  -------------------------------------------------------------------
+                         required time                         11.971    
+                         arrival time                         -11.587    
+  -------------------------------------------------------------------
+                         slack                                  0.383    
+
+Slack (MET) :             0.388ns  (required time - arrival time)
+  Source:                 u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+                            (rising edge-triggered cell FDCE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[20]/D
+                            (rising edge-triggered cell FDRE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk_pl_0
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk_pl_0 rise@10.000ns - clk_pl_0 rise@0.000ns)
+  Data Path Delay:        9.416ns  (logic 4.796ns (50.933%)  route 4.620ns (49.067%))
+  Logic Levels:           23  (DSP_A_B_DATA=1 DSP_ALU=4 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=4 DSP_PREADD_DATA=1 LUT3=1 LUT5=1 LUT6=8 MUXF7=1)
+  Clock Path Skew:        -0.090ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.903ns = ( 11.903 - 10.000 ) 
+    Source Clock Delay      (SCD):    2.165ns
+    Clock Pessimism Removal (CPR):    0.172ns
+  Clock Uncertainty:      0.130ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.250ns
+    Phase Error              (PE):    0.000ns
+  Clock Net Delay (Source):      1.957ns (routing 0.569ns, distribution 1.388ns)
+  Clock Net Delay (Destination): 1.735ns (routing 0.512ns, distribution 1.223ns)
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk_pl_0 rise edge)
+                                                      0.000     0.000 r  
+    PS8_X0Y0             PS8                          0.000     0.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.180     0.180    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.028     0.208 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.957     2.165    u_cve2_core/if_stage_i/pl_clk0
+    SLICE_X75Y202        FDCE                                         r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X75Y202        FDCE (Prop_DFF_SLICEL_C_Q)
+                                                      0.079     2.244 r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/Q
+                         net (fo=140, routed)         0.541     2.785    u_cve2_core/register_file_i/Q[7]
+    SLICE_X73Y195        MUXF7 (Prop_F7MUX_CD_SLICEM_S_O)
+                                                      0.077     2.862 f  u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3/O
+                         net (fo=1, routed)           0.496     3.358    u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3_n_0
+    SLICE_X79Y195        LUT6 (Prop_G6LUT_SLICEM_I1_O)
+                                                      0.090     3.448 f  u_cve2_core/register_file_i/act_scale_hi_q[21]_i_1/O
+                         net (fo=9, routed)           0.213     3.661    u_cve2_core/vec_unit_i/rf_rdata_b[21]
+    SLICE_X79Y190        LUT3 (Prop_F6LUT_SLICEM_I1_O)
+                                                      0.098     3.759 f  u_cve2_core/vec_unit_i/gen_mult_single_cycle.mult2_res_i_12/O
+                         net (fo=4, routed)           0.367     4.126    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/B[5]
+    DSP48E2_X9Y75        DSP_A_B_DATA (Prop_DSP_A_B_DATA_DSP48E2_B[5]_B2_DATA[5])
+                                                      0.151     4.277 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA_INST/B2_DATA[5]
+                         net (fo=1, routed)           0.000     4.277    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA.B2_DATA<5>
+    DSP48E2_X9Y75        DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_DSP48E2_B2_DATA[5]_B2B1[5])
+                                                      0.073     4.350 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA_INST/B2B1[5]
+                         net (fo=1, routed)           0.000     4.350    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA.B2B1<5>
+    DSP48E2_X9Y75        DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_DSP48E2_B2B1[5]_V[35])
+                                                      0.609     4.959 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER_INST/V[35]
+                         net (fo=1, routed)           0.000     4.959    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER.V<35>
+    DSP48E2_X9Y75        DSP_M_DATA (Prop_DSP_M_DATA_DSP48E2_V[35]_V_DATA[35])
+                                                      0.046     5.005 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA_INST/V_DATA[35]
+                         net (fo=1, routed)           0.000     5.005    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA.V_DATA<35>
+    DSP48E2_X9Y75        DSP_ALU (Prop_DSP_ALU_DSP48E2_V_DATA[35]_ALU_OUT[47])
+                                                      0.571     5.576 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     5.576    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y75        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     5.698 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.038     5.736    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/PCIN[47]
+    DSP48E2_X9Y76        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[47])
+                                                      0.546     6.282 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     6.282    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y76        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     6.404 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.014     6.418    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/PCIN[47]
+    DSP48E2_X9Y77        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[0])
+                                                      0.546     6.964 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, routed)           0.000     6.964    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU.ALU_OUT<0>
+    DSP48E2_X9Y77        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[0]_P[0])
+                                                      0.109     7.073 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_OUTPUT_INST/P[0]
+                         net (fo=4, routed)           0.278     7.351    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][31]_0[0]
+    SLICE_X74Y188        LUT6 (Prop_C6LUT_SLICEM_I3_O)
+                                                      0.088     7.439 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240/O
+                         net (fo=1, routed)           0.149     7.588    u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240_n_0
+    SLICE_X73Y190        LUT6 (Prop_C6LUT_SLICEM_I0_O)
+                                                      0.098     7.686 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_189/O
+                         net (fo=3, routed)           0.150     7.835    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][0]
+    SLICE_X71Y191        LUT6 (Prop_D6LUT_SLICEM_I1_O)
+                                                      0.088     7.923 r  u_cve2_core/if_stage_i/FSM_sequential_state_q[2]_i_16/O
+                         net (fo=2, routed)           0.196     8.119    u_cve2_core/vec_unit_i/i_vrf/program_ram_reg_mux_sel_a_pos_3_0
+    SLICE_X72Y191        LUT6 (Prop_G6LUT_SLICEL_I3_O)
+                                                      0.149     8.268 r  u_cve2_core/vec_unit_i/i_vrf/g_rf_flops[31].rf_reg_q[31][31]_i_31/O
+                         net (fo=2, routed)           0.325     8.593    u_cve2_core/if_stage_i/vec_done
+    SLICE_X73Y203        LUT6 (Prop_G6LUT_SLICEM_I3_O)
+                                                      0.100     8.693 f  u_cve2_core/if_stage_i/g_rf_flops[31].rf_reg_q[31][31]_i_13/O
+                         net (fo=10, routed)          0.296     8.990    u_cve2_core/id_stage_i/controller_i/counter_q[39]_i_4_0
+    SLICE_X76Y207        LUT6 (Prop_H6LUT_SLICEL_I4_O)
+                                                      0.051     9.041 r  u_cve2_core/id_stage_i/controller_i/ctrl_fsm_cs[3]_i_14/O
+                         net (fo=15, routed)          0.263     9.304    u_cve2_core/if_stage_i/instr_addr_q_reg[1]_4
+    SLICE_X76Y215        LUT6 (Prop_G6LUT_SLICEL_I2_O)
+                                                      0.035     9.339 f  u_cve2_core/if_stage_i/counter_upd_i_40__0/O
+                         net (fo=103, routed)         0.541     9.879    u_cve2_core/if_stage_i/counter_upd_i_40__0_n_0
+    SLICE_X82Y230        LUT5 (Prop_F6LUT_SLICEL_I4_O)
+                                                      0.049     9.928 r  u_cve2_core/if_stage_i/counter_upd_i_2__4/O
+                         net (fo=2, routed)           0.318    10.246    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/OPMODE[1]
+    DSP48E2_X10Y92       DSP_ALU (Prop_DSP_ALU_DSP48E2_OPMODE[1]_ALU_OUT[20])
+                                                      0.790    11.036 f  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU_INST/ALU_OUT[20]
+                         net (fo=1, routed)           0.000    11.036    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU.ALU_OUT<20>
+    DSP48E2_X10Y92       DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[20]_P[20])
+                                                      0.109    11.145 r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_OUTPUT_INST/P[20]
+                         net (fo=1, routed)           0.436    11.581    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd_n_85
+    SLICE_X83Y232        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[20]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk_pl_0 rise edge)
+                                                     10.000    10.000 r  
+    PS8_X0Y0             PS8                          0.000    10.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.143    10.143    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.025    10.168 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.735    11.903    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/pl_clk0
+    SLICE_X83Y232        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[20]/C
+                         clock pessimism              0.172    12.075    
+                         clock uncertainty           -0.130    11.945    
+    SLICE_X83Y232        FDRE (Setup_FFF2_SLICEM_C_D)
+                                                      0.025    11.970    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[20]
+  -------------------------------------------------------------------
+                         required time                         11.970    
+                         arrival time                         -11.581    
+  -------------------------------------------------------------------
+                         slack                                  0.388    
+
+Slack (MET) :             0.389ns  (required time - arrival time)
+  Source:                 u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+                            (rising edge-triggered cell FDCE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[11]/D
+                            (rising edge-triggered cell FDRE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk_pl_0
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk_pl_0 rise@10.000ns - clk_pl_0 rise@0.000ns)
+  Data Path Delay:        9.415ns  (logic 4.796ns (50.938%)  route 4.619ns (49.062%))
+  Logic Levels:           23  (DSP_A_B_DATA=1 DSP_ALU=4 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=4 DSP_PREADD_DATA=1 LUT3=1 LUT5=1 LUT6=8 MUXF7=1)
+  Clock Path Skew:        -0.090ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.903ns = ( 11.903 - 10.000 ) 
+    Source Clock Delay      (SCD):    2.165ns
+    Clock Pessimism Removal (CPR):    0.172ns
+  Clock Uncertainty:      0.130ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.250ns
+    Phase Error              (PE):    0.000ns
+  Clock Net Delay (Source):      1.957ns (routing 0.569ns, distribution 1.388ns)
+  Clock Net Delay (Destination): 1.735ns (routing 0.512ns, distribution 1.223ns)
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk_pl_0 rise edge)
+                                                      0.000     0.000 r  
+    PS8_X0Y0             PS8                          0.000     0.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.180     0.180    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.028     0.208 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.957     2.165    u_cve2_core/if_stage_i/pl_clk0
+    SLICE_X75Y202        FDCE                                         r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X75Y202        FDCE (Prop_DFF_SLICEL_C_Q)
+                                                      0.079     2.244 r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/Q
+                         net (fo=140, routed)         0.541     2.785    u_cve2_core/register_file_i/Q[7]
+    SLICE_X73Y195        MUXF7 (Prop_F7MUX_CD_SLICEM_S_O)
+                                                      0.077     2.862 f  u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3/O
+                         net (fo=1, routed)           0.496     3.358    u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3_n_0
+    SLICE_X79Y195        LUT6 (Prop_G6LUT_SLICEM_I1_O)
+                                                      0.090     3.448 f  u_cve2_core/register_file_i/act_scale_hi_q[21]_i_1/O
+                         net (fo=9, routed)           0.213     3.661    u_cve2_core/vec_unit_i/rf_rdata_b[21]
+    SLICE_X79Y190        LUT3 (Prop_F6LUT_SLICEM_I1_O)
+                                                      0.098     3.759 f  u_cve2_core/vec_unit_i/gen_mult_single_cycle.mult2_res_i_12/O
+                         net (fo=4, routed)           0.367     4.126    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/B[5]
+    DSP48E2_X9Y75        DSP_A_B_DATA (Prop_DSP_A_B_DATA_DSP48E2_B[5]_B2_DATA[5])
+                                                      0.151     4.277 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA_INST/B2_DATA[5]
+                         net (fo=1, routed)           0.000     4.277    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA.B2_DATA<5>
+    DSP48E2_X9Y75        DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_DSP48E2_B2_DATA[5]_B2B1[5])
+                                                      0.073     4.350 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA_INST/B2B1[5]
+                         net (fo=1, routed)           0.000     4.350    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA.B2B1<5>
+    DSP48E2_X9Y75        DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_DSP48E2_B2B1[5]_V[35])
+                                                      0.609     4.959 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER_INST/V[35]
+                         net (fo=1, routed)           0.000     4.959    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER.V<35>
+    DSP48E2_X9Y75        DSP_M_DATA (Prop_DSP_M_DATA_DSP48E2_V[35]_V_DATA[35])
+                                                      0.046     5.005 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA_INST/V_DATA[35]
+                         net (fo=1, routed)           0.000     5.005    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA.V_DATA<35>
+    DSP48E2_X9Y75        DSP_ALU (Prop_DSP_ALU_DSP48E2_V_DATA[35]_ALU_OUT[47])
+                                                      0.571     5.576 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     5.576    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y75        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     5.698 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.038     5.736    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/PCIN[47]
+    DSP48E2_X9Y76        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[47])
+                                                      0.546     6.282 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     6.282    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y76        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     6.404 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.014     6.418    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/PCIN[47]
+    DSP48E2_X9Y77        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[0])
+                                                      0.546     6.964 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, routed)           0.000     6.964    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU.ALU_OUT<0>
+    DSP48E2_X9Y77        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[0]_P[0])
+                                                      0.109     7.073 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_OUTPUT_INST/P[0]
+                         net (fo=4, routed)           0.278     7.351    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][31]_0[0]
+    SLICE_X74Y188        LUT6 (Prop_C6LUT_SLICEM_I3_O)
+                                                      0.088     7.439 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240/O
+                         net (fo=1, routed)           0.149     7.588    u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240_n_0
+    SLICE_X73Y190        LUT6 (Prop_C6LUT_SLICEM_I0_O)
+                                                      0.098     7.686 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_189/O
+                         net (fo=3, routed)           0.150     7.835    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][0]
+    SLICE_X71Y191        LUT6 (Prop_D6LUT_SLICEM_I1_O)
+                                                      0.088     7.923 r  u_cve2_core/if_stage_i/FSM_sequential_state_q[2]_i_16/O
+                         net (fo=2, routed)           0.196     8.119    u_cve2_core/vec_unit_i/i_vrf/program_ram_reg_mux_sel_a_pos_3_0
+    SLICE_X72Y191        LUT6 (Prop_G6LUT_SLICEL_I3_O)
+                                                      0.149     8.268 r  u_cve2_core/vec_unit_i/i_vrf/g_rf_flops[31].rf_reg_q[31][31]_i_31/O
+                         net (fo=2, routed)           0.325     8.593    u_cve2_core/if_stage_i/vec_done
+    SLICE_X73Y203        LUT6 (Prop_G6LUT_SLICEM_I3_O)
+                                                      0.100     8.693 f  u_cve2_core/if_stage_i/g_rf_flops[31].rf_reg_q[31][31]_i_13/O
+                         net (fo=10, routed)          0.296     8.990    u_cve2_core/id_stage_i/controller_i/counter_q[39]_i_4_0
+    SLICE_X76Y207        LUT6 (Prop_H6LUT_SLICEL_I4_O)
+                                                      0.051     9.041 r  u_cve2_core/id_stage_i/controller_i/ctrl_fsm_cs[3]_i_14/O
+                         net (fo=15, routed)          0.263     9.304    u_cve2_core/if_stage_i/instr_addr_q_reg[1]_4
+    SLICE_X76Y215        LUT6 (Prop_G6LUT_SLICEL_I2_O)
+                                                      0.035     9.339 f  u_cve2_core/if_stage_i/counter_upd_i_40__0/O
+                         net (fo=103, routed)         0.541     9.879    u_cve2_core/if_stage_i/counter_upd_i_40__0_n_0
+    SLICE_X82Y230        LUT5 (Prop_F6LUT_SLICEL_I4_O)
+                                                      0.049     9.928 r  u_cve2_core/if_stage_i/counter_upd_i_2__4/O
+                         net (fo=2, routed)           0.318    10.246    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/OPMODE[1]
+    DSP48E2_X10Y92       DSP_ALU (Prop_DSP_ALU_DSP48E2_OPMODE[1]_ALU_OUT[11])
+                                                      0.790    11.036 f  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU_INST/ALU_OUT[11]
+                         net (fo=1, routed)           0.000    11.036    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU.ALU_OUT<11>
+    DSP48E2_X10Y92       DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[11]_P[11])
+                                                      0.109    11.145 r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_OUTPUT_INST/P[11]
+                         net (fo=1, routed)           0.435    11.580    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd_n_94
+    SLICE_X83Y231        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[11]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk_pl_0 rise edge)
+                                                     10.000    10.000 r  
+    PS8_X0Y0             PS8                          0.000    10.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.143    10.143    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.025    10.168 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.735    11.903    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/pl_clk0
+    SLICE_X83Y231        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[11]/C
+                         clock pessimism              0.172    12.075    
+                         clock uncertainty           -0.130    11.945    
+    SLICE_X83Y231        FDRE (Setup_GFF2_SLICEM_C_D)
+                                                      0.025    11.970    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[11]
+  -------------------------------------------------------------------
+                         required time                         11.970    
+                         arrival time                         -11.580    
+  -------------------------------------------------------------------
+                         slack                                  0.389    
+
+Slack (MET) :             0.399ns  (required time - arrival time)
+  Source:                 u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+                            (rising edge-triggered cell FDCE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[29]/D
+                            (rising edge-triggered cell FDRE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk_pl_0
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk_pl_0 rise@10.000ns - clk_pl_0 rise@0.000ns)
+  Data Path Delay:        9.406ns  (logic 4.796ns (50.987%)  route 4.610ns (49.013%))
+  Logic Levels:           23  (DSP_A_B_DATA=1 DSP_ALU=4 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=4 DSP_PREADD_DATA=1 LUT3=1 LUT5=1 LUT6=8 MUXF7=1)
+  Clock Path Skew:        -0.089ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.904ns = ( 11.904 - 10.000 ) 
+    Source Clock Delay      (SCD):    2.165ns
+    Clock Pessimism Removal (CPR):    0.172ns
+  Clock Uncertainty:      0.130ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.250ns
+    Phase Error              (PE):    0.000ns
+  Clock Net Delay (Source):      1.957ns (routing 0.569ns, distribution 1.388ns)
+  Clock Net Delay (Destination): 1.736ns (routing 0.512ns, distribution 1.224ns)
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk_pl_0 rise edge)
+                                                      0.000     0.000 r  
+    PS8_X0Y0             PS8                          0.000     0.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.180     0.180    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.028     0.208 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.957     2.165    u_cve2_core/if_stage_i/pl_clk0
+    SLICE_X75Y202        FDCE                                         r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X75Y202        FDCE (Prop_DFF_SLICEL_C_Q)
+                                                      0.079     2.244 r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/Q
+                         net (fo=140, routed)         0.541     2.785    u_cve2_core/register_file_i/Q[7]
+    SLICE_X73Y195        MUXF7 (Prop_F7MUX_CD_SLICEM_S_O)
+                                                      0.077     2.862 f  u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3/O
+                         net (fo=1, routed)           0.496     3.358    u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3_n_0
+    SLICE_X79Y195        LUT6 (Prop_G6LUT_SLICEM_I1_O)
+                                                      0.090     3.448 f  u_cve2_core/register_file_i/act_scale_hi_q[21]_i_1/O
+                         net (fo=9, routed)           0.213     3.661    u_cve2_core/vec_unit_i/rf_rdata_b[21]
+    SLICE_X79Y190        LUT3 (Prop_F6LUT_SLICEM_I1_O)
+                                                      0.098     3.759 f  u_cve2_core/vec_unit_i/gen_mult_single_cycle.mult2_res_i_12/O
+                         net (fo=4, routed)           0.367     4.126    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/B[5]
+    DSP48E2_X9Y75        DSP_A_B_DATA (Prop_DSP_A_B_DATA_DSP48E2_B[5]_B2_DATA[5])
+                                                      0.151     4.277 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA_INST/B2_DATA[5]
+                         net (fo=1, routed)           0.000     4.277    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA.B2_DATA<5>
+    DSP48E2_X9Y75        DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_DSP48E2_B2_DATA[5]_B2B1[5])
+                                                      0.073     4.350 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA_INST/B2B1[5]
+                         net (fo=1, routed)           0.000     4.350    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA.B2B1<5>
+    DSP48E2_X9Y75        DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_DSP48E2_B2B1[5]_V[35])
+                                                      0.609     4.959 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER_INST/V[35]
+                         net (fo=1, routed)           0.000     4.959    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER.V<35>
+    DSP48E2_X9Y75        DSP_M_DATA (Prop_DSP_M_DATA_DSP48E2_V[35]_V_DATA[35])
+                                                      0.046     5.005 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA_INST/V_DATA[35]
+                         net (fo=1, routed)           0.000     5.005    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA.V_DATA<35>
+    DSP48E2_X9Y75        DSP_ALU (Prop_DSP_ALU_DSP48E2_V_DATA[35]_ALU_OUT[47])
+                                                      0.571     5.576 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     5.576    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y75        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     5.698 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.038     5.736    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/PCIN[47]
+    DSP48E2_X9Y76        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[47])
+                                                      0.546     6.282 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     6.282    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y76        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     6.404 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.014     6.418    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/PCIN[47]
+    DSP48E2_X9Y77        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[0])
+                                                      0.546     6.964 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, routed)           0.000     6.964    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU.ALU_OUT<0>
+    DSP48E2_X9Y77        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[0]_P[0])
+                                                      0.109     7.073 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_OUTPUT_INST/P[0]
+                         net (fo=4, routed)           0.278     7.351    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][31]_0[0]
+    SLICE_X74Y188        LUT6 (Prop_C6LUT_SLICEM_I3_O)
+                                                      0.088     7.439 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240/O
+                         net (fo=1, routed)           0.149     7.588    u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240_n_0
+    SLICE_X73Y190        LUT6 (Prop_C6LUT_SLICEM_I0_O)
+                                                      0.098     7.686 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_189/O
+                         net (fo=3, routed)           0.150     7.835    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][0]
+    SLICE_X71Y191        LUT6 (Prop_D6LUT_SLICEM_I1_O)
+                                                      0.088     7.923 r  u_cve2_core/if_stage_i/FSM_sequential_state_q[2]_i_16/O
+                         net (fo=2, routed)           0.196     8.119    u_cve2_core/vec_unit_i/i_vrf/program_ram_reg_mux_sel_a_pos_3_0
+    SLICE_X72Y191        LUT6 (Prop_G6LUT_SLICEL_I3_O)
+                                                      0.149     8.268 r  u_cve2_core/vec_unit_i/i_vrf/g_rf_flops[31].rf_reg_q[31][31]_i_31/O
+                         net (fo=2, routed)           0.325     8.593    u_cve2_core/if_stage_i/vec_done
+    SLICE_X73Y203        LUT6 (Prop_G6LUT_SLICEM_I3_O)
+                                                      0.100     8.693 f  u_cve2_core/if_stage_i/g_rf_flops[31].rf_reg_q[31][31]_i_13/O
+                         net (fo=10, routed)          0.296     8.990    u_cve2_core/id_stage_i/controller_i/counter_q[39]_i_4_0
+    SLICE_X76Y207        LUT6 (Prop_H6LUT_SLICEL_I4_O)
+                                                      0.051     9.041 r  u_cve2_core/id_stage_i/controller_i/ctrl_fsm_cs[3]_i_14/O
+                         net (fo=15, routed)          0.263     9.304    u_cve2_core/if_stage_i/instr_addr_q_reg[1]_4
+    SLICE_X76Y215        LUT6 (Prop_G6LUT_SLICEL_I2_O)
+                                                      0.035     9.339 f  u_cve2_core/if_stage_i/counter_upd_i_40__0/O
+                         net (fo=103, routed)         0.541     9.879    u_cve2_core/if_stage_i/counter_upd_i_40__0_n_0
+    SLICE_X82Y230        LUT5 (Prop_F6LUT_SLICEL_I4_O)
+                                                      0.049     9.928 r  u_cve2_core/if_stage_i/counter_upd_i_2__4/O
+                         net (fo=2, routed)           0.318    10.246    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/OPMODE[1]
+    DSP48E2_X10Y92       DSP_ALU (Prop_DSP_ALU_DSP48E2_OPMODE[1]_ALU_OUT[29])
+                                                      0.790    11.036 f  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU_INST/ALU_OUT[29]
+                         net (fo=1, routed)           0.000    11.036    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU.ALU_OUT<29>
+    DSP48E2_X10Y92       DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[29]_P[29])
+                                                      0.109    11.145 r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_OUTPUT_INST/P[29]
+                         net (fo=1, routed)           0.426    11.571    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd_n_76
+    SLICE_X83Y233        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[29]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk_pl_0 rise edge)
+                                                     10.000    10.000 r  
+    PS8_X0Y0             PS8                          0.000    10.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.143    10.143    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.025    10.168 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.736    11.904    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/pl_clk0
+    SLICE_X83Y233        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[29]/C
+                         clock pessimism              0.172    12.076    
+                         clock uncertainty           -0.130    11.946    
+    SLICE_X83Y233        FDRE (Setup_CFF_SLICEM_C_D)
+                                                      0.025    11.971    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[29]
+  -------------------------------------------------------------------
+                         required time                         11.971    
+                         arrival time                         -11.571    
+  -------------------------------------------------------------------
+                         slack                                  0.399    
+
+Slack (MET) :             0.403ns  (required time - arrival time)
+  Source:                 u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+                            (rising edge-triggered cell FDCE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_cve2_core/cs_registers_i/gen_cntrs[3].gen_imp.mcounters_variable_i/counter_q_reg[30]/D
+                            (rising edge-triggered cell FDRE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk_pl_0
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk_pl_0 rise@10.000ns - clk_pl_0 rise@0.000ns)
+  Data Path Delay:        9.400ns  (logic 4.846ns (51.551%)  route 4.554ns (48.449%))
+  Logic Levels:           23  (DSP_A_B_DATA=1 DSP_ALU=4 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=4 DSP_PREADD_DATA=1 LUT3=1 LUT5=1 LUT6=8 MUXF7=1)
+  Clock Path Skew:        -0.092ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.901ns = ( 11.901 - 10.000 ) 
+    Source Clock Delay      (SCD):    2.165ns
+    Clock Pessimism Removal (CPR):    0.172ns
+  Clock Uncertainty:      0.130ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.250ns
+    Phase Error              (PE):    0.000ns
+  Clock Net Delay (Source):      1.957ns (routing 0.569ns, distribution 1.388ns)
+  Clock Net Delay (Destination): 1.733ns (routing 0.512ns, distribution 1.221ns)
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk_pl_0 rise edge)
+                                                      0.000     0.000 r  
+    PS8_X0Y0             PS8                          0.000     0.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.180     0.180    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.028     0.208 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.957     2.165    u_cve2_core/if_stage_i/pl_clk0
+    SLICE_X75Y202        FDCE                                         r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X75Y202        FDCE (Prop_DFF_SLICEL_C_Q)
+                                                      0.079     2.244 r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/Q
+                         net (fo=140, routed)         0.541     2.785    u_cve2_core/register_file_i/Q[7]
+    SLICE_X73Y195        MUXF7 (Prop_F7MUX_CD_SLICEM_S_O)
+                                                      0.077     2.862 f  u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3/O
+                         net (fo=1, routed)           0.496     3.358    u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3_n_0
+    SLICE_X79Y195        LUT6 (Prop_G6LUT_SLICEM_I1_O)
+                                                      0.090     3.448 f  u_cve2_core/register_file_i/act_scale_hi_q[21]_i_1/O
+                         net (fo=9, routed)           0.213     3.661    u_cve2_core/vec_unit_i/rf_rdata_b[21]
+    SLICE_X79Y190        LUT3 (Prop_F6LUT_SLICEM_I1_O)
+                                                      0.098     3.759 f  u_cve2_core/vec_unit_i/gen_mult_single_cycle.mult2_res_i_12/O
+                         net (fo=4, routed)           0.367     4.126    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/B[5]
+    DSP48E2_X9Y75        DSP_A_B_DATA (Prop_DSP_A_B_DATA_DSP48E2_B[5]_B2_DATA[5])
+                                                      0.151     4.277 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA_INST/B2_DATA[5]
+                         net (fo=1, routed)           0.000     4.277    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA.B2_DATA<5>
+    DSP48E2_X9Y75        DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_DSP48E2_B2_DATA[5]_B2B1[5])
+                                                      0.073     4.350 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA_INST/B2B1[5]
+                         net (fo=1, routed)           0.000     4.350    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA.B2B1<5>
+    DSP48E2_X9Y75        DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_DSP48E2_B2B1[5]_V[35])
+                                                      0.609     4.959 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER_INST/V[35]
+                         net (fo=1, routed)           0.000     4.959    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER.V<35>
+    DSP48E2_X9Y75        DSP_M_DATA (Prop_DSP_M_DATA_DSP48E2_V[35]_V_DATA[35])
+                                                      0.046     5.005 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA_INST/V_DATA[35]
+                         net (fo=1, routed)           0.000     5.005    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA.V_DATA<35>
+    DSP48E2_X9Y75        DSP_ALU (Prop_DSP_ALU_DSP48E2_V_DATA[35]_ALU_OUT[47])
+                                                      0.571     5.576 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     5.576    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y75        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     5.698 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.038     5.736    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/PCIN[47]
+    DSP48E2_X9Y76        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[47])
+                                                      0.546     6.282 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     6.282    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y76        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     6.404 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.014     6.418    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/PCIN[47]
+    DSP48E2_X9Y77        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[0])
+                                                      0.546     6.964 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, routed)           0.000     6.964    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU.ALU_OUT<0>
+    DSP48E2_X9Y77        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[0]_P[0])
+                                                      0.109     7.073 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_OUTPUT_INST/P[0]
+                         net (fo=4, routed)           0.278     7.351    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][31]_0[0]
+    SLICE_X74Y188        LUT6 (Prop_C6LUT_SLICEM_I3_O)
+                                                      0.088     7.439 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240/O
+                         net (fo=1, routed)           0.149     7.588    u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240_n_0
+    SLICE_X73Y190        LUT6 (Prop_C6LUT_SLICEM_I0_O)
+                                                      0.098     7.686 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_189/O
+                         net (fo=3, routed)           0.150     7.835    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][0]
+    SLICE_X71Y191        LUT6 (Prop_D6LUT_SLICEM_I1_O)
+                                                      0.088     7.923 r  u_cve2_core/if_stage_i/FSM_sequential_state_q[2]_i_16/O
+                         net (fo=2, routed)           0.196     8.119    u_cve2_core/vec_unit_i/i_vrf/program_ram_reg_mux_sel_a_pos_3_0
+    SLICE_X72Y191        LUT6 (Prop_G6LUT_SLICEL_I3_O)
+                                                      0.149     8.268 r  u_cve2_core/vec_unit_i/i_vrf/g_rf_flops[31].rf_reg_q[31][31]_i_31/O
+                         net (fo=2, routed)           0.325     8.593    u_cve2_core/if_stage_i/vec_done
+    SLICE_X73Y203        LUT6 (Prop_G6LUT_SLICEM_I3_O)
+                                                      0.100     8.693 f  u_cve2_core/if_stage_i/g_rf_flops[31].rf_reg_q[31][31]_i_13/O
+                         net (fo=10, routed)          0.296     8.990    u_cve2_core/id_stage_i/controller_i/counter_q[39]_i_4_0
+    SLICE_X76Y207        LUT6 (Prop_H6LUT_SLICEL_I4_O)
+                                                      0.051     9.041 r  u_cve2_core/id_stage_i/controller_i/ctrl_fsm_cs[3]_i_14/O
+                         net (fo=15, routed)          0.263     9.304    u_cve2_core/if_stage_i/instr_addr_q_reg[1]_4
+    SLICE_X76Y215        LUT6 (Prop_G6LUT_SLICEL_I2_O)
+                                                      0.035     9.339 f  u_cve2_core/if_stage_i/counter_upd_i_40__0/O
+                         net (fo=103, routed)         0.285     9.623    u_cve2_core/if_stage_i/counter_upd_i_40__0_n_0
+    SLICE_X77Y220        LUT5 (Prop_H6LUT_SLICEL_I4_O)
+                                                      0.099     9.722 r  u_cve2_core/if_stage_i/counter_upd_i_2__1/O
+                         net (fo=2, routed)           0.416    10.138    u_cve2_core/cs_registers_i/gen_cntrs[3].gen_imp.mcounters_variable_i/counter_upd/OPMODE[1]
+    DSP48E2_X9Y92        DSP_ALU (Prop_DSP_ALU_DSP48E2_OPMODE[1]_ALU_OUT[30])
+                                                      0.790    10.928 f  u_cve2_core/cs_registers_i/gen_cntrs[3].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU_INST/ALU_OUT[30]
+                         net (fo=1, routed)           0.000    10.928    u_cve2_core/cs_registers_i/gen_cntrs[3].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU.ALU_OUT<30>
+    DSP48E2_X9Y92        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[30]_P[30])
+                                                      0.109    11.037 r  u_cve2_core/cs_registers_i/gen_cntrs[3].gen_imp.mcounters_variable_i/counter_upd/DSP_OUTPUT_INST/P[30]
+                         net (fo=1, routed)           0.528    11.565    u_cve2_core/cs_registers_i/gen_cntrs[3].gen_imp.mcounters_variable_i/counter_upd_n_75
+    SLICE_X78Y233        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[3].gen_imp.mcounters_variable_i/counter_q_reg[30]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk_pl_0 rise edge)
+                                                     10.000    10.000 r  
+    PS8_X0Y0             PS8                          0.000    10.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.143    10.143    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.025    10.168 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.733    11.901    u_cve2_core/cs_registers_i/gen_cntrs[3].gen_imp.mcounters_variable_i/pl_clk0
+    SLICE_X78Y233        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[3].gen_imp.mcounters_variable_i/counter_q_reg[30]/C
+                         clock pessimism              0.172    12.073    
+                         clock uncertainty           -0.130    11.943    
+    SLICE_X78Y233        FDRE (Setup_DFF_SLICEM_C_D)
+                                                      0.025    11.968    u_cve2_core/cs_registers_i/gen_cntrs[3].gen_imp.mcounters_variable_i/counter_q_reg[30]
+  -------------------------------------------------------------------
+                         required time                         11.968    
+                         arrival time                         -11.565    
+  -------------------------------------------------------------------
+                         slack                                  0.403    
+
+Slack (MET) :             0.405ns  (required time - arrival time)
+  Source:                 u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+                            (rising edge-triggered cell FDCE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[14]/D
+                            (rising edge-triggered cell FDRE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk_pl_0
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk_pl_0 rise@10.000ns - clk_pl_0 rise@0.000ns)
+  Data Path Delay:        9.399ns  (logic 4.796ns (51.025%)  route 4.603ns (48.975%))
+  Logic Levels:           23  (DSP_A_B_DATA=1 DSP_ALU=4 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=4 DSP_PREADD_DATA=1 LUT3=1 LUT5=1 LUT6=8 MUXF7=1)
+  Clock Path Skew:        -0.090ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.903ns = ( 11.903 - 10.000 ) 
+    Source Clock Delay      (SCD):    2.165ns
+    Clock Pessimism Removal (CPR):    0.172ns
+  Clock Uncertainty:      0.130ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.250ns
+    Phase Error              (PE):    0.000ns
+  Clock Net Delay (Source):      1.957ns (routing 0.569ns, distribution 1.388ns)
+  Clock Net Delay (Destination): 1.735ns (routing 0.512ns, distribution 1.223ns)
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk_pl_0 rise edge)
+                                                      0.000     0.000 r  
+    PS8_X0Y0             PS8                          0.000     0.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.180     0.180    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.028     0.208 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.957     2.165    u_cve2_core/if_stage_i/pl_clk0
+    SLICE_X75Y202        FDCE                                         r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X75Y202        FDCE (Prop_DFF_SLICEL_C_Q)
+                                                      0.079     2.244 r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/Q
+                         net (fo=140, routed)         0.541     2.785    u_cve2_core/register_file_i/Q[7]
+    SLICE_X73Y195        MUXF7 (Prop_F7MUX_CD_SLICEM_S_O)
+                                                      0.077     2.862 f  u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3/O
+                         net (fo=1, routed)           0.496     3.358    u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3_n_0
+    SLICE_X79Y195        LUT6 (Prop_G6LUT_SLICEM_I1_O)
+                                                      0.090     3.448 f  u_cve2_core/register_file_i/act_scale_hi_q[21]_i_1/O
+                         net (fo=9, routed)           0.213     3.661    u_cve2_core/vec_unit_i/rf_rdata_b[21]
+    SLICE_X79Y190        LUT3 (Prop_F6LUT_SLICEM_I1_O)
+                                                      0.098     3.759 f  u_cve2_core/vec_unit_i/gen_mult_single_cycle.mult2_res_i_12/O
+                         net (fo=4, routed)           0.367     4.126    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/B[5]
+    DSP48E2_X9Y75        DSP_A_B_DATA (Prop_DSP_A_B_DATA_DSP48E2_B[5]_B2_DATA[5])
+                                                      0.151     4.277 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA_INST/B2_DATA[5]
+                         net (fo=1, routed)           0.000     4.277    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA.B2_DATA<5>
+    DSP48E2_X9Y75        DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_DSP48E2_B2_DATA[5]_B2B1[5])
+                                                      0.073     4.350 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA_INST/B2B1[5]
+                         net (fo=1, routed)           0.000     4.350    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA.B2B1<5>
+    DSP48E2_X9Y75        DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_DSP48E2_B2B1[5]_V[35])
+                                                      0.609     4.959 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER_INST/V[35]
+                         net (fo=1, routed)           0.000     4.959    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER.V<35>
+    DSP48E2_X9Y75        DSP_M_DATA (Prop_DSP_M_DATA_DSP48E2_V[35]_V_DATA[35])
+                                                      0.046     5.005 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA_INST/V_DATA[35]
+                         net (fo=1, routed)           0.000     5.005    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA.V_DATA<35>
+    DSP48E2_X9Y75        DSP_ALU (Prop_DSP_ALU_DSP48E2_V_DATA[35]_ALU_OUT[47])
+                                                      0.571     5.576 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     5.576    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y75        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     5.698 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.038     5.736    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/PCIN[47]
+    DSP48E2_X9Y76        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[47])
+                                                      0.546     6.282 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     6.282    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y76        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     6.404 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.014     6.418    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/PCIN[47]
+    DSP48E2_X9Y77        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[0])
+                                                      0.546     6.964 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, routed)           0.000     6.964    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU.ALU_OUT<0>
+    DSP48E2_X9Y77        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[0]_P[0])
+                                                      0.109     7.073 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_OUTPUT_INST/P[0]
+                         net (fo=4, routed)           0.278     7.351    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][31]_0[0]
+    SLICE_X74Y188        LUT6 (Prop_C6LUT_SLICEM_I3_O)
+                                                      0.088     7.439 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240/O
+                         net (fo=1, routed)           0.149     7.588    u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240_n_0
+    SLICE_X73Y190        LUT6 (Prop_C6LUT_SLICEM_I0_O)
+                                                      0.098     7.686 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_189/O
+                         net (fo=3, routed)           0.150     7.835    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][0]
+    SLICE_X71Y191        LUT6 (Prop_D6LUT_SLICEM_I1_O)
+                                                      0.088     7.923 r  u_cve2_core/if_stage_i/FSM_sequential_state_q[2]_i_16/O
+                         net (fo=2, routed)           0.196     8.119    u_cve2_core/vec_unit_i/i_vrf/program_ram_reg_mux_sel_a_pos_3_0
+    SLICE_X72Y191        LUT6 (Prop_G6LUT_SLICEL_I3_O)
+                                                      0.149     8.268 r  u_cve2_core/vec_unit_i/i_vrf/g_rf_flops[31].rf_reg_q[31][31]_i_31/O
+                         net (fo=2, routed)           0.325     8.593    u_cve2_core/if_stage_i/vec_done
+    SLICE_X73Y203        LUT6 (Prop_G6LUT_SLICEM_I3_O)
+                                                      0.100     8.693 f  u_cve2_core/if_stage_i/g_rf_flops[31].rf_reg_q[31][31]_i_13/O
+                         net (fo=10, routed)          0.296     8.990    u_cve2_core/id_stage_i/controller_i/counter_q[39]_i_4_0
+    SLICE_X76Y207        LUT6 (Prop_H6LUT_SLICEL_I4_O)
+                                                      0.051     9.041 r  u_cve2_core/id_stage_i/controller_i/ctrl_fsm_cs[3]_i_14/O
+                         net (fo=15, routed)          0.263     9.304    u_cve2_core/if_stage_i/instr_addr_q_reg[1]_4
+    SLICE_X76Y215        LUT6 (Prop_G6LUT_SLICEL_I2_O)
+                                                      0.035     9.339 f  u_cve2_core/if_stage_i/counter_upd_i_40__0/O
+                         net (fo=103, routed)         0.541     9.879    u_cve2_core/if_stage_i/counter_upd_i_40__0_n_0
+    SLICE_X82Y230        LUT5 (Prop_F6LUT_SLICEL_I4_O)
+                                                      0.049     9.928 r  u_cve2_core/if_stage_i/counter_upd_i_2__4/O
+                         net (fo=2, routed)           0.318    10.246    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/OPMODE[1]
+    DSP48E2_X10Y92       DSP_ALU (Prop_DSP_ALU_DSP48E2_OPMODE[1]_ALU_OUT[14])
+                                                      0.790    11.036 f  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU_INST/ALU_OUT[14]
+                         net (fo=1, routed)           0.000    11.036    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU.ALU_OUT<14>
+    DSP48E2_X10Y92       DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[14]_P[14])
+                                                      0.109    11.145 r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_OUTPUT_INST/P[14]
+                         net (fo=1, routed)           0.419    11.564    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd_n_91
+    SLICE_X83Y230        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[14]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk_pl_0 rise edge)
+                                                     10.000    10.000 r  
+    PS8_X0Y0             PS8                          0.000    10.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.143    10.143    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.025    10.168 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.735    11.903    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/pl_clk0
+    SLICE_X83Y230        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[14]/C
+                         clock pessimism              0.172    12.075    
+                         clock uncertainty           -0.130    11.945    
+    SLICE_X83Y230        FDRE (Setup_CFF_SLICEM_C_D)
+                                                      0.025    11.970    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[14]
+  -------------------------------------------------------------------
+                         required time                         11.970    
+                         arrival time                         -11.564    
+  -------------------------------------------------------------------
+                         slack                                  0.405    
+
+Slack (MET) :             0.412ns  (required time - arrival time)
+  Source:                 u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+                            (rising edge-triggered cell FDCE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[10]/D
+                            (rising edge-triggered cell FDRE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk_pl_0
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk_pl_0 rise@10.000ns - clk_pl_0 rise@0.000ns)
+  Data Path Delay:        9.392ns  (logic 4.796ns (51.063%)  route 4.596ns (48.937%))
+  Logic Levels:           23  (DSP_A_B_DATA=1 DSP_ALU=4 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=4 DSP_PREADD_DATA=1 LUT3=1 LUT5=1 LUT6=8 MUXF7=1)
+  Clock Path Skew:        -0.090ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.903ns = ( 11.903 - 10.000 ) 
+    Source Clock Delay      (SCD):    2.165ns
+    Clock Pessimism Removal (CPR):    0.172ns
+  Clock Uncertainty:      0.130ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.250ns
+    Phase Error              (PE):    0.000ns
+  Clock Net Delay (Source):      1.957ns (routing 0.569ns, distribution 1.388ns)
+  Clock Net Delay (Destination): 1.735ns (routing 0.512ns, distribution 1.223ns)
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk_pl_0 rise edge)
+                                                      0.000     0.000 r  
+    PS8_X0Y0             PS8                          0.000     0.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.180     0.180    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.028     0.208 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.957     2.165    u_cve2_core/if_stage_i/pl_clk0
+    SLICE_X75Y202        FDCE                                         r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X75Y202        FDCE (Prop_DFF_SLICEL_C_Q)
+                                                      0.079     2.244 r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/Q
+                         net (fo=140, routed)         0.541     2.785    u_cve2_core/register_file_i/Q[7]
+    SLICE_X73Y195        MUXF7 (Prop_F7MUX_CD_SLICEM_S_O)
+                                                      0.077     2.862 f  u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3/O
+                         net (fo=1, routed)           0.496     3.358    u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3_n_0
+    SLICE_X79Y195        LUT6 (Prop_G6LUT_SLICEM_I1_O)
+                                                      0.090     3.448 f  u_cve2_core/register_file_i/act_scale_hi_q[21]_i_1/O
+                         net (fo=9, routed)           0.213     3.661    u_cve2_core/vec_unit_i/rf_rdata_b[21]
+    SLICE_X79Y190        LUT3 (Prop_F6LUT_SLICEM_I1_O)
+                                                      0.098     3.759 f  u_cve2_core/vec_unit_i/gen_mult_single_cycle.mult2_res_i_12/O
+                         net (fo=4, routed)           0.367     4.126    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/B[5]
+    DSP48E2_X9Y75        DSP_A_B_DATA (Prop_DSP_A_B_DATA_DSP48E2_B[5]_B2_DATA[5])
+                                                      0.151     4.277 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA_INST/B2_DATA[5]
+                         net (fo=1, routed)           0.000     4.277    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA.B2_DATA<5>
+    DSP48E2_X9Y75        DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_DSP48E2_B2_DATA[5]_B2B1[5])
+                                                      0.073     4.350 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA_INST/B2B1[5]
+                         net (fo=1, routed)           0.000     4.350    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA.B2B1<5>
+    DSP48E2_X9Y75        DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_DSP48E2_B2B1[5]_V[35])
+                                                      0.609     4.959 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER_INST/V[35]
+                         net (fo=1, routed)           0.000     4.959    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER.V<35>
+    DSP48E2_X9Y75        DSP_M_DATA (Prop_DSP_M_DATA_DSP48E2_V[35]_V_DATA[35])
+                                                      0.046     5.005 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA_INST/V_DATA[35]
+                         net (fo=1, routed)           0.000     5.005    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA.V_DATA<35>
+    DSP48E2_X9Y75        DSP_ALU (Prop_DSP_ALU_DSP48E2_V_DATA[35]_ALU_OUT[47])
+                                                      0.571     5.576 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     5.576    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y75        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     5.698 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.038     5.736    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/PCIN[47]
+    DSP48E2_X9Y76        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[47])
+                                                      0.546     6.282 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     6.282    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y76        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     6.404 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.014     6.418    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/PCIN[47]
+    DSP48E2_X9Y77        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[0])
+                                                      0.546     6.964 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, routed)           0.000     6.964    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU.ALU_OUT<0>
+    DSP48E2_X9Y77        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[0]_P[0])
+                                                      0.109     7.073 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_OUTPUT_INST/P[0]
+                         net (fo=4, routed)           0.278     7.351    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][31]_0[0]
+    SLICE_X74Y188        LUT6 (Prop_C6LUT_SLICEM_I3_O)
+                                                      0.088     7.439 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240/O
+                         net (fo=1, routed)           0.149     7.588    u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240_n_0
+    SLICE_X73Y190        LUT6 (Prop_C6LUT_SLICEM_I0_O)
+                                                      0.098     7.686 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_189/O
+                         net (fo=3, routed)           0.150     7.835    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][0]
+    SLICE_X71Y191        LUT6 (Prop_D6LUT_SLICEM_I1_O)
+                                                      0.088     7.923 r  u_cve2_core/if_stage_i/FSM_sequential_state_q[2]_i_16/O
+                         net (fo=2, routed)           0.196     8.119    u_cve2_core/vec_unit_i/i_vrf/program_ram_reg_mux_sel_a_pos_3_0
+    SLICE_X72Y191        LUT6 (Prop_G6LUT_SLICEL_I3_O)
+                                                      0.149     8.268 r  u_cve2_core/vec_unit_i/i_vrf/g_rf_flops[31].rf_reg_q[31][31]_i_31/O
+                         net (fo=2, routed)           0.325     8.593    u_cve2_core/if_stage_i/vec_done
+    SLICE_X73Y203        LUT6 (Prop_G6LUT_SLICEM_I3_O)
+                                                      0.100     8.693 f  u_cve2_core/if_stage_i/g_rf_flops[31].rf_reg_q[31][31]_i_13/O
+                         net (fo=10, routed)          0.296     8.990    u_cve2_core/id_stage_i/controller_i/counter_q[39]_i_4_0
+    SLICE_X76Y207        LUT6 (Prop_H6LUT_SLICEL_I4_O)
+                                                      0.051     9.041 r  u_cve2_core/id_stage_i/controller_i/ctrl_fsm_cs[3]_i_14/O
+                         net (fo=15, routed)          0.263     9.304    u_cve2_core/if_stage_i/instr_addr_q_reg[1]_4
+    SLICE_X76Y215        LUT6 (Prop_G6LUT_SLICEL_I2_O)
+                                                      0.035     9.339 f  u_cve2_core/if_stage_i/counter_upd_i_40__0/O
+                         net (fo=103, routed)         0.541     9.879    u_cve2_core/if_stage_i/counter_upd_i_40__0_n_0
+    SLICE_X82Y230        LUT5 (Prop_F6LUT_SLICEL_I4_O)
+                                                      0.049     9.928 r  u_cve2_core/if_stage_i/counter_upd_i_2__4/O
+                         net (fo=2, routed)           0.318    10.246    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/OPMODE[1]
+    DSP48E2_X10Y92       DSP_ALU (Prop_DSP_ALU_DSP48E2_OPMODE[1]_ALU_OUT[10])
+                                                      0.790    11.036 f  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU_INST/ALU_OUT[10]
+                         net (fo=1, routed)           0.000    11.036    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU.ALU_OUT<10>
+    DSP48E2_X10Y92       DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[10]_P[10])
+                                                      0.109    11.145 r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_OUTPUT_INST/P[10]
+                         net (fo=1, routed)           0.412    11.557    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd_n_95
+    SLICE_X83Y231        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[10]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk_pl_0 rise edge)
+                                                     10.000    10.000 r  
+    PS8_X0Y0             PS8                          0.000    10.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.143    10.143    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.025    10.168 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.735    11.903    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/pl_clk0
+    SLICE_X83Y231        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[10]/C
+                         clock pessimism              0.172    12.075    
+                         clock uncertainty           -0.130    11.945    
+    SLICE_X83Y231        FDRE (Setup_HFF2_SLICEM_C_D)
+                                                      0.025    11.970    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[10]
+  -------------------------------------------------------------------
+                         required time                         11.970    
+                         arrival time                         -11.557    
+  -------------------------------------------------------------------
+                         slack                                  0.412    
+
+Slack (MET) :             0.416ns  (required time - arrival time)
+  Source:                 u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+                            (rising edge-triggered cell FDCE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[34]/D
+                            (rising edge-triggered cell FDRE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk_pl_0
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk_pl_0 rise@10.000ns - clk_pl_0 rise@0.000ns)
+  Data Path Delay:        9.389ns  (logic 4.796ns (51.079%)  route 4.593ns (48.921%))
+  Logic Levels:           23  (DSP_A_B_DATA=1 DSP_ALU=4 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=4 DSP_PREADD_DATA=1 LUT3=1 LUT5=1 LUT6=8 MUXF7=1)
+  Clock Path Skew:        -0.089ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.904ns = ( 11.904 - 10.000 ) 
+    Source Clock Delay      (SCD):    2.165ns
+    Clock Pessimism Removal (CPR):    0.172ns
+  Clock Uncertainty:      0.130ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.250ns
+    Phase Error              (PE):    0.000ns
+  Clock Net Delay (Source):      1.957ns (routing 0.569ns, distribution 1.388ns)
+  Clock Net Delay (Destination): 1.736ns (routing 0.512ns, distribution 1.224ns)
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk_pl_0 rise edge)
+                                                      0.000     0.000 r  
+    PS8_X0Y0             PS8                          0.000     0.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.180     0.180    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.028     0.208 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.957     2.165    u_cve2_core/if_stage_i/pl_clk0
+    SLICE_X75Y202        FDCE                                         r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X75Y202        FDCE (Prop_DFF_SLICEL_C_Q)
+                                                      0.079     2.244 r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/Q
+                         net (fo=140, routed)         0.541     2.785    u_cve2_core/register_file_i/Q[7]
+    SLICE_X73Y195        MUXF7 (Prop_F7MUX_CD_SLICEM_S_O)
+                                                      0.077     2.862 f  u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3/O
+                         net (fo=1, routed)           0.496     3.358    u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3_n_0
+    SLICE_X79Y195        LUT6 (Prop_G6LUT_SLICEM_I1_O)
+                                                      0.090     3.448 f  u_cve2_core/register_file_i/act_scale_hi_q[21]_i_1/O
+                         net (fo=9, routed)           0.213     3.661    u_cve2_core/vec_unit_i/rf_rdata_b[21]
+    SLICE_X79Y190        LUT3 (Prop_F6LUT_SLICEM_I1_O)
+                                                      0.098     3.759 f  u_cve2_core/vec_unit_i/gen_mult_single_cycle.mult2_res_i_12/O
+                         net (fo=4, routed)           0.367     4.126    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/B[5]
+    DSP48E2_X9Y75        DSP_A_B_DATA (Prop_DSP_A_B_DATA_DSP48E2_B[5]_B2_DATA[5])
+                                                      0.151     4.277 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA_INST/B2_DATA[5]
+                         net (fo=1, routed)           0.000     4.277    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA.B2_DATA<5>
+    DSP48E2_X9Y75        DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_DSP48E2_B2_DATA[5]_B2B1[5])
+                                                      0.073     4.350 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA_INST/B2B1[5]
+                         net (fo=1, routed)           0.000     4.350    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA.B2B1<5>
+    DSP48E2_X9Y75        DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_DSP48E2_B2B1[5]_V[35])
+                                                      0.609     4.959 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER_INST/V[35]
+                         net (fo=1, routed)           0.000     4.959    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER.V<35>
+    DSP48E2_X9Y75        DSP_M_DATA (Prop_DSP_M_DATA_DSP48E2_V[35]_V_DATA[35])
+                                                      0.046     5.005 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA_INST/V_DATA[35]
+                         net (fo=1, routed)           0.000     5.005    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA.V_DATA<35>
+    DSP48E2_X9Y75        DSP_ALU (Prop_DSP_ALU_DSP48E2_V_DATA[35]_ALU_OUT[47])
+                                                      0.571     5.576 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     5.576    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y75        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     5.698 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.038     5.736    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/PCIN[47]
+    DSP48E2_X9Y76        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[47])
+                                                      0.546     6.282 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     6.282    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y76        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     6.404 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.014     6.418    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/PCIN[47]
+    DSP48E2_X9Y77        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[0])
+                                                      0.546     6.964 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, routed)           0.000     6.964    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU.ALU_OUT<0>
+    DSP48E2_X9Y77        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[0]_P[0])
+                                                      0.109     7.073 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_OUTPUT_INST/P[0]
+                         net (fo=4, routed)           0.278     7.351    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][31]_0[0]
+    SLICE_X74Y188        LUT6 (Prop_C6LUT_SLICEM_I3_O)
+                                                      0.088     7.439 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240/O
+                         net (fo=1, routed)           0.149     7.588    u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240_n_0
+    SLICE_X73Y190        LUT6 (Prop_C6LUT_SLICEM_I0_O)
+                                                      0.098     7.686 f  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_189/O
+                         net (fo=3, routed)           0.150     7.835    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][0]
+    SLICE_X71Y191        LUT6 (Prop_D6LUT_SLICEM_I1_O)
+                                                      0.088     7.923 r  u_cve2_core/if_stage_i/FSM_sequential_state_q[2]_i_16/O
+                         net (fo=2, routed)           0.196     8.119    u_cve2_core/vec_unit_i/i_vrf/program_ram_reg_mux_sel_a_pos_3_0
+    SLICE_X72Y191        LUT6 (Prop_G6LUT_SLICEL_I3_O)
+                                                      0.149     8.268 r  u_cve2_core/vec_unit_i/i_vrf/g_rf_flops[31].rf_reg_q[31][31]_i_31/O
+                         net (fo=2, routed)           0.325     8.593    u_cve2_core/if_stage_i/vec_done
+    SLICE_X73Y203        LUT6 (Prop_G6LUT_SLICEM_I3_O)
+                                                      0.100     8.693 f  u_cve2_core/if_stage_i/g_rf_flops[31].rf_reg_q[31][31]_i_13/O
+                         net (fo=10, routed)          0.296     8.990    u_cve2_core/id_stage_i/controller_i/counter_q[39]_i_4_0
+    SLICE_X76Y207        LUT6 (Prop_H6LUT_SLICEL_I4_O)
+                                                      0.051     9.041 r  u_cve2_core/id_stage_i/controller_i/ctrl_fsm_cs[3]_i_14/O
+                         net (fo=15, routed)          0.263     9.304    u_cve2_core/if_stage_i/instr_addr_q_reg[1]_4
+    SLICE_X76Y215        LUT6 (Prop_G6LUT_SLICEL_I2_O)
+                                                      0.035     9.339 f  u_cve2_core/if_stage_i/counter_upd_i_40__0/O
+                         net (fo=103, routed)         0.541     9.879    u_cve2_core/if_stage_i/counter_upd_i_40__0_n_0
+    SLICE_X82Y230        LUT5 (Prop_F6LUT_SLICEL_I4_O)
+                                                      0.049     9.928 r  u_cve2_core/if_stage_i/counter_upd_i_2__4/O
+                         net (fo=2, routed)           0.318    10.246    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/OPMODE[1]
+    DSP48E2_X10Y92       DSP_ALU (Prop_DSP_ALU_DSP48E2_OPMODE[1]_ALU_OUT[34])
+                                                      0.790    11.036 f  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU_INST/ALU_OUT[34]
+                         net (fo=1, routed)           0.000    11.036    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU.ALU_OUT<34>
+    DSP48E2_X10Y92       DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[34]_P[34])
+                                                      0.109    11.145 r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd/DSP_OUTPUT_INST/P[34]
+                         net (fo=1, routed)           0.409    11.554    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_upd_n_71
+    SLICE_X83Y234        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[34]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk_pl_0 rise edge)
+                                                     10.000    10.000 r  
+    PS8_X0Y0             PS8                          0.000    10.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.143    10.143    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.025    10.168 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.736    11.904    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/pl_clk0
+    SLICE_X83Y234        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[34]/C
+                         clock pessimism              0.172    12.076    
+                         clock uncertainty           -0.130    11.946    
+    SLICE_X83Y234        FDRE (Setup_FFF_SLICEM_C_D)
+                                                      0.025    11.971    u_cve2_core/cs_registers_i/gen_cntrs[6].gen_imp.mcounters_variable_i/counter_q_reg[34]
+  -------------------------------------------------------------------
+                         required time                         11.971    
+                         arrival time                         -11.554    
+  -------------------------------------------------------------------
+                         slack                                  0.416    
+
+Slack (MET) :             0.422ns  (required time - arrival time)
+  Source:                 u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+                            (rising edge-triggered cell FDCE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Destination:            u_cve2_core/cs_registers_i/gen_cntrs[1].gen_imp.mcounters_variable_i/counter_q_reg[24]/D
+                            (rising edge-triggered cell FDRE clocked by clk_pl_0  {rise@0.000ns fall@5.000ns period=10.000ns})
+  Path Group:             clk_pl_0
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            10.000ns  (clk_pl_0 rise@10.000ns - clk_pl_0 rise@0.000ns)
+  Data Path Delay:        9.372ns  (logic 4.799ns (51.204%)  route 4.573ns (48.796%))
+  Logic Levels:           23  (DSP_A_B_DATA=1 DSP_ALU=4 DSP_M_DATA=1 DSP_MULTIPLIER=1 DSP_OUTPUT=4 DSP_PREADD_DATA=1 LUT3=1 LUT6=9 MUXF7=1)
+  Clock Path Skew:        -0.101ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.892ns = ( 11.892 - 10.000 ) 
+    Source Clock Delay      (SCD):    2.165ns
+    Clock Pessimism Removal (CPR):    0.172ns
+  Clock Uncertainty:      0.130ns  ((TSJ^2 + DJ^2)^1/2) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Discrete Jitter          (DJ):    0.250ns
+    Phase Error              (PE):    0.000ns
+  Clock Net Delay (Source):      1.957ns (routing 0.569ns, distribution 1.388ns)
+  Clock Net Delay (Destination): 1.724ns (routing 0.512ns, distribution 1.212ns)
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk_pl_0 rise edge)
+                                                      0.000     0.000 r  
+    PS8_X0Y0             PS8                          0.000     0.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.180     0.180    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.028     0.208 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.957     2.165    u_cve2_core/if_stage_i/pl_clk0
+    SLICE_X75Y202        FDCE                                         r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X75Y202        FDCE (Prop_DFF_SLICEL_C_Q)
+                                                      0.079     2.244 r  u_cve2_core/if_stage_i/instr_rdata_id_o_reg[22]/Q
+                         net (fo=140, routed)         0.541     2.785    u_cve2_core/register_file_i/Q[7]
+    SLICE_X73Y195        MUXF7 (Prop_F7MUX_CD_SLICEM_S_O)
+                                                      0.077     2.862 f  u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3/O
+                         net (fo=1, routed)           0.496     3.358    u_cve2_core/register_file_i/act_scale_hi_q_reg[21]_i_3_n_0
+    SLICE_X79Y195        LUT6 (Prop_G6LUT_SLICEM_I1_O)
+                                                      0.090     3.448 f  u_cve2_core/register_file_i/act_scale_hi_q[21]_i_1/O
+                         net (fo=9, routed)           0.213     3.661    u_cve2_core/vec_unit_i/rf_rdata_b[21]
+    SLICE_X79Y190        LUT3 (Prop_F6LUT_SLICEM_I1_O)
+                                                      0.098     3.759 f  u_cve2_core/vec_unit_i/gen_mult_single_cycle.mult2_res_i_12/O
+                         net (fo=4, routed)           0.367     4.126    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/B[5]
+    DSP48E2_X9Y75        DSP_A_B_DATA (Prop_DSP_A_B_DATA_DSP48E2_B[5]_B2_DATA[5])
+                                                      0.151     4.277 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA_INST/B2_DATA[5]
+                         net (fo=1, routed)           0.000     4.277    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_A_B_DATA.B2_DATA<5>
+    DSP48E2_X9Y75        DSP_PREADD_DATA (Prop_DSP_PREADD_DATA_DSP48E2_B2_DATA[5]_B2B1[5])
+                                                      0.073     4.350 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA_INST/B2B1[5]
+                         net (fo=1, routed)           0.000     4.350    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_PREADD_DATA.B2B1<5>
+    DSP48E2_X9Y75        DSP_MULTIPLIER (Prop_DSP_MULTIPLIER_DSP48E2_B2B1[5]_V[35])
+                                                      0.609     4.959 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER_INST/V[35]
+                         net (fo=1, routed)           0.000     4.959    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_MULTIPLIER.V<35>
+    DSP48E2_X9Y75        DSP_M_DATA (Prop_DSP_M_DATA_DSP48E2_V[35]_V_DATA[35])
+                                                      0.046     5.005 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA_INST/V_DATA[35]
+                         net (fo=1, routed)           0.000     5.005    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_M_DATA.V_DATA<35>
+    DSP48E2_X9Y75        DSP_ALU (Prop_DSP_ALU_DSP48E2_V_DATA[35]_ALU_OUT[47])
+                                                      0.571     5.576 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     5.576    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y75        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     5.698 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/gen_mult_single_cycle.mult2_res/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.038     5.736    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/PCIN[47]
+    DSP48E2_X9Y76        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[47])
+                                                      0.546     6.282 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU_INST/ALU_OUT[47]
+                         net (fo=1, routed)           0.000     6.282    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_ALU.ALU_OUT<47>
+    DSP48E2_X9Y76        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[47]_PCOUT[47])
+                                                      0.122     6.404 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed/DSP_OUTPUT_INST/PCOUT[47]
+                         net (fo=1, routed)           0.014     6.418    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/PCIN[47]
+    DSP48E2_X9Y77        DSP_ALU (Prop_DSP_ALU_DSP48E2_PCIN[47]_ALU_OUT[0])
+                                                      0.546     6.964 f  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU_INST/ALU_OUT[0]
+                         net (fo=1, routed)           0.000     6.964    u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_ALU.ALU_OUT<0>
+    DSP48E2_X9Y77        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[0]_P[0])
+                                                      0.109     7.073 r  u_cve2_core/ex_block_i/gen_multdiv_fast.multdiv_i/mac_res_signed__0/DSP_OUTPUT_INST/P[0]
+                         net (fo=4, routed)           0.278     7.351    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][31]_0[0]
+    SLICE_X74Y188        LUT6 (Prop_C6LUT_SLICEM_I3_O)
+                                                      0.088     7.439 r  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240/O
+                         net (fo=1, routed)           0.149     7.588    u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_240_n_0
+    SLICE_X73Y190        LUT6 (Prop_C6LUT_SLICEM_I0_O)
+                                                      0.098     7.686 r  u_cve2_core/if_stage_i/vrf_mem_reg_1_bram_0_i_189/O
+                         net (fo=3, routed)           0.150     7.835    u_cve2_core/if_stage_i/gen_intermediate_val_reg[0].imd_val_q_reg[0][0]
+    SLICE_X71Y191        LUT6 (Prop_D6LUT_SLICEM_I1_O)
+                                                      0.088     7.923 f  u_cve2_core/if_stage_i/FSM_sequential_state_q[2]_i_16/O
+                         net (fo=2, routed)           0.196     8.119    u_cve2_core/vec_unit_i/i_vrf/program_ram_reg_mux_sel_a_pos_3_0
+    SLICE_X72Y191        LUT6 (Prop_G6LUT_SLICEL_I3_O)
+                                                      0.149     8.268 f  u_cve2_core/vec_unit_i/i_vrf/g_rf_flops[31].rf_reg_q[31][31]_i_31/O
+                         net (fo=2, routed)           0.325     8.593    u_cve2_core/if_stage_i/vec_done
+    SLICE_X73Y203        LUT6 (Prop_G6LUT_SLICEM_I3_O)
+                                                      0.100     8.693 r  u_cve2_core/if_stage_i/g_rf_flops[31].rf_reg_q[31][31]_i_13/O
+                         net (fo=10, routed)          0.296     8.990    u_cve2_core/id_stage_i/controller_i/counter_q[39]_i_4_0
+    SLICE_X76Y207        LUT6 (Prop_H6LUT_SLICEL_I4_O)
+                                                      0.051     9.041 f  u_cve2_core/id_stage_i/controller_i/ctrl_fsm_cs[3]_i_14/O
+                         net (fo=15, routed)          0.263     9.304    u_cve2_core/if_stage_i/instr_addr_q_reg[1]_4
+    SLICE_X76Y215        LUT6 (Prop_G6LUT_SLICEL_I2_O)
+                                                      0.035     9.339 r  u_cve2_core/if_stage_i/counter_upd_i_40__0/O
+                         net (fo=103, routed)         0.426     9.764    u_cve2_core/if_stage_i/counter_upd_i_40__0_n_0
+    SLICE_X73Y227        LUT6 (Prop_G6LUT_SLICEM_I0_O)
+                                                      0.052     9.816 r  u_cve2_core/if_stage_i/gen_cntrs[1].gen_imp.mcounters_variable_i/counter_upd_i_1/O
+                         net (fo=3, routed)           0.365    10.181    u_cve2_core/cs_registers_i/gen_cntrs[1].gen_imp.mcounters_variable_i/counter_upd/OPMODE[5]
+    DSP48E2_X8Y91        DSP_ALU (Prop_DSP_ALU_DSP48E2_OPMODE[5]_ALU_OUT[24])
+                                                      0.790    10.971 f  u_cve2_core/cs_registers_i/gen_cntrs[1].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU_INST/ALU_OUT[24]
+                         net (fo=1, routed)           0.000    10.971    u_cve2_core/cs_registers_i/gen_cntrs[1].gen_imp.mcounters_variable_i/counter_upd/DSP_ALU.ALU_OUT<24>
+    DSP48E2_X8Y91        DSP_OUTPUT (Prop_DSP_OUTPUT_DSP48E2_ALU_OUT[24]_P[24])
+                                                      0.109    11.080 r  u_cve2_core/cs_registers_i/gen_cntrs[1].gen_imp.mcounters_variable_i/counter_upd/DSP_OUTPUT_INST/P[24]
+                         net (fo=1, routed)           0.457    11.537    u_cve2_core/cs_registers_i/gen_cntrs[1].gen_imp.mcounters_variable_i/counter_upd_n_81
+    SLICE_X73Y228        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[1].gen_imp.mcounters_variable_i/counter_q_reg[24]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk_pl_0 rise edge)
+                                                     10.000    10.000 r  
+    PS8_X0Y0             PS8                          0.000    10.000 r  ps_i/zynq_ultra_ps_e_0/inst/PS8_i/PLCLK[0]
+                         net (fo=1, routed)           0.143    10.143    ps_i/zynq_ultra_ps_e_0/inst/pl_clk_unbuffered[0]
+    BUFG_PS_X0Y80        BUFG_PS (Prop_BUFG_PS_I_O)
+                                                      0.025    10.168 r  ps_i/zynq_ultra_ps_e_0/inst/buffer_pl_clk_0.PL_CLK_0_BUFG/O
+    X1Y2 (CLOCK_ROOT)    net (fo=6797, routed)        1.724    11.892    u_cve2_core/cs_registers_i/gen_cntrs[1].gen_imp.mcounters_variable_i/pl_clk0
+    SLICE_X73Y228        FDRE                                         r  u_cve2_core/cs_registers_i/gen_cntrs[1].gen_imp.mcounters_variable_i/counter_q_reg[24]/C
+                         clock pessimism              0.172    12.064    
+                         clock uncertainty           -0.130    11.934    
+    SLICE_X73Y228        FDRE (Setup_HFF_SLICEM_C_D)
+                                                      0.025    11.959    u_cve2_core/cs_registers_i/gen_cntrs[1].gen_imp.mcounters_variable_i/counter_q_reg[24]
+  -------------------------------------------------------------------
+                         required time                         11.959    
+                         arrival time                         -11.537    
+  -------------------------------------------------------------------
+                         slack                                  0.422    
+
+
+
+
