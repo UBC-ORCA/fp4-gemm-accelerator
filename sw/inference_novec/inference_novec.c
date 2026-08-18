@@ -31,15 +31,14 @@
 // Number of K elements per inner block
 #define BS  K1_STEP_HDR
 
-// Read-out multiply where activations are scaled up by 2^rdout_shift[layer]
+// Read-out shift per layer (already in hardware, used for assert)
 static const int rdout_shift[3] = RDOUT_SHIFT_HDR;
-#define BF16_EXP_025  125   // bf16 exponent of 0.25, the LUT's lowest boundary
 
 // Enable performance counters
 #define PERF_COUNTERS
 
 // Enable intermediate UART prints (P|T|M results)
-#define PTM_PRINTS
+// #define PTM_PRINTS
 
 void __assert_func(const char *f,int l,const char *fn,const char *e){
     (void)f;(void)l;(void)fn;(void)e; __builtin_trap();
@@ -68,14 +67,6 @@ static void putdec(uint32_t n) {
     while (i--) putchar_uart(buf[i]);
 }
 
-// Helper to print raw bfloat16 hex values
-static void puthex16(uint16_t val) {
-    const char hex_chars[] = "0123456789ABCDEF";
-    for (int i = 12; i >= 0; i -= 4) {
-        putchar_uart(hex_chars[(val >> i) & 0xF]);
-    }
-}
-
 // =======================================
 // Performance counters (mcycle)
 // =======================================
@@ -92,10 +83,9 @@ static inline uint32_t rdcyc(void) {
 
 static uint64_t pc_imgq;
 static uint64_t pc_gemm[3];
-static uint64_t pc_qact[2];    // hidden read-out + FP4 quantize (readout_fp4)
+static uint64_t pc_qact[2];    // hidden read-out as packed FP4 (readout_fp4)
 static uint64_t pc_argmax;     // final read-out + argmax
 static uint64_t pc_bias[3];
-static uint64_t pc_load[3];    // activation vector loads, inside gemm
 static uint64_t pc_ktile[3];   // do_k_tile loop only, inside gemm
 static uint64_t pc_total;      // whole sample loop, one span, loop control included
 static int      pc_layer;
@@ -168,7 +158,7 @@ static void pc_report(void) {
     pc_line("gemm_2 |", pc_gemm[1]);
     pc_line("gemm_3 |", pc_gemm[2]);
 
-    pc_line("qact_1 |", pc_qact[0]);    // hidden read-out from banks + FP4 quantize
+    pc_line("qact_1 |", pc_qact[0]);    // hidden read-out from banks as packed FP4
     pc_line("qact_2 |", pc_qact[1]);
 
     pc_line("argmax |", pc_argmax);     // final read-out from banks + argmax
@@ -177,10 +167,6 @@ static void pc_report(void) {
     pc_line("bias_2 |", pc_bias[1]);
     pc_line("bias_3 |", pc_bias[2]);
 
-    pc_line("load_1 |", pc_load[0]);    // activation vector loads (subset of gemm)
-    pc_line("load_2 |", pc_load[1]);
-    pc_line("load_3 |", pc_load[2]);
-
     pc_line("ktile_1|", pc_ktile[0]);   // do_k_tile loop only (subset of gemm)
     pc_line("ktile_2|", pc_ktile[1]);
     pc_line("ktile_3|", pc_ktile[2]);
@@ -188,31 +174,30 @@ static void pc_report(void) {
     // widest view is the whole gemm function, narrowest is the do_k_tile loop
     uint64_t gemm_t = pc_gemm[0]  + pc_gemm[1]  + pc_gemm[2];
     uint64_t gemm_k = pc_ktile[0] + pc_ktile[1] + pc_ktile[2];
-    uint64_t load_t = pc_load[0]  + pc_load[1]  + pc_load[2];
     uint64_t bias_t = pc_bias[0]  + pc_bias[1]  + pc_bias[2];
+    uint64_t qact_t = pc_qact[0]  + pc_qact[1];
+    // end to end inference, imgq left out since real inputs arrive as FP4
+    uint64_t infer_t = gemm_t + qact_t + pc_argmax;
 
     print_str("\n[PERF] total cycles over run\n");
     // gemm() only; read-out and argmax sit outside the function
     pc_line("gemm_T |", gemm_t);
     // the MAC datapath on its own
     pc_line("gemm_K |", gemm_k);
-    // activation loads and bias seed, both inside gemm
-    pc_line("load_T |", load_t);
+    // bias seed, inside gemm
     pc_line("bias_T |", bias_t);
-    // rest of gemm: bank select, pointer steps, loop control
-    pc_line("gemm_R |", gemm_t - gemm_k - load_t - bias_t);
-    // total read-out + FP4 quantize
-    pc_line("qact_T |", pc_qact[0] + pc_qact[1]);
+    // total read-out as packed FP4
+    pc_line("qact_T |", qact_t);
+    // end to end inference, the runtime every ratio below is taken over
+    pc_line("infer_T|", infer_t);
+    // whole sample loop for reference, imgq and loop control included
+    pc_line("total  |", pc_total);
 
     // Useful MACs against what the array could have retired in the same cycles
     uint64_t macs = MACS_PER_IMAGE * (uint64_t)N_SAMPLES;
 
     print_str("\n[PERF] MAC utilization\n");
-    // pc_line   ("macs   |", macs);
-    // pc_line   ("units  |", MAC_UNITS);
-    // pc_line   ("cycles |", pc_total);
-    // pc_line   ("peak   |", MAC_UNITS * pc_total);
-    pc_percent("usage  |", macs, MAC_UNITS * pc_total);  // whole sample loop
+    pc_percent("usage  |", macs, MAC_UNITS * infer_t);   // end to end inference
     pc_percent("gemm_U |", macs, MAC_UNITS * gemm_k);    // do_k_tile loop only
 
     // MAC array only, scaling and conversion are not counted
@@ -220,7 +205,7 @@ static void pc_report(void) {
 
     print_str("\n[PERF] flops\n");
     pc_line("flops  |", flops);
-    pc_rate("f/cyc  |", flops, pc_total);   // achieved, whole sample loop
+    pc_rate("f/cyc  |", flops, infer_t);    // achieved, end to end inference
     pc_rate("f/cyc_g|", flops, gemm_k);     // achieved, do_k_tile loop only
     pc_line("f/cyc_p|", PEAK_FLOPS_CYCLE);  // peak the array can sustain
 }
@@ -242,19 +227,15 @@ static void pc_report(void) {
 //   MAC_BIAS(p,v)   MACBIAS  f7=0x0C   seed bf16 v into the cell addressed by p
 //   ACC_BANK(t)     ACCBANK  f7=0x0D   select accumulator bank t
 //   BRAM_RD(rd,p)   BRAMRD   f7=0x0E   read the bram pair at p into register rd
-//   VSETVLI(avl)    vsetvli  OPV=0x57  set vl=avl, e32,m1,ta,ma
-//   VLE32(N,ptr)    vle32.v  0x07      load vl words at ptr -> vN
-//#define VMAC64(N,ptr)  __asm__ volatile(".insn i 0x2b,0x0,x" #N ",%0,0" :: "r"(ptr))
+//   BRAM_RD_FP4(rd,p) BRAMFP4 f7=0x08  read tile/col at p, 8 samples -> packed fp4
+// VMAC64, MAC_AS and MAC_WS stand in as mul cost stubs
 #define VMAC64(N,wgt,act)  __asm__ volatile("mul x0,%0,%1" :: "r"(wgt),"r"(act) )
-//#define MAC_AS(a,b)    __asm__ volatile(".insn r 0x5b,0x0,0x0a, x0,%0,%1" :: "r"(a),"r"(b))
-//#define MAC_WS(a,b)    __asm__ volatile(".insn r 0x5b,0x0,0x0b, x0,%0,%1" :: "r"(a),"r"(b))
 #define MAC_AS(a,b)    __asm__ volatile("mul x0,%0,%1" :: "r"(a),"r"(b))
 #define MAC_WS(a,b)    __asm__ volatile("mul x0,%0,%1" :: "r"(a),"r"(b))
 #define MAC_BIAS(p,v)  __asm__ volatile(".insn r 0x5b,0x0,0x0c, x0,%0,%1" :: "r"(p),"r"(v))
 #define ACC_BANK(t)    __asm__ volatile(".insn r 0x5b,0x0,0x0d, x0,%0,x0" :: "r"(t))
 #define BRAM_RD(rd,p)  __asm__ volatile(".insn r 0x5b,0x0,0x0e, %0,%1,x0" : "=r"(rd) : "r"(p))
-#define VSETVLI(avl)   __asm__ volatile(".insn i 0x57,0x7,x0,%0,0xD0" :: "r"(avl))
-#define VLE32(N,ptr)   __asm__ volatile(".insn i 0x07,0x6,x" #N ",%0,0x20" :: "r"(ptr))
+#define BRAM_RD_FP4(rd,p) __asm__ volatile(".insn r 0x5b,0x0,0x08, %0,%1,x0" : "=r"(rd) : "r"(p))
 
 // Address payload for a bram cell: {tile[10:6], row[5:3], col[2:0]}
 #define BRAM_ADDR(tile, row, col)  (((uint32_t)(tile) << 6) | ((uint32_t)(row) << 3) | (col))
@@ -269,36 +250,6 @@ static inline uint32_t bram_rd(uint32_t tile, uint32_t row, uint32_t col) {
     uint32_t result;
     BRAM_RD(result, BRAM_ADDR(tile, row, col));
     return result;
-}
-
-// =======================================
-// DEBUG CHECKPOINT FUNCTION
-// =======================================
-static void dump_bram_checkpoint(int max_tiles) {
-    print_str("\n=== BRAM STATE CHECKPOINT DUMP ===\n");
-    for (int t = 0; t < max_tiles; t++) {
-        print_str("--- TILE ");
-        putdec(t);
-        print_str(" ---\n");
-        for (int r_pair = 0; r_pair < TT / 2; r_pair++) {
-            print_str("RowPair ");
-            putdec(r_pair);
-            print_str(": ");
-            for (int c = 0; c < TT; c++) {
-                uint32_t pair = bram_rd(t, 2 * r_pair, c);
-                uint16_t lo = (uint16_t)(pair & 0xFFFF);
-                uint16_t hi = (uint16_t)(pair >> 16);
-
-                print_str("[");
-                puthex16(lo);
-                print_str(",");
-                puthex16(hi);
-                print_str("] ");
-            }
-            print_str("\n");
-        }
-    }
-    print_str("=== END BRAM CHECKPOINT DUMP ===\n\n");
 }
 
 // One K block: gen1 style, one MAC per K element, no vector register in the path.
@@ -352,7 +303,7 @@ static void build_pix_lut(void) {
 // Reading the accumulator banks back out
 // =======================================
 
-// Map a bf16 to an unsigned value that compares in the same order (bf16 is sign-magnitude).
+// Map a bf16 to an unsigned value that compares in the same order
 static inline uint16_t bf16_ordered(uint16_t bf16) {
     uint16_t sgn = bf16 & 0x8000;
     uint16_t msk = 0x7FFF + sgn + ((sgn>>15)^1);
@@ -399,60 +350,14 @@ static void argmax(int *predictions, int WH) {
     }
 }
 
-// FP4 E2M1 magnitude codes:  0=0  1=0.5  2=1.0  3=1.5  4=2.0  5=3.0  6=4.0
-enum { FP4_05 = 1, FP4_10 = 2, FP4_15 = 3, FP4_20 = 4, FP4_30 = 5, FP4_40 = 6 };
-
-// Nearest-FP4 rounding grid for a value in [0,4]: index = 2 exp bits << 7 | 7 mantissa.
-static uint8_t bf16_fp4_lut[128 * 4];
-
-static void build_bf16_fp4_lut(void) {
-    int code = 0;                                   // start: value below 0.25 -> 0
-    for (int i = 0; i < 128 * 4; i++) {
-        if (i >= (0 * 128) +  1) { code = FP4_05; } // past 0.25 -> 0.5   (0   / 0.5 boundary)
-        if (i >= (1 * 128) + 64) { code = FP4_10; } // past 0.75 -> 1.0   (0.5 / 1.0 boundary)
-        if (i >= (2 * 128) + 33) { code = FP4_15; } // past 1.25 -> 1.5   (1.0 / 1.5 boundary)
-        if (i >= (2 * 128) + 96) { code = FP4_20; } // past 1.75 -> 2.0   (1.5 / 2.0 boundary)
-        if (i >= (3 * 128) + 33) { code = FP4_30; } // past 2.5  -> 3.0   (2.0 / 3.0 boundary)
-        if (i >= (3 * 128) + 96) { code = FP4_40; } // past 3.5  -> 4.0   (3.0 / 4.0 boundary)
-        bf16_fp4_lut[i] = (uint8_t)code;
-    }
-}
-
-// bf16 activation -> FP4 code
-static inline uint32_t fp4_from_bf16(uint16_t bf16, int lut_floor) {
-    int exp  = (bf16 >> 7) & 0xFF;
-    int sign = (bf16 >> 15) & 1;
-    int code;
-    if (exp < lut_floor) {                 // below LUT floor -> 0
-        code = 0;
-    } else if (exp > 125) {                // |act| >= 0.5 (Hardtanh) -> clamp to top FP4
-        code = FP4_40;
-    } else {                               // scale up by the shift, round via LUT
-        code = bf16_fp4_lut[(((exp - lut_floor) & 3) << 7) | (bf16 & 0x7F)];
-    }
-    if (code == 0) { return 0; }
-    return sign ? (0x8u | code) : (uint32_t)code;
-}
-
-// Read banks and qaunt to FP4 activations
-static void readout_fp4(uint32_t *z, int WH, int shift) {
-    int lut_floor = BF16_EXP_025 - shift;
+// Read banks back out as FP4 activations
+static void readout_fp4(uint32_t *z, int WH) {
     int tiles = (WH + TT - 1) / TT;
     for (int tile = 0; tile < tiles; tile++) {
         int neuron0 = tile * TT;                   // first neuron of this bank
+        #pragma GCC unroll 8 // TT
         for (int col = 0; col < TT; col++) {
-            z[neuron0 + col] = 0;                  // clear this bank's 8 neurons
-        }
-        for (int row = 0; row < TT/2; row++) {
-
-            #pragma GCC unroll 8 // TT
-            for (int col = 0; col < TT; col++) {
-                uint32_t pair   = bram_rd(tile, 2 * row, col);
-                int neuron = neuron0 + col;        // column picks the neuron
-                // the shift is 4 bits per FP4 code times the sample index
-                z[neuron] |= fp4_from_bf16((uint16_t)(pair & 0xFFFF), lut_floor) << (4 * row);          // sample = row
-                z[neuron] |= fp4_from_bf16((uint16_t)(pair >> 16),    lut_floor) << (4 * (row + TT/2)); // sample = row + TT/2
-            }
+            BRAM_RD_FP4(z[neuron0+col], BRAM_ADDR(tile, 0, col));
         }
     }
 }
@@ -539,11 +444,11 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
 
     PC_LAYER(0);
     TIME(pc_gemm[0], gemm(inputs, w1_fp4, bias1_packed, IN_DIM, L1_DIM, wscale1, ascale1));
-    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, rdout_shift[1]));   // feeds layer 2
+    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM));   // feeds layer 2
 
     PC_LAYER(1);
     TIME(pc_gemm[1], gemm(z1_packed, w2_fp4, bias2_packed, L1_DIM, L2_DIM, wscale2, ascale2));
-    TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM, rdout_shift[2]));   // feeds layer 3
+    TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM));   // feeds layer 3
 
     PC_LAYER(2);
     TIME(pc_gemm[2], gemm(z2_packed, w3_fp4, bias3_packed, L2_DIM, OUT_DIM, wscale3, ascale3));
@@ -551,6 +456,7 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
 }
 
 int main(void) {
+    assert(rdout_shift[1] == 3 && rdout_shift[2] == 3);
     // Store one word per pixel for all batch lanes
     static uint32_t image_packed[NVREG*BS];
     // Raw pixels for the whole batch
@@ -558,7 +464,6 @@ int main(void) {
     int predictions[BATCH];
 
     build_pix_lut();
-    build_bf16_fp4_lut();
 
     // Print prediction, truth, and reference format
     #ifdef PTM_PRINTS
