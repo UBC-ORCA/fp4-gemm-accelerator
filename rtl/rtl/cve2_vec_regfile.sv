@@ -37,17 +37,7 @@ module cve2_vec_regfile #(
   input  logic                         we_i,
   input  logic [$clog2(NUM_REGS)-1:0]  waddr_i,
   input  logic [$clog2(VLEN/SEW)-1:0]  welem_i,
-  input  logic [SEW-1:0]               wdata_i,
-
-// --- [stev] ---
-  //----------------------------------------------------------
-  // Dedicated MAC read port
-  //----------------------------------------------------------
-
-  input  logic [$clog2(NUM_REGS)-1:0]  mac_raddr_i,
-  input  logic [$clog2(VLEN/SEW)-1:0]  mac_relem_i,
-  output logic [SEW-1:0]               mac_rdata_o
-// --- [end] ---
+  input  logic [SEW-1:0]               wdata_i
 );
 
   localparam int unsigned LANES   = VLEN / SEW;
@@ -69,21 +59,11 @@ module cve2_vec_regfile #(
   assign raddr2_flat = {raddr2_i, relem2_i};
   assign waddr_flat  = {waddr_i,  welem_i};
 
-// --- [stev] ---
-logic [ADDR_W-1:0] mac_raddr_flat;
-assign mac_raddr_flat = {mac_raddr_i, mac_relem_i};
-// --- [end] ---
-
   // Synchronous data read (2 ports)
   // Don't bother to forward data on read-under-write case (stall instead)
   always_ff @(posedge clk_i) begin
     rdata1_o <= vrf_mem[raddr1_flat];
     rdata2_o <= vrf_mem[raddr2_flat];
-
-// --- [stev] ---
-mac_rdata_o <= vrf_mem[mac_raddr_flat];
-// --- [end] ---
-
   end
 
   // Synchronous element write (1 port)

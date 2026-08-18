@@ -221,6 +221,7 @@ cve2_pkg::mac_op_e cf_req_op_int;
   logic [4:0]  mac_vrf_relem;
 //  logic [2:0]  mac_vrf_relem;
   logic [31:0] mac_vrf_rdata;
+logic mac_vrf_en;
 
 // --- [end] ---
 
@@ -899,7 +900,8 @@ end
 // --- [stev] ---
 .mac_vrf_raddr_o (mac_vrf_raddr),
     .mac_vrf_relem_o (mac_vrf_relem),
-    .mac_vrf_rdata_i (mac_vrf_rdata)
+    .mac_vrf_rdata_i (mac_vrf_rdata),
+.mac_vrf_en_o(mac_vrf_en)
 // --- [end] ---
   );
 
@@ -945,7 +947,8 @@ end
 // --- [stev] ---
 .mac_vrf_raddr_i (mac_vrf_raddr),
     .mac_vrf_relem_i (mac_vrf_relem),
-    .mac_vrf_rdata_o (mac_vrf_rdata)
+    .mac_vrf_rdata_o (mac_vrf_rdata),
+.mac_vrf_en_i(mac_vrf_en)
 // --- [end] ---
   );
 

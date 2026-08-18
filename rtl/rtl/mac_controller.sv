@@ -29,7 +29,8 @@ module mac_controller #(
     input  logic [31:0]                 base_i,
 
     output logic [4:0]                  mac_vrf_raddr_o,
-    output logic [4:0]                  mac_vrf_relem_o, 
+    output logic [4:0]                  mac_vrf_relem_o,
+output logic mac_vrf_en_o, 
     input  logic [31:0]                 mac_vrf_rdata_i, 
 
     // Weight memory interface
@@ -155,7 +156,7 @@ module mac_controller #(
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
             brd_phase_q        <= 1'b0;
-            op_q               <= cve2_pkg::OP_ZZ;
+            op_q               <= cve2_pkg::OP_NONE;
             vs1_q              <= '0;
             weight_blk_q       <= '0; 
             base_q             <= '0; 
@@ -312,6 +313,7 @@ module mac_controller #(
 
         mac_vrf_raddr_o = '0;
         mac_vrf_relem_o = '0;
+	mac_vrf_en_o = 1'b0;
         data_req_o      = 1'b0;
         data_addr_o     = '0;
         data_we_o       = 1'b0;
@@ -389,6 +391,7 @@ module mac_controller #(
                 endcase
 
                 if (op_q == cve2_pkg::OP_VMAC) begin
+		    mac_vrf_en_o    = 1'b1;
                     mac_vrf_raddr_o = mac_vrf_addr;
                     mac_vrf_relem_o = elem_idx;
                     if (!mem_req_sent_q) begin

@@ -71,6 +71,7 @@ module cve2_vec_unit #(
 //input  logic        mac_vrf_re_i,
 input  logic [4:0]  mac_vrf_raddr_i,
 input  logic [4:0]  mac_vrf_relem_i,
+input logic mac_vrf_en_i,
 //input  logic [2:0]  mac_vrf_relem_i,
 
 // From VRF -> CF MAC unit
@@ -154,14 +155,7 @@ output logic [31:0] mac_vrf_rdata_o
     .we_i         (v_we),
     .waddr_i      (v_waddr),
     .welem_i      (v_welem),
-    .wdata_i      (v_wdata),
-
-// --- [stev] ---
- .mac_raddr_i (mac_vrf_raddr_i),
-  .mac_relem_i (mac_vrf_relem_i),
-  .mac_rdata_o (mac_vrf_rdata_o)
-// --- [end] ---
-
+    .wdata_i      (v_wdata)
   );
 
   // ----------------------
@@ -405,7 +399,16 @@ output logic [31:0] mac_vrf_rdata_o
       default: begin
       end
     endcase
+// MAC has priority on VRF read port 1
+  if (mac_vrf_en_i) begin
+    raddr1 = mac_vrf_raddr_i[REG_AW-1:0];
+    relem1       = mac_vrf_relem_i;
   end
+
+  end
+
+// assign directly to first read port
+ assign mac_vrf_rdata_o = v_r1; 
 
   // ----------------------
   // Sequential

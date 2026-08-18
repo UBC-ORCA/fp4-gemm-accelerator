@@ -32,6 +32,7 @@ module cve2_cf_mac_unit
 
     output logic [4:0]                  mac_vrf_raddr_o,
     output logic [4:0]                  mac_vrf_relem_o,
+    output logic mac_vrf_en_o,
     input  logic [31:0]                 mac_vrf_rdata_i
 );
 
@@ -279,6 +280,7 @@ module cve2_cf_mac_unit
         .base_i               (weight_addr),
         .mac_vrf_raddr_o      (mac_vrf_raddr_o),
         .mac_vrf_relem_o      (mac_vrf_relem_o),
+        .mac_vrf_en_o      (mac_vrf_en_o),
         .data_req_o           (mem_req),
         .data_gnt_i           (data_gnt_i),
         .data_addr_o          (mem_addr),
