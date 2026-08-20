@@ -15,73 +15,66 @@
 // Supported subset:
 // - vsetvli / vsetivli / vsetvl
 // - vle32.v / vse32.v (unit stride only)
-// - vadd.vv / vadd.vx
-// - vmul.vx
-// - vand.vi / vand.vx
-// - vsrl.vi
 
 module cve2_vec_unit #(
   parameter int unsigned VLEN     = 1024,
   parameter int unsigned SEW      = 32,
   parameter int unsigned NUM_REGS = 32
 ) (
-  input  logic         clk_i,
-  input  logic         rst_ni,
+  input  logic        clk_i,
+  input  logic        rst_ni,
 
   // Request from ID stage
-  input  logic         req_valid_i,
-  input  logic [31:0]  req_instr_i,
-  input  logic [31:0]  req_rs1_i,
-  input  logic [31:0]  req_rs2_i,
-  output logic         req_ready_o,
+  input  logic        req_valid_i,
+  input  logic [31:0] req_instr_i,
+  input  logic [31:0] req_rs1_i,
+  input  logic [31:0] req_rs2_i,
+  output logic        req_ready_o,
 
   // Completion back to ID stage
-  output logic         busy_o,
-  output logic         done_o,
-  output logic         scalar_we_o,
-  output logic [4:0]   scalar_waddr_o,
-  output logic [31:0]  scalar_wdata_o,
+  output logic        busy_o,
+  output logic        done_o,
+  output logic        scalar_we_o,
+  output logic [4:0]  scalar_waddr_o,
+  output logic [31:0] scalar_wdata_o,
 
   // Memory interface
-  output logic         data_req_o,
-  input  logic         data_gnt_i,
-  output logic [31:0]  data_addr_o,
-  output logic         data_we_o,
-  output logic [3:0]   data_be_o,
-  output logic [31:0]  data_wdata_o,
-  input  logic [31:0]  data_rdata_i,
-  input  logic         data_rvalid_i,
-  input  logic         data_err_i,
+  output logic        data_req_o,
+  input  logic        data_gnt_i,
+  output logic [31:0] data_addr_o,
+  output logic        data_we_o,
+  output logic [3:0]  data_be_o,
+  output logic [31:0] data_wdata_o,
+  input  logic [31:0] data_rdata_i,
+  input  logic        data_rvalid_i,
+  input  logic        data_err_i,
 
-  // Reuse scalar EX hardware
-  output logic         ex_req_o,
-  output logic         ex_is_mul_o,
-  output logic [1:0]   ex_alu_op_o,
-  output logic [31:0]  ex_operand_a_o,
-  output logic [31:0]  ex_operand_b_o,
-  input  logic [31:0]  ex_result_i,
-  input  logic         ex_valid_i,
+  // Reuse scalar EX hardware (Unused outputs grounded)
+  output logic        ex_req_o,
+  output logic        ex_is_mul_o,
+  output logic [1:0]  ex_alu_op_o,
+  output logic [31:0] ex_operand_a_o,
+  output logic [31:0] ex_operand_b_o,
+  input  logic [31:0] ex_result_i,
+  input  logic        ex_valid_i,
 
-// --- [stev] ---
-//------------------------------------------------------
-// MAC read interface
-//------------------------------------------------------
-
-// From CF MAC unit -> VRF
-//input  logic        mac_vrf_re_i,
-input  logic [4:0]  mac_vrf_raddr_i,
-input  logic [4:0]  mac_vrf_relem_i,
-input logic mac_vrf_en_i,
-//input  logic [2:0]  mac_vrf_relem_i,
-
-// From VRF -> CF MAC unit
-output logic [31:0] mac_vrf_rdata_o
-// --- [end] ---
+  // MAC read interface
+  input  logic [4:0]  mac_vrf_raddr_i,
+  input  logic [4:0]  mac_vrf_relem_i,
+  input  logic        mac_vrf_en_i,
+  output logic [31:0] mac_vrf_rdata_o
 );
 
   localparam int unsigned LANES   = VLEN / SEW;
   localparam int unsigned REG_AW  = (NUM_REGS > 1) ? $clog2(NUM_REGS) : 1;
   localparam int unsigned ELEM_AW = (LANES    > 1) ? $clog2(LANES)    : 1;
+
+  // Ground unused EX pipeline interface outputs
+  assign ex_req_o       = 1'b0;
+  assign ex_is_mul_o    = 1'b0;
+  assign ex_alu_op_o    = 2'd0;
+  assign ex_operand_a_o = 32'd0;
+  assign ex_operand_b_o = 32'd0;
 
   // ----------------------
   // Latched request
@@ -96,8 +89,6 @@ output logic [31:0] mac_vrf_rdata_o
   wire [4:0] rs1    = instr_q[19:15];
   wire [4:0] rs2    = instr_q[24:20];
   wire       vm     = instr_q[25];
-  wire [5:0] funct6 = instr_q[31:26];
-  wire [4:0] imm5   = instr_q[19:15];
 
   // vmem fields
   wire [1:0] mop = instr_q[27:26];
@@ -106,8 +97,6 @@ output logic [31:0] mac_vrf_rdata_o
 
   // Vector reg fields
   wire [4:0] vd  = rd;
-  wire [4:0] vs1 = rs1;
-  wire [4:0] vs2 = rs2;
   wire [4:0] vs3 = rd; // store data is encoded in rd field for STORE-FP
 
   function automatic logic vreg_idx_valid(input logic [4:0] idx);
@@ -161,45 +150,24 @@ output logic [31:0] mac_vrf_rdata_o
   // ----------------------
   // Decode
   // ----------------------
-  typedef enum logic [3:0] {
+  typedef enum logic [1:0] {
     VOP_NONE,
     VOP_VSET,
     VOP_VLE32,
-    VOP_VSE32,
-    VOP_VADD_VV,
-    VOP_VADD_VX,
-    VOP_VMUL_VX,
-    VOP_VAND_VX,
-    VOP_VAND_VI,
-    VOP_VSRL_VI
+    VOP_VSE32
   } vop_e;
 
   vop_e vop_q, vop_d;
 
   function automatic logic instr_vregs_valid(input vop_e op, input logic [31:0] instr);
-    logic [4:0] rd_i, rs1_i, rs2_i;
+    logic [4:0] rd_i;
     begin
-      rd_i  = instr[11:7];
-      rs1_i = instr[19:15];
-      rs2_i = instr[24:20];
+      rd_i = instr[11:7];
 
       unique case (op)
-        VOP_VLE32:    instr_vregs_valid = vreg_idx_valid(rd_i);
-        VOP_VSE32:    instr_vregs_valid = vreg_idx_valid(rd_i);
-        VOP_VADD_VV:  instr_vregs_valid = vreg_idx_valid(rd_i)  &&
-                                          vreg_idx_valid(rs1_i) &&
-                                          vreg_idx_valid(rs2_i);
-        VOP_VADD_VX:  instr_vregs_valid = vreg_idx_valid(rd_i)  &&
-                                          vreg_idx_valid(rs2_i);
-        VOP_VMUL_VX:  instr_vregs_valid = vreg_idx_valid(rd_i)  &&
-                                          vreg_idx_valid(rs2_i);
-        VOP_VAND_VX:  instr_vregs_valid = vreg_idx_valid(rd_i)  &&
-                                          vreg_idx_valid(rs2_i);
-        VOP_VAND_VI:  instr_vregs_valid = vreg_idx_valid(rd_i)  &&
-                                          vreg_idx_valid(rs2_i);
-        VOP_VSRL_VI:  instr_vregs_valid = vreg_idx_valid(rd_i)  &&
-                                          vreg_idx_valid(rs2_i);
-        default:      instr_vregs_valid = 1'b1;
+        VOP_VLE32,
+        VOP_VSE32: instr_vregs_valid = vreg_idx_valid(rd_i);
+        default:   instr_vregs_valid = 1'b1;
       endcase
     end
   endfunction
@@ -208,39 +176,19 @@ output logic [31:0] mac_vrf_rdata_o
   localparam logic [6:0] OPC_LOADFP  = 7'h07;
   localparam logic [6:0] OPC_STOREFP = 7'h27;
 
-  localparam logic [2:0] F3_VSET  = 3'b111;
-  localparam logic [2:0] F3_OPIVV = 3'b000;
-  localparam logic [2:0] F3_OPIVI = 3'b011;
-  localparam logic [2:0] F3_OPIVX = 3'b100;
-  localparam logic [2:0] F3_W32   = 3'b110;
-
-  localparam logic [5:0] F6_VADD = 6'b000000;
-  localparam logic [5:0] F6_VMUL = 6'b100101;
-  localparam logic [5:0] F6_VAND = 6'b001001;
-  localparam logic [5:0] F6_VSRL = 6'b101000;
-
-  localparam logic [1:0] EXOP_ADD = 2'd0;
-  localparam logic [1:0] EXOP_AND = 2'd1;
-  localparam logic [1:0] EXOP_SRL = 2'd2;
+  localparam logic [2:0] F3_VSET = 3'b111;
+  localparam logic [2:0] F3_W32  = 3'b110;
 
   function automatic vop_e decode_vop(input logic [31:0] instr);
     logic [6:0] op;
     logic [2:0] f3;
-    logic [5:0] f6;
     begin
       op = instr[6:0];
       f3 = instr[14:12];
-      f6 = instr[31:26];
 
-      if (op == OPC_OPV     && f3 == F3_VSET)                   return VOP_VSET;
-      if (op == OPC_LOADFP  && f3 == F3_W32)                    return VOP_VLE32;
-      if (op == OPC_STOREFP && f3 == F3_W32)                    return VOP_VSE32;
-      if (op == OPC_OPV     && f3 == F3_OPIVV && f6 == F6_VADD) return VOP_VADD_VV;
-      if (op == OPC_OPV     && f3 == F3_OPIVX && f6 == F6_VADD) return VOP_VADD_VX;
-      if (op == OPC_OPV     && f3 == F3_OPIVX && f6 == F6_VMUL) return VOP_VMUL_VX;
-      if (op == OPC_OPV     && f3 == F3_OPIVX && f6 == F6_VAND) return VOP_VAND_VX;
-      if (op == OPC_OPV     && f3 == F3_OPIVI && f6 == F6_VAND) return VOP_VAND_VI;
-      if (op == OPC_OPV     && f3 == F3_OPIVI && f6 == F6_VSRL) return VOP_VSRL_VI;
+      if (op == OPC_OPV     && f3 == F3_VSET) return VOP_VSET;
+      if (op == OPC_LOADFP  && f3 == F3_W32)  return VOP_VLE32;
+      if (op == OPC_STOREFP && f3 == F3_W32)  return VOP_VSE32;
 
       return VOP_NONE;
     end
@@ -278,7 +226,6 @@ output logic [31:0] mac_vrf_rdata_o
     S_IDLE,
     S_VRF_READ,
     S_ALU,
-    S_EX_WAIT,
     S_MEM_REQ,
     S_MEM_WAIT
   } state_e;
@@ -290,74 +237,32 @@ output logic [31:0] mac_vrf_rdata_o
   logic [31:0]                mem_addr_q, mem_addr_d;
   logic                       done_d;
 
-  // Registered vector -> scalar EX micro-op pipeline.
-  // This is the timing cut that removes the same-cycle path:
-  // vec_unit operand/control select -> core EX mux -> scalar ALU -> vec_unit writeback.
-  logic                       ex_pipe_valid_q, ex_pipe_valid_d;
-  logic                       ex_pipe_is_mul_q, ex_pipe_is_mul_d;
-  logic [1:0]                 ex_pipe_alu_op_q, ex_pipe_alu_op_d;
-  logic [31:0]                ex_pipe_operand_a_q, ex_pipe_operand_a_d;
-  logic [31:0]                ex_pipe_operand_b_q, ex_pipe_operand_b_d;
-  logic [ELEM_AW-1:0]         ex_pipe_idx_q, ex_pipe_idx_d;
+  logic        do_elem;
+  logic [31:0] vset_avl;
+  logic [10:0] vset_vtypei;
 
-  logic                       do_elem;
-  logic [31:0]                vset_avl;
-  logic [10:0]                vset_vtypei;
-
-  logic                       last_elem;
-  logic                       ex_pipe_last_elem;
-  logic [ELEM_AW-1:0]         vrf_elem_idx;
+  logic               last_elem;
+  logic [ELEM_AW-1:0] vrf_elem_idx;
 
   assign req_ready_o = ~req_valid_q;
   assign busy_o      = req_valid_q;
   assign done_o      = done_d;
 
-  assign last_elem         = (idx_q == (vl_q[$bits(idx_q)-1:0] - 1'b1));
-  assign ex_pipe_last_elem = (ex_pipe_idx_q == (vl_q[$bits(ex_pipe_idx_q)-1:0] - 1'b1));
+  assign last_elem   = (idx_q == (vl_q[$bits(idx_q)-1:0] - 1'b1));
 
-  // Registered EX request output. The scalar EX block only sees registered vector operands/control.
-  assign ex_req_o       = ex_pipe_valid_q;
-  assign ex_is_mul_o    = ex_pipe_is_mul_q;
-  assign ex_alu_op_o    = ex_pipe_alu_op_q;
-  assign ex_operand_a_o = ex_pipe_operand_a_q;
-  assign ex_operand_b_o = ex_pipe_operand_b_q;
-
-  // Decide which element index the synchronous VRF should read next.
-  // idx_q is the next element to issue for arithmetic ops. The outstanding element index is
-  // separately stored in ex_pipe_idx_q.
+  // Decide element index for synchronous VRF read
   always_comb begin
     vrf_elem_idx = idx_q;
 
     unique case (state_q)
-      S_ALU: begin
-        if ((vop_q == VOP_VADD_VV) ||
-            (vop_q == VOP_VADD_VX) ||
-            (vop_q == VOP_VMUL_VX) ||
-            (vop_q == VOP_VAND_VX) ||
-            (vop_q == VOP_VAND_VI) ||
-            (vop_q == VOP_VSRL_VI)) begin
-          if (!last_elem) begin
-            vrf_elem_idx = idx_q + 1'b1;
-          end
-        end
-      end
-
-      // While the previous EX micro-op is retiring, prefetch the element after idx_q.
-      // This preserves one-element-per-cycle steady-state for single-cycle ALU ops.
-      S_EX_WAIT: begin
-        if (ex_valid_i && !ex_pipe_last_elem && !last_elem) begin
-          vrf_elem_idx = idx_q + 1'b1;
-        end
-      end
-
-      // Overlap next store-data fetch when current store completes.
+      // Overlap next store-data fetch when current store completes
       S_MEM_WAIT: begin
         if ((vop_q == VOP_VSE32) && data_rvalid_i && !data_err_i && !last_elem) begin
           vrf_elem_idx = idx_q + 1'b1;
         end
       end
 
-      // Also overlap next store-data fetch when masked store is skipped.
+      // Overlap next store-data fetch when masked store is skipped
       S_MEM_REQ: begin
         if ((vop_q == VOP_VSE32) && !do_elem && !last_elem) begin
           vrf_elem_idx = idx_q + 1'b1;
@@ -369,7 +274,7 @@ output logic [31:0] mac_vrf_rdata_o
     endcase
   end
 
-  // Current / next element addresses presented to VRF
+  // VRF address assignment
   always_comb begin
     raddr1       = '0;
     raddr2       = '0;
@@ -378,73 +283,40 @@ output logic [31:0] mac_vrf_rdata_o
     mask_relem_a = idx_q;
     mask_relem_b = '0;
 
-    unique case (vop_q)
-      VOP_VSE32: begin
-        raddr1 = vs3[REG_AW-1:0];
-      end
+    if (vop_q == VOP_VSE32) begin
+      raddr1 = vs3[REG_AW-1:0];
+    end
 
-      VOP_VADD_VV: begin
-        raddr1 = vs1[REG_AW-1:0];
-        raddr2 = vs2[REG_AW-1:0];
-      end
-
-      VOP_VADD_VX,
-      VOP_VMUL_VX,
-      VOP_VAND_VX,
-      VOP_VAND_VI,
-      VOP_VSRL_VI: begin
-        raddr2 = vs2[REG_AW-1:0];
-      end
-
-      default: begin
-      end
-    endcase
-// MAC has priority on VRF read port 1
-  if (mac_vrf_en_i) begin
-    raddr1 = mac_vrf_raddr_i[REG_AW-1:0];
-    relem1       = mac_vrf_relem_i;
+    // MAC has priority on VRF read port 1
+    if (mac_vrf_en_i) begin
+      raddr1 = mac_vrf_raddr_i[REG_AW-1:0];
+      relem1 = mac_vrf_relem_i;
+    end
   end
 
-  end
-
-// assign directly to first read port
- assign mac_vrf_rdata_o = v_r1; 
+  assign mac_vrf_rdata_o = v_r1; 
 
   // ----------------------
   // Sequential
   // ----------------------
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      req_valid_q         <= 1'b0;
-      instr_q             <= 32'd0;
-      rs1_q               <= 32'd0;
-      rs2_q               <= 32'd0;
-      vop_q               <= VOP_NONE;
+      req_valid_q <= 1'b0;
+      instr_q     <= 32'd0;
+      rs1_q       <= 32'd0;
+      rs2_q       <= 32'd0;
+      vop_q       <= VOP_NONE;
 
-      state_q             <= S_IDLE;
-      vl_q                <= LANES[$clog2(LANES+1)-1:0];
-      idx_q               <= '0;
-      mem_addr_q          <= 32'd0;
-
-      ex_pipe_valid_q     <= 1'b0;
-      ex_pipe_is_mul_q    <= 1'b0;
-      ex_pipe_alu_op_q    <= EXOP_ADD;
-      ex_pipe_operand_a_q <= 32'd0;
-      ex_pipe_operand_b_q <= 32'd0;
-      ex_pipe_idx_q       <= '0;
+      state_q     <= S_IDLE;
+      vl_q        <= LANES[$clog2(LANES+1)-1:0];
+      idx_q       <= '0;
+      mem_addr_q  <= 32'd0;
     end else begin
-      state_q             <= state_d;
-      vl_q                <= vl_d;
-      idx_q               <= idx_d;
-      mem_addr_q          <= mem_addr_d;
-      vop_q               <= vop_d;
-
-      ex_pipe_valid_q     <= ex_pipe_valid_d;
-      ex_pipe_is_mul_q    <= ex_pipe_is_mul_d;
-      ex_pipe_alu_op_q    <= ex_pipe_alu_op_d;
-      ex_pipe_operand_a_q <= ex_pipe_operand_a_d;
-      ex_pipe_operand_b_q <= ex_pipe_operand_b_d;
-      ex_pipe_idx_q       <= ex_pipe_idx_d;
+      state_q     <= state_d;
+      vl_q        <= vl_d;
+      idx_q       <= idx_d;
+      mem_addr_q  <= mem_addr_d;
+      vop_q       <= vop_d;
 
       if (req_valid_i && req_ready_o) begin
         req_valid_q <= 1'b1;
@@ -478,13 +350,6 @@ output logic [31:0] mac_vrf_rdata_o
     v_welem        = '0;
     v_wdata        = '0;
 
-    ex_pipe_valid_d     = ex_pipe_valid_q;
-    ex_pipe_is_mul_d    = ex_pipe_is_mul_q;
-    ex_pipe_alu_op_d    = ex_pipe_alu_op_q;
-    ex_pipe_operand_a_d = ex_pipe_operand_a_q;
-    ex_pipe_operand_b_d = ex_pipe_operand_b_q;
-    ex_pipe_idx_d       = ex_pipe_idx_q;
-
     state_d        = state_q;
     vl_d           = vl_q;
     idx_d          = idx_q;
@@ -501,23 +366,13 @@ output logic [31:0] mac_vrf_rdata_o
       idx_d      = '0;
       mem_addr_d = req_rs1_i;
 
-      // A new architectural vector instruction starts with no outstanding EX micro-op.
-      ex_pipe_valid_d = 1'b0;
-
       if (!instr_vregs_valid(decode_vop(req_instr_i), req_instr_i)) begin
         state_d = S_ALU;
         vop_d   = VOP_NONE;
       end else begin
         unique case (decode_vop(req_instr_i))
           VOP_VLE32: state_d = S_MEM_REQ;
-
-          VOP_VSE32,
-          VOP_VADD_VV,
-          VOP_VADD_VX,
-          VOP_VMUL_VX,
-          VOP_VAND_VX,
-          VOP_VAND_VI,
-          VOP_VSRL_VI: state_d = S_VRF_READ; // one-time prime only
+          VOP_VSE32: state_d = S_VRF_READ;
 
           VOP_VSET,
           VOP_NONE: state_d = S_ALU;
@@ -534,36 +389,20 @@ output logic [31:0] mac_vrf_rdata_o
       // One-time prime cycle for synchronous VRF
       S_VRF_READ: begin
         if (vl_q == '0) begin
-          done_d          = 1'b1;
-          state_d         = S_IDLE;
-          ex_pipe_valid_d = 1'b0;
+          done_d  = 1'b1;
+          state_d = S_IDLE;
         end else begin
           unique case (vop_q)
-            VOP_VSE32: begin
-              state_d = S_MEM_REQ;
-            end
-
-            VOP_VADD_VV,
-            VOP_VADD_VX,
-            VOP_VMUL_VX,
-            VOP_VAND_VX,
-            VOP_VAND_VI,
-            VOP_VSRL_VI: begin
-              state_d = S_ALU;
-            end
-
-            default: begin
-              state_d = S_ALU;
-            end
+            VOP_VSE32: state_d = S_MEM_REQ;
+            default:   state_d = S_ALU;
           endcase
         end
       end
 
       S_ALU: begin
         if ((vop_q != VOP_VSET) && (vl_q == '0)) begin
-          done_d          = 1'b1;
-          state_d         = S_IDLE;
-          ex_pipe_valid_d = 1'b0;
+          done_d  = 1'b1;
+          state_d = S_IDLE;
         end else begin
           unique case (vop_q)
             VOP_VSET: begin
@@ -592,157 +431,16 @@ output logic [31:0] mac_vrf_rdata_o
               state_d        = S_IDLE;
             end
 
-            VOP_VADD_VV,
-            VOP_VADD_VX,
-            VOP_VMUL_VX,
-            VOP_VAND_VX,
-            VOP_VAND_VI,
-            VOP_VSRL_VI: begin
-              if (!do_elem) begin
-                ex_pipe_valid_d = 1'b0;
-
-                if (last_elem) begin
-                  done_d  = 1'b1;
-                  state_d = S_IDLE;
-                end else begin
-                  idx_d   = idx_q + 1'b1;
-                  state_d = S_ALU;
-                end
-              end else begin
-                ex_pipe_valid_d     = 1'b1;
-                ex_pipe_operand_a_d = v_r2;
-                ex_pipe_idx_d       = idx_q;
-                ex_pipe_is_mul_d    = (vop_q == VOP_VMUL_VX);
-                ex_pipe_alu_op_d    = EXOP_ADD;
-
-                unique case (vop_q)
-                  VOP_VADD_VV: begin
-                    ex_pipe_operand_b_d = v_r1;
-                    ex_pipe_alu_op_d    = EXOP_ADD;
-                  end
-                  VOP_VADD_VX: begin
-                    ex_pipe_operand_b_d = rs1_q;
-                    ex_pipe_alu_op_d    = EXOP_ADD;
-                  end
-                  VOP_VMUL_VX: begin
-                    ex_pipe_operand_b_d = rs1_q;
-                  end
-                  VOP_VAND_VX: begin
-                    ex_pipe_operand_b_d = rs1_q;
-                    ex_pipe_alu_op_d    = EXOP_AND;
-                  end
-                  VOP_VAND_VI: begin
-                    ex_pipe_operand_b_d = {27'd0, imm5};
-                    ex_pipe_alu_op_d    = EXOP_AND;
-                  end
-                  VOP_VSRL_VI: begin
-                    ex_pipe_operand_b_d = {27'd0, imm5};
-                    ex_pipe_alu_op_d    = EXOP_SRL;
-                  end
-                  default: begin
-                    ex_pipe_operand_b_d = 32'd0;
-                    ex_pipe_alu_op_d    = EXOP_ADD;
-                  end
-                endcase
-
-                // idx_q tracks the next element to issue. Do not advance beyond the last
-                // representable element; the outstanding element index is in ex_pipe_idx_q.
-                if (!last_elem) begin
-                  idx_d = idx_q + 1'b1;
-                end
-                state_d = S_EX_WAIT;
-              end
-            end
-
             VOP_VLE32,
             VOP_VSE32: begin
               state_d = S_MEM_REQ;
             end
 
             default: begin
-              done_d          = 1'b1;
-              state_d         = S_IDLE;
-              ex_pipe_valid_d = 1'b0;
-            end
-          endcase
-        end
-      end
-
-      S_EX_WAIT: begin
-        if (vl_q == '0) begin
-          done_d          = 1'b1;
-          state_d         = S_IDLE;
-          ex_pipe_valid_d = 1'b0;
-        end else if (ex_valid_i && ex_pipe_valid_q) begin
-          // Retire the outstanding registered EX micro-op.
-          v_we    = 1'b1;
-          v_waddr = vd[REG_AW-1:0];
-          v_welem = ex_pipe_idx_q;
-          v_wdata = ex_result_i;
-
-          if (ex_pipe_last_elem) begin
-            done_d          = 1'b1;
-            state_d         = S_IDLE;
-            ex_pipe_valid_d = 1'b0;
-          end else if (!do_elem) begin
-            // Next element is masked off. No EX issue this cycle.
-            ex_pipe_valid_d = 1'b0;
-
-            if (last_elem) begin
               done_d  = 1'b1;
               state_d = S_IDLE;
-            end else begin
-              idx_d   = idx_q + 1'b1;
-              state_d = S_ALU;
             end
-          end else begin
-            // Retire previous element and issue next element into the registered EX pipe.
-            // For single-cycle ALU ops this keeps one-element-per-cycle steady-state.
-            ex_pipe_valid_d     = 1'b1;
-            ex_pipe_operand_a_d = v_r2;
-            ex_pipe_idx_d       = idx_q;
-            ex_pipe_is_mul_d    = (vop_q == VOP_VMUL_VX);
-            ex_pipe_alu_op_d    = EXOP_ADD;
-
-            unique case (vop_q)
-              VOP_VADD_VV: begin
-                ex_pipe_operand_b_d = v_r1;
-                ex_pipe_alu_op_d    = EXOP_ADD;
-              end
-              VOP_VADD_VX: begin
-                ex_pipe_operand_b_d = rs1_q;
-                ex_pipe_alu_op_d    = EXOP_ADD;
-              end
-              VOP_VMUL_VX: begin
-                ex_pipe_operand_b_d = rs1_q;
-              end
-              VOP_VAND_VX: begin
-                ex_pipe_operand_b_d = rs1_q;
-                ex_pipe_alu_op_d    = EXOP_AND;
-              end
-              VOP_VAND_VI: begin
-                ex_pipe_operand_b_d = {27'd0, imm5};
-                ex_pipe_alu_op_d    = EXOP_AND;
-              end
-              VOP_VSRL_VI: begin
-                ex_pipe_operand_b_d = {27'd0, imm5};
-                ex_pipe_alu_op_d    = EXOP_SRL;
-              end
-              default: begin
-                ex_pipe_operand_b_d = 32'd0;
-                ex_pipe_alu_op_d    = EXOP_ADD;
-              end
-            endcase
-
-            if (!last_elem) begin
-              idx_d = idx_q + 1'b1;
-            end
-            state_d = S_EX_WAIT;
-          end
-        end else begin
-          // Multi-cycle multiply/divide path: keep the registered EX request asserted and
-          // operands stable until scalar EX reports a valid result.
-          state_d = S_EX_WAIT;
+          endcase
         end
       end
 
@@ -812,8 +510,7 @@ output logic [31:0] mac_vrf_rdata_o
       end
 
       default: begin
-        state_d         = S_IDLE;
-        ex_pipe_valid_d = 1'b0;
+        state_d = S_IDLE;
       end
     endcase
   end
