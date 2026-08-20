@@ -128,18 +128,18 @@ module cve2_vec_unit #(
     .clk_i        (clk_i),
     .rst_ni       (rst_ni),
 
-    .relem0_i     (mask_relem_a),
-    .mask_bit_o   (mask_bit_a),
-    .relem0b_i    (mask_relem_b),
-    .mask_bit_b_o (mask_bit_b_unused),
+   // .relem0_i     (mask_relem_a),
+   // .mask_bit_o   (mask_bit_a),
+   // .relem0b_i    (mask_relem_b),
+   // .mask_bit_b_o (mask_bit_b_unused),
 
     .raddr1_i     (raddr1),
     .relem1_i     (relem1),
     .rdata1_o     (v_r1),
 
-    .raddr2_i     (raddr2),
-    .relem2_i     (relem2),
-    .rdata2_o     (v_r2),
+    //.raddr2_i     (raddr2),
+    //.relem2_i     (relem2),
+    //.rdata2_o     (v_r2),
 
     .we_i         (v_we),
     .waddr_i      (v_waddr),
