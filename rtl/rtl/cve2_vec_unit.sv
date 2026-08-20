@@ -9,8 +9,8 @@
 // - VLEN fixed (default 256b => 8 elements)
 // - one-time VRF prime, then steady-state overlap
 // - no artificial per-element VRF bubbles
-// - dedicated v0 mask shadow read from VRF
 // - hardware loop counter + post-increment address counter
+// - reduced 1R1W VRF interface with MAC read priority
 //
 // Supported subset:
 // - vsetvli / vsetivli / vsetvl
@@ -84,36 +84,16 @@ module cve2_vec_unit #(
   logic [31:0] rs1_q, rs2_q;
 
   // Instruction fields
-  wire [4:0] rd     = instr_q[11:7];
-  wire [2:0] funct3 = instr_q[14:12];
-  wire [4:0] rs1    = instr_q[19:15];
-  wire [4:0] rs2    = instr_q[24:20];
-  wire       vm     = instr_q[25];
-
-  // vmem fields
-  wire [1:0] mop = instr_q[27:26];
-  wire       mew = instr_q[28];
-  wire [2:0] nf  = instr_q[31:29];
-
-  // Vector reg fields
-  wire [4:0] vd  = rd;
-  wire [4:0] vs3 = rd; // store data is encoded in rd field for STORE-FP
-
-  function automatic logic vreg_idx_valid(input logic [4:0] idx);
-    begin
-      vreg_idx_valid = (idx < NUM_REGS);
-    end
-  endfunction
+  wire [4:0] rd = instr_q[11:7];
 
   // ----------------------
-  // VRF interface
+  // VRF interface (1R1W)
   // ----------------------
-  logic [REG_AW-1:0]  raddr1, raddr2;
-  logic [ELEM_AW-1:0] relem1, relem2;
-  logic [SEW-1:0]     v_r1, v_r2;
-
-  logic [ELEM_AW-1:0] mask_relem_a, mask_relem_b;
-  logic               mask_bit_a, mask_bit_b_unused;
+  // Single synchronous read port shared by VSE32 stores and VMAC.
+  // Single synchronous write port used by VLE32.
+  logic [REG_AW-1:0]  raddr1;
+  logic [ELEM_AW-1:0] relem1;
+  logic [SEW-1:0]     v_r1;
 
   logic               v_we;
   logic [REG_AW-1:0]  v_waddr;
@@ -125,27 +105,21 @@ module cve2_vec_unit #(
     .SEW(SEW),
     .NUM_REGS(NUM_REGS)
   ) i_vrf (
-    .clk_i        (clk_i),
-    .rst_ni       (rst_ni),
+    .clk_i    (clk_i),
+    .rst_ni   (rst_ni),
 
-   // .relem0_i     (mask_relem_a),
-   // .mask_bit_o   (mask_bit_a),
-   // .relem0b_i    (mask_relem_b),
-   // .mask_bit_b_o (mask_bit_b_unused),
+    .raddr1_i (raddr1),
+    .relem1_i (relem1),
+    .rdata1_o (v_r1),
 
-    .raddr1_i     (raddr1),
-    .relem1_i     (relem1),
-    .rdata1_o     (v_r1),
-
-    //.raddr2_i     (raddr2),
-    //.relem2_i     (relem2),
-    //.rdata2_o     (v_r2),
-
-    .we_i         (v_we),
-    .waddr_i      (v_waddr),
-    .welem_i      (v_welem),
-    .wdata_i      (v_wdata)
+    .we_i     (v_we),
+    .waddr_i  (v_waddr),
+    .welem_i  (v_welem),
+    .wdata_i  (v_wdata)
   );
+
+  // VMAC consumes the single synchronous VRF read port output
+  assign mac_vrf_rdata_o = v_r1;
 
   // ----------------------
   // Decode
@@ -158,19 +132,6 @@ module cve2_vec_unit #(
   } vop_e;
 
   vop_e vop_q, vop_d;
-
-  function automatic logic instr_vregs_valid(input vop_e op, input logic [31:0] instr);
-    logic [4:0] rd_i;
-    begin
-      rd_i = instr[11:7];
-
-      unique case (op)
-        VOP_VLE32,
-        VOP_VSE32: instr_vregs_valid = vreg_idx_valid(rd_i);
-        default:   instr_vregs_valid = 1'b1;
-      endcase
-    end
-  endfunction
 
   localparam logic [6:0] OPC_OPV     = 7'h57;
   localparam logic [6:0] OPC_LOADFP  = 7'h07;
@@ -186,9 +147,18 @@ module cve2_vec_unit #(
       op = instr[6:0];
       f3 = instr[14:12];
 
-      if (op == OPC_OPV     && f3 == F3_VSET) return VOP_VSET;
-      if (op == OPC_LOADFP  && f3 == F3_W32)  return VOP_VLE32;
-      if (op == OPC_STOREFP && f3 == F3_W32)  return VOP_VSE32;
+      if (op == OPC_OPV && f3 == F3_VSET)
+        return VOP_VSET;
+
+      if (op == OPC_LOADFP &&
+          f3 == F3_W32 &&
+          instr[31:26] == 6'b000000)
+        return VOP_VLE32;
+
+      if (op == OPC_STOREFP &&
+          f3 == F3_W32 &&
+          instr[31:26] == 6'b000000)
+        return VOP_VSE32;
 
       return VOP_NONE;
     end
@@ -215,17 +185,13 @@ module cve2_vec_unit #(
     end
   endfunction
 
-  function automatic logic is_unit_stride;
-    is_unit_stride = (mop == 2'b00) && (mew == 1'b0) && (nf == 3'b000);
-  endfunction
-
   // ----------------------
   // State
   // ----------------------
   typedef enum logic [2:0] {
     S_IDLE,
     S_VRF_READ,
-    S_ALU,
+    S_CTRL,
     S_MEM_REQ,
     S_MEM_WAIT
   } state_e;
@@ -237,7 +203,6 @@ module cve2_vec_unit #(
   logic [31:0]                mem_addr_q, mem_addr_d;
   logic                       done_d;
 
-  logic        do_elem;
   logic [31:0] vset_avl;
   logic [10:0] vset_vtypei;
 
@@ -254,47 +219,32 @@ module cve2_vec_unit #(
   always_comb begin
     vrf_elem_idx = idx_q;
 
-    unique case (state_q)
-      // Overlap next store-data fetch when current store completes
-      S_MEM_WAIT: begin
-        if ((vop_q == VOP_VSE32) && data_rvalid_i && !data_err_i && !last_elem) begin
-          vrf_elem_idx = idx_q + 1'b1;
-        end
-      end
-
-      // Overlap next store-data fetch when masked store is skipped
-      S_MEM_REQ: begin
-        if ((vop_q == VOP_VSE32) && !do_elem && !last_elem) begin
-          vrf_elem_idx = idx_q + 1'b1;
-        end
-      end
-
-      default: begin
-      end
-    endcase
+    // Overlap next store-data fetch when current store completes
+    if ((state_q == S_MEM_WAIT) &&
+        (vop_q == VOP_VSE32) &&
+        data_rvalid_i &&
+        !data_err_i &&
+        !last_elem) begin
+      vrf_elem_idx = idx_q + 1'b1;
+    end
   end
 
-  // VRF address assignment
+  // VRF address assignment & read port sharing
   always_comb begin
-    raddr1       = '0;
-    raddr2       = '0;
-    relem1       = vrf_elem_idx;
-    relem2       = vrf_elem_idx;
-    mask_relem_a = idx_q;
-    mask_relem_b = '0;
+    raddr1 = '0;
+    relem1 = vrf_elem_idx;
 
+    // Vector store read
     if (vop_q == VOP_VSE32) begin
-      raddr1 = vs3[REG_AW-1:0];
+      raddr1 = rd[REG_AW-1:0];
     end
 
-    // MAC has priority on VRF read port 1
+    // VMAC has priority on the shared VRF read port
     if (mac_vrf_en_i) begin
       raddr1 = mac_vrf_raddr_i[REG_AW-1:0];
       relem1 = mac_vrf_relem_i;
     end
   end
-
-  assign mac_vrf_rdata_o = v_r1; 
 
   // ----------------------
   // Sequential
@@ -357,7 +307,6 @@ module cve2_vec_unit #(
     vop_d          = vop_q;
     done_d         = 1'b0;
 
-    do_elem        = vm ? 1'b1 : mask_bit_a;
     vset_avl       = 32'd0;
     vset_vtypei    = 11'd0;
 
@@ -366,20 +315,13 @@ module cve2_vec_unit #(
       idx_d      = '0;
       mem_addr_d = req_rs1_i;
 
-      if (!instr_vregs_valid(decode_vop(req_instr_i), req_instr_i)) begin
-        state_d = S_ALU;
-        vop_d   = VOP_NONE;
-      end else begin
-        unique case (decode_vop(req_instr_i))
-          VOP_VLE32: state_d = S_MEM_REQ;
-          VOP_VSE32: state_d = S_VRF_READ;
-
-          VOP_VSET,
-          VOP_NONE: state_d = S_ALU;
-
-          default: state_d = S_ALU;
-        endcase
-      end
+      unique case (decode_vop(req_instr_i))
+        VOP_VLE32: state_d = S_MEM_REQ;
+        VOP_VSE32: state_d = S_VRF_READ;
+        VOP_VSET,
+        VOP_NONE:  state_d = S_CTRL;
+        default:   state_d = S_CTRL;
+      endcase
     end
 
     unique case (state_q)
@@ -389,17 +331,17 @@ module cve2_vec_unit #(
       // One-time prime cycle for synchronous VRF
       S_VRF_READ: begin
         if (vl_q == '0) begin
-          done_d  = 1'b1;
+          done_d  = 1'b1; // Fallthrough completion
           state_d = S_IDLE;
         end else begin
           unique case (vop_q)
             VOP_VSE32: state_d = S_MEM_REQ;
-            default:   state_d = S_ALU;
+            default:   state_d = S_CTRL;
           endcase
         end
       end
 
-      S_ALU: begin
+      S_CTRL: begin
         if ((vop_q != VOP_VSET) && (vl_q == '0)) begin
           done_d  = 1'b1;
           state_d = S_IDLE;
@@ -448,19 +390,6 @@ module cve2_vec_unit #(
         if (vl_q == '0) begin
           done_d  = 1'b1;
           state_d = S_IDLE;
-        end else if (!is_unit_stride()) begin
-          done_d  = 1'b1;
-          state_d = S_IDLE;
-        end else if (!do_elem) begin
-          mem_addr_d = mem_addr_q + 32'd4;
-
-          if (last_elem) begin
-            done_d  = 1'b1;
-            state_d = S_IDLE;
-          end else begin
-            idx_d   = idx_q + 1'b1;
-            state_d = S_MEM_REQ;
-          end
         end else begin
           data_req_o  = 1'b1;
           data_addr_o = mem_addr_q;
@@ -491,7 +420,7 @@ module cve2_vec_unit #(
           end else begin
             if (vop_q == VOP_VLE32) begin
               v_we    = 1'b1;
-              v_waddr = vd[REG_AW-1:0];
+              v_waddr = rd[REG_AW-1:0];
               v_welem = idx_q;
               v_wdata = data_rdata_i;
             end
