@@ -1204,14 +1204,7 @@ output logic [3:0] cf_op_o, //for cfu mac
   localparam logic [6:0] VEC_OPC_LOADFP  = 7'h07;
   localparam logic [6:0] VEC_OPC_STOREFP = 7'h27;
   localparam logic [2:0] VEC_F3_VSET  = 3'b111;
-  localparam logic [2:0] VEC_F3_OPIVV = 3'b000;
-  localparam logic [2:0] VEC_F3_OPIVI = 3'b011;
-  localparam logic [2:0] VEC_F3_OPIVX = 3'b100;
   localparam logic [2:0] VEC_F3_W32   = 3'b110;
-  localparam logic [5:0] VEC_F6_VADD  = 6'b000000;
-  localparam logic [5:0] VEC_F6_VMUL  = 6'b100101;
-  localparam logic [5:0] VEC_F6_VAND  = 6'b001001;
-  localparam logic [5:0] VEC_F6_VSRL  = 6'b101000;
 
   logic vec_insn;
   logic vec_vset;
@@ -1256,15 +1249,6 @@ output logic [3:0] cf_op_o, //for cfu mac
       end
     end
 
-    // OP-V arithmetic subset
-    if (opcode == VEC_OPC_OPV) begin
-      if ((vec_funct3 == VEC_F3_OPIVV) && (vec_funct6 == VEC_F6_VADD)) vec_insn = 1'b1;
-      if ((vec_funct3 == VEC_F3_OPIVX) &&
-          ((vec_funct6 == VEC_F6_VADD) ||
-           (vec_funct6 == VEC_F6_VMUL) ||
-           (vec_funct6 == VEC_F6_VAND))) vec_insn = 1'b1;
-      if ((vec_funct3 == VEC_F3_OPIVI) && ((vec_funct6 == VEC_F6_VAND) || (vec_funct6 == VEC_F6_VSRL))) vec_insn = 1'b1;
-    end
   end
 
   assign vec_insn_o = vec_insn;
@@ -1281,7 +1265,6 @@ output logic [3:0] cf_op_o, //for cfu mac
 
 // --- [stev] ---
 
-  logic cf_type_ok;
   logic cf_insn;
   //logic [3:0] cf_op;
 
@@ -1318,10 +1301,14 @@ cve2_pkg::mac_op_e cf_op;
 always_comb begin
 
     cf_insn     = 1'b0;
-    cf_type_ok = 1'b1;
     cf_op = cve2_pkg::OP_NONE;
 
-if (opcode == CF_OPC_OPV) begin
+if (opcode == CF_OPC_C1) begin
+		cf_op = cve2_pkg::OP_VMAC;
+		cf_insn = 1'b1;
+end
+
+else if (opcode == CF_OPC_OPV) begin
     unique case (cf_funct7)
 
         CF_FUNCT7_ZZMAC64 : begin 
@@ -1397,18 +1384,7 @@ if (opcode == CF_OPC_OPV) begin
 
 	end
 
-
-	default: begin
-    		cf_type_ok = 1'b0;
-
-	end
-
     endcase
-end
-
-else if (opcode == CF_OPC_C1) begin
-		cf_op = cve2_pkg::OP_VMAC;
-		cf_insn = 1'b1;
 end
 
 end
