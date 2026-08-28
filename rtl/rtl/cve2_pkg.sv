@@ -267,31 +267,6 @@ package cve2_pkg;
     RF_WD_COPROC // Only used when XInterface = 1
   } rf_wd_sel_e;
 
-
-// --- [stev] ---
-typedef enum logic [3:0] {
-  OP_NONE = 4'd15,
-
-  OP_ZZ   = 4'd0,
-  OP_MAX  = 4'd1,
-  OP_MAC  = 4'd2,
-  OP_ADD  = 4'd3,
-  OP_MVO  = 4'd4,
-  OP_MVE  = 4'd5,
-  OP_MV2  = 4'd6,
-  OP_LD2  = 4'd7,
-  OP_BRAM_FP4  = 4'd8, // [rbs]
-  OP_VMAC  = 4'd9,
-  OP_MAC_AS  = 4'd10,
-  OP_MAC_WS  = 4'd11,
-  OP_MAC_BIAS  = 4'd12,
-  OP_ACC_BANK  = 4'd13,
-  OP_BRAM_RD   = 4'd14
-} mac_op_e;
-
-// --- [end] ---
-
-
   //////////////
   // IF stage //
   //////////////
@@ -682,7 +657,7 @@ typedef enum logic [3:0] {
   } rvfi_csr_t;
 
   // CV-X-IF
-  parameter int unsigned X_NUM_RS         = 2;
+  parameter int unsigned X_NUM_RS         = 3;
   parameter int unsigned X_ID_WIDTH       = 4;
   parameter int unsigned X_RFR_WIDTH      = 32;
   parameter int unsigned X_RFW_WIDTH      = 32;

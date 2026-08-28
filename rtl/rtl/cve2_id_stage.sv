@@ -153,8 +153,11 @@ module cve2_id_stage #(
   input  logic [31:0]               rf_rdata_a_i,
   output logic [4:0]                rf_raddr_b_o,
   input  logic [31:0]               rf_rdata_b_i,
+  output logic [4:0]                rf_raddr_c_o,
+  input  logic [31:0]               rf_rdata_c_i,
   output logic                      rf_ren_a_o,
   output logic                      rf_ren_b_o,
+  output logic                      rf_ren_c_o,
 
   // Register file write (via writeback)
   output logic [4:0]                rf_waddr_id_o,
@@ -172,36 +175,7 @@ module cve2_id_stage #(
                                                         // access to finish before proceeding
   output logic                      perf_wfi_wait_o,
   output logic                      perf_div_wait_o,
-  output logic                      instr_id_done_o,
-  // Vector unit interface (RVV-Lite A.1, minimal)
-  output logic        vec_req_valid_o,
-  output logic [31:0] vec_req_instr_o,
-  output logic [31:0] vec_req_rs1_o,
-  output logic [31:0] vec_req_rs2_o,
-  input  logic        vec_req_ready_i,
-  input  logic        vec_busy_i,
-  input  logic        vec_done_i,
-  input  logic        vec_scalar_we_i,
-  input  logic [4:0]  vec_scalar_waddr_i,
-  input  logic [31:0] vec_scalar_wdata_i,
-
-// --- [stev] ---
-  // Custom MAC (CF) unit interface
-  output logic                     cf_req_valid_o,
-  output cve2_pkg::mac_op_e        cf_req_op_o, //output logic [3:0] cf_op_o
-  output logic [31:0]              cf_req_instr_o,
-  output logic [31:0]              cf_req_rs1_o,
-  output logic [31:0]              cf_req_rs2_o,
-  input  logic                     cf_req_ready_i,
-
-  input  logic                     cf_busy_i,
-  input  logic                     cf_done_i,
-
-  input  logic                     cf_scalar_we_i,
-  input  logic [4:0]               cf_scalar_waddr_i,
-  input  logic [31:0]              cf_scalar_wdata_i
-// --- [end] ---
-
+  output logic                      instr_id_done_o
 );
 
   import cve2_pkg::*;
@@ -218,10 +192,7 @@ module cve2_id_stage #(
   logic        branch_set, branch_set_raw, branch_set_raw_d;
   logic        branch_jump_set_done_q, branch_jump_set_done_d;
   logic        jump_in_dec;
-  logic [4:0]  rf_waddr_dec;
   logic        jump_set_dec;
-  logic        vec_insn_dec;
-  logic        vec_vset_dec;
   logic        jump_set, jump_set_raw;
 
   logic        instr_first_cycle;
@@ -231,17 +202,11 @@ module cve2_id_stage #(
   logic        controller_run;
   logic        stall_mem;
   logic        stall_multdiv;
-  logic        stall_vec;
   logic        stall_branch;
   logic        stall_jump;
   logic        stall_id;
   logic        flush_id;
   logic        multicycle_done;
-
-// --- [stev] ---
-logic stall_mac;
-logic cf_scalar_we_safe;
-// --- [end] ---
 
   // Immediate decoding and sign extension
   logic [31:0] imm_i_type;
@@ -258,18 +223,21 @@ logic cf_scalar_we_safe;
 
   logic [XInterface:0] rf_wdata_sel;
   logic                rf_we_dec, rf_we_raw;
-  logic                rf_ren_a, rf_ren_b;
-  logic                rf_ren_a_dec, rf_ren_b_dec;
+  logic                rf_ren_a, rf_ren_b, rf_ren_c;
+  logic                rf_ren_a_dec, rf_ren_b_dec, rf_ren_c_dec;
 
   // Read enables should only be asserted for valid and legal instructions
   assign rf_ren_a = instr_valid_i & ~instr_fetch_err_i & ~illegal_insn_o & rf_ren_a_dec;
   assign rf_ren_b = instr_valid_i & ~instr_fetch_err_i & ~illegal_insn_o & rf_ren_b_dec;
+  assign rf_ren_c = instr_valid_i & ~instr_fetch_err_i & ~illegal_insn_o & rf_ren_c_dec;
 
   assign rf_ren_a_o = rf_ren_a;
   assign rf_ren_b_o = rf_ren_b;
+  assign rf_ren_c_o = XInterface ? rf_ren_c : '0;
 
   logic [31:0] rf_rdata_a_fwd;
   logic [31:0] rf_rdata_b_fwd;
+  logic [31:0] rf_rdata_c_fwd;
 
   // ALU Control
   alu_op_e     alu_operator;
@@ -307,13 +275,6 @@ logic cf_scalar_we_safe;
   logic stall_coproc;
   logic scoreboard_busy;
 
-// --- [stev] ---
-logic                  cf_insn_dec;
-cve2_pkg::mac_op_e     cf_op_dec;
-
-// --- [end] ---
-
-
   ///////////////
   // ID-EX FSM //
   ///////////////
@@ -330,16 +291,6 @@ cve2_pkg::mac_op_e     cf_op_dec;
   end
 
   logic coproc_done;
-
-
-  // // Temporary Debugs
-  // always_ff @(posedge clk_i) begin
-  //   if (vec_insn_dec || vec_busy_i || vec_done_i) begin
-  //     $display("[ID-VEC] pc=%h instr=%h vec_insn=%0d req=%0d ready=%0d busy=%0d done=%0d stall_vec=%0d",
-  //             pc_id_i, instr_rdata_i, vec_insn_dec, vec_req_valid_o, vec_req_ready_i,
-  //             vec_busy_i, vec_done_i, stall_vec);
-  //   end
-  // end
 
   // CV-X-IF
   if (XInterface) begin: gen_xif
@@ -396,23 +347,7 @@ cve2_pkg::mac_op_e     cf_op_dec;
       end
     end
 
-    // Temporary debug
-    // always_ff @(posedge clk_i) begin
-    //   if (pc_id_i == 32'h00000104) begin
-    //     $display("ID DEBUG @ 0x104");
-    //     $display("instr        = %h", instr_rdata_i);
-    //     $display("rf_raddr_a_o = %0d", rf_raddr_a_o);
-    //     $display("rf_raddr_b_o = %0d", rf_raddr_b_o);
-    //     $display("rf_rdata_a_i = %h", rf_rdata_a_i);
-    //     $display("rf_rdata_b_i = %h", rf_rdata_b_i);
-    //     $display("alu_op_a     = %h", alu_operand_a_ex_o);
-    //     $display("alu_op_b     = %h", alu_operand_b_ex_o);
-    //   end
-    // end
-
-// --- [stev] ---
-    assign multicycle_done = cf_insn_dec ? cf_done_i : (vec_insn_dec ? vec_done_i : (lsu_req_dec ? lsu_resp_valid_i : (illegal_insn_dec ? coproc_done : ex_valid_i)));
-// --- [end] ---
+    assign multicycle_done = lsu_req_dec ? lsu_resp_valid_i : (illegal_insn_dec ? coproc_done : ex_valid_i);
 
     // Issue Interface
     assign x_issue_valid_o      = instr_executing & illegal_insn_dec & (id_fsm_q == FIRST_CYCLE) & scoreboard_free;
@@ -423,6 +358,7 @@ cve2_pkg::mac_op_e     cf_op_dec;
     // Register Interface
     assign x_register_o.rs[0]    = rf_rdata_a_fwd;
     assign x_register_o.rs[1]    = rf_rdata_b_fwd;
+    assign x_register_o.rs[2]    = rf_rdata_c_fwd;
     assign x_register_o.rs_valid = '1;
     assign x_register_o.id       = x_instr_id_q;
     assign x_register_o.hartid   = hart_id_i;
@@ -443,13 +379,12 @@ cve2_pkg::mac_op_e     cf_op_dec;
     logic          unused_x_result_valid;
     x_result_t     unused_x_result;
     logic          unused_coproc_done;
+    logic [31:0]   unused_rf_rdata_c_fwd;
 
     assign unused_coproc_done = coproc_done;
+    assign unused_rf_rdata_c_fwd = rf_rdata_c_fwd;
 
-// --- [stev] ---
-    assign multicycle_done = cf_insn_dec ? cf_done_i : (vec_insn_dec ? vec_done_i : (lsu_req_dec ? lsu_resp_valid_i : ex_valid_i));
-// --- [end] ---
-
+    assign multicycle_done = lsu_req_dec ? lsu_resp_valid_i : ex_valid_i;
     assign scoreboard_busy = 1'b0;
 
     // Issue Interface
@@ -548,75 +483,17 @@ cve2_pkg::mac_op_e     cf_op_dec;
   // Register File MUX //
   ///////////////////////
 
-
   // Suppress register write if there is an illegal CSR access or instruction is not executing
-  logic rf_we_scalar;
-  logic vec_scalar_we_safe;
-  // always_ff @(posedge clk_i) begin
-  //   // temporary debug
-  //   if (vec_scalar_we_i || vec_done_i) begin
-  //     $display("VEC WB DBG: pc=%h vec_done=%0d vec_we=%0d vec_waddr=%0d vec_wdata=%h instr_exec=%0d",
-  //             pc_id_i, vec_done_i, vec_scalar_we_i, vec_scalar_waddr_i, vec_scalar_wdata_i, instr_executing);
-  //   end
-  // end
-  // instr_done not instr_executing, or a stalled write-back commits every cycle
-  assign rf_we_scalar      = rf_we_raw & instr_done & ~illegal_csr_insn_i;
-  assign vec_scalar_we_safe = vec_scalar_we_i & vec_done_i;
-
-// --- [stev] ---
-//  assign cf_scalar_we_safe = cf_scalar_we_i & cf_done_i;
-  assign cf_scalar_we_safe = cf_scalar_we_i;
-
-
-
-  assign rf_waddr_id_o =
-     cf_scalar_we_safe ? cf_scalar_waddr_i : (vec_scalar_we_safe ? vec_scalar_waddr_i : rf_waddr_dec);
-
-
-
-  assign rf_we_id_o =
-      rf_we_scalar | vec_scalar_we_safe | cf_scalar_we_safe;
-
-// --- [end] ---
-
-  // always_ff @(posedge clk_i) begin
-  //   if (rf_we_id_o) begin
-  //     $display("ID WB DEBUG: pc=%h instr=%h dec=%0d vec=%0d vec_we=%0d final=%0d",
-  //             pc_id_i,
-  //             instr_rdata_i,
-  //             rf_waddr_dec,
-  //             vec_scalar_waddr_i,
-  //             vec_scalar_we_i,
-  //             rf_waddr_id_o);
-  //   end
-  // end
-
-  // // temporary debug print 
-  // always_ff @(posedge clk_i) begin
-  //   if (rf_we_id_o) begin
-  //     $display("ID WB DEBUG: instr=%h rf_waddr_dec=%0d rf_waddr_id_o=%0d vec_scalar_we_i=%0d vec_scalar_waddr_i=%0d",
-  //             instr_rdata_i, rf_waddr_dec, rf_waddr_id_o, vec_scalar_we_i, vec_scalar_waddr_i);
-  //   end
-  // end
+  assign rf_we_id_o = rf_we_raw & instr_executing & ~illegal_csr_insn_i;
 
   // Register file write data mux
   always_comb begin : rf_wdata_id_mux
     unique case ($bits(rf_wd_sel_e)'({rf_wdata_sel}))
-      RF_WD_EX:     rf_wdata_id_o = result_ex_i;
-      RF_WD_CSR:    rf_wdata_id_o = csr_rdata_i;
-      RF_WD_COPROC: rf_wdata_id_o = XInterface ? x_result_i.data : result_ex_i;
-      default:      rf_wdata_id_o = result_ex_i;
+      RF_WD_EX:     rf_wdata_id_o   = result_ex_i;
+      RF_WD_CSR:    rf_wdata_id_o   = csr_rdata_i;
+      RF_WD_COPROC: rf_wdata_id_o   = XInterface? x_result_i.data : result_ex_i;
+      default:      rf_wdata_id_o   = result_ex_i;
     endcase
-
-// --- [stev] ---
-    if (cf_scalar_we_safe) begin
-      rf_wdata_id_o = cf_scalar_wdata_i;
-    end
-// --- [end] ---
-
-    else if (vec_scalar_we_safe) begin
-      rf_wdata_id_o = vec_scalar_wdata_i;
-    end
   end
 
   /////////////
@@ -640,13 +517,6 @@ cve2_pkg::mac_op_e     cf_op_dec;
     .ecall_insn_o  (ecall_insn_dec),
     .wfi_insn_o    (wfi_insn_dec),
     .jump_set_o    (jump_set_dec),
-    .vec_insn_o      (vec_insn_dec),
-    .vec_vset_o      (vec_vset_dec),
-
-// --- [stev] ---
-.cf_insn_o (cf_insn_dec),
-.cf_op_o   (cf_op_dec),
-// --- [end] ---
 
     // from IF-ID pipeline register
     .instr_first_cycle_i(instr_first_cycle),
@@ -671,9 +541,11 @@ cve2_pkg::mac_op_e     cf_op_dec;
 
     .rf_raddr_a_o(rf_raddr_a_o),
     .rf_raddr_b_o(rf_raddr_b_o),
-    .rf_waddr_o  (rf_waddr_dec),
+    .rf_raddr_c_o(rf_raddr_c_o),
+    .rf_waddr_o  (rf_waddr_id_o),
     .rf_ren_a_o  (rf_ren_a_dec),
     .rf_ren_b_o  (rf_ren_b_dec),
+    .rf_ren_c_o  (rf_ren_c_dec),
 
     // ALU
     .alu_operator_o    (alu_operator),
@@ -706,20 +578,6 @@ cve2_pkg::mac_op_e     cf_op_dec;
     .jump_in_dec_o  (jump_in_dec),
     .branch_in_dec_o(branch_in_dec)
   );
-
-// --- [stev] ---
-assign cf_req_valid_o =
-    instr_valid_i &&
-    instr_first_cycle &&
-    cf_insn_dec &&
-    controller_run &&
-    !flush_id;
-
-assign cf_req_op_o    = cf_op_dec;
-assign cf_req_instr_o = instr_rdata_i;
-assign cf_req_rs1_o   = rf_rdata_a_fwd;
-assign cf_req_rs2_o   = rf_rdata_b_fwd;
-// --- [end] ---
 
   /////////////////////////////////
   // CSR-related pipeline flushes //
@@ -913,8 +771,6 @@ assign cf_req_rs2_o   = rf_rdata_b_fwd;
   assign jump_set        = jump_set_raw        & ~branch_jump_set_done_q;
   assign branch_set      = branch_set_raw      & ~branch_jump_set_done_q;
 
-
-
   // ID/EX stage can be in two states, FIRST_CYCLE and MULTI_CYCLE. An instruction enters
   // MULTI_CYCLE if it requires multiple cycles to complete regardless of stalls and other
   // considerations. An instruction may be held in FIRST_CYCLE if it's unable to begin executing
@@ -935,35 +791,12 @@ assign cf_req_rs2_o   = rf_rdata_b_fwd;
     if (instr_executing_spec) begin
       unique case (id_fsm_q)
         FIRST_CYCLE: begin
-            // Temporary debug block
-            // if (vec_insn_dec || illegal_insn_dec || lsu_req_dec || multdiv_en_dec ||
-            //     branch_in_dec || jump_in_dec || alu_multicycle_dec) begin
-            //   $display("CASE DEBUG pc=%08x instr=%08x vec=%0d illegal=%0d lsu=%0d multdiv=%0d branch=%0d jump=%0d alu_multi=%0d",
-            //     pc_id_i, instr_rdata_i,
-            //     vec_insn_dec, illegal_insn_dec, lsu_req_dec, multdiv_en_dec,
-            //     branch_in_dec, jump_in_dec, alu_multicycle_dec);
-            // end
-
           unique case (1'b1)
             lsu_req_dec: begin
               begin
                 // LSU operation
                 id_fsm_d    = MULTI_CYCLE;
               end
-            end
-            (vec_insn_dec): begin
-              // Vector operation (handled by vector unit, always multi-cycle)
-              id_fsm_d  = MULTI_CYCLE;
-              rf_we_raw = 1'b0;
-              // Stall immediately so PC does not advance in the first cycle
-              stall_alu = 1'b1;
-            end
-            (cf_insn_dec): begin
-              // Vector operation (handled by vector unit, always multi-cycle)
-              id_fsm_d  = MULTI_CYCLE;
-              rf_we_raw = 1'b0;
-              // Stall immediately so PC does not advance in the first cycle
-              stall_alu = 1'b1;
             end
             multdiv_en_dec: begin
               // MUL or DIV operation
@@ -1062,11 +895,8 @@ assign cf_req_rs2_o   = rf_rdata_b_fwd;
 
   // Stall ID/EX stage for reason that relates to instruction in ID/EX, update assertion below if
   // modifying this.
-
-// --- [stev] ---
-  assign stall_id = stall_mem | stall_multdiv | stall_vec | stall_mac | stall_jump | stall_branch |
+  assign stall_id = stall_mem | stall_multdiv | stall_jump | stall_branch |
                       stall_alu | (XInterface & stall_coproc);
-// --- [end] ---
 
   // Generally illegal instructions have no reason to stall, however they must still stall waiting
   // for outstanding memory requests so exceptions related to them take priority over the illegal
@@ -1088,13 +918,6 @@ assign cf_req_rs2_o   = rf_rdata_b_fwd;
   // Without Writeback Stage always stall the first cycle of a load/store.
   // Then stall until it is complete
   assign stall_mem = instr_valid_i & (lsu_req_dec & (~lsu_resp_valid_i | instr_first_cycle));
-  // Vector unit stall (multi-cycle vector ops)
-  assign stall_vec = (vec_busy_i && !vec_done_i) | (instr_valid_i && instr_first_cycle && vec_insn_dec && !vec_req_ready_i);
-
-// --- [stev] ---
-assign stall_mac = (cf_busy_i && !cf_done_i) | (instr_valid_i && instr_first_cycle && cf_insn_dec && !cf_req_ready_i);
-
-// --- [end] ---
 
   // Without writeback stage any valid instruction that hasn't seen an error will execute
   assign instr_executing_spec = instr_valid_i & ~instr_fetch_err_i & controller_run;
@@ -1107,6 +930,7 @@ assign stall_mac = (cf_busy_i && !cf_done_i) | (instr_valid_i && instr_first_cyc
   // register file
   assign rf_rdata_a_fwd = rf_rdata_a_i;
   assign rf_rdata_b_fwd = rf_rdata_b_i;
+  assign rf_rdata_c_fwd = rf_rdata_c_i;
 
   // Unused Writeback stage only IO & wiring
   // Assign inputs and internal wiring to unused signals to satisfy lint checks
@@ -1116,20 +940,6 @@ assign stall_mac = (cf_busy_i && !cf_done_i) | (instr_valid_i && instr_first_cyc
   assign perf_dside_wait_o = instr_executing & lsu_req_dec & ~lsu_resp_valid_i;
 
   assign instr_id_done_o = instr_done;
-
-  // Vector unit request (pulse on first cycle of a recognized vector instruction)
-  assign vec_req_valid_o = instr_valid_i && instr_first_cycle && vec_insn_dec && controller_run && !flush_id;
-  assign vec_req_instr_o = instr_rdata_i;
-  assign vec_req_rs1_o   = rf_rdata_a_fwd;
-  assign vec_req_rs2_o   = rf_rdata_b_fwd;
-
-  // temp debug
-  // always_ff @(posedge clk_i) begin
-  //   if (instr_valid_i && instr_first_cycle && vec_insn_dec) begin
-  //     $display("VEC REQ DBG: pc=%h instr=%h vec_req_valid_o=%0d vec_req_ready_i=%0d stall_id=%0d flush_id=%0d",
-  //             pc_id_i, instr_rdata_i, vec_req_valid_o, vec_req_ready_i, stall_id, flush_id);
-  //   end
-  // end
 
   // Signal which instructions to count as retired in minstret, all traps along with ebrk and
   // ecall instructions are not counted.

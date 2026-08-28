@@ -177,8 +177,11 @@ module cve2_core import cve2_pkg::*; #(
   logic [31:0] rf_rdata_a;
   logic [4:0]  rf_raddr_b;
   logic [31:0] rf_rdata_b;
+  logic [4:0]  rf_raddr_c;
+  logic [31:0] rf_rdata_c;
   logic        rf_ren_a;
   logic        rf_ren_b;
+  logic        rf_ren_c;
   logic [4:0]  rf_waddr_wb;
   logic [31:0] rf_wdata_wb;
   // Writeback register write data that can be used on the forwarding path (doesn't factor in memory
@@ -186,79 +189,6 @@ module cve2_core import cve2_pkg::*; #(
   logic [31:0] rf_wdata_lsu;
   logic        rf_we_wb;
   logic        rf_we_lsu;
-
-  ////////////////////////
-  // RVV-Lite Vector Unit
-  ////////////////////////
-  logic        vec_req_valid;
-  logic        vec_req_ready;
-  logic [31:0] vec_req_instr;
-  logic [31:0] vec_req_rs1;
-  logic [31:0] vec_req_rs2;
-  logic        vec_busy;
-  logic        vec_done;
-  logic        vec_scalar_we;
-  logic [4:0]  vec_scalar_waddr;
-  logic [31:0] vec_scalar_wdata;
-
-// --- [stev] ---
-  logic        cf_req_valid; //mac
-cve2_pkg::mac_op_e cf_req_op_int;
-  logic        cf_req_ready;
-  logic [31:0] cf_req_instr;
-  logic [31:0] cf_req_rs1;
-  logic [31:0] cf_req_rs2;
-  logic        cf_busy;
-  logic        cf_done;
-  logic        cf_scalar_we;
-  logic [4:0]  cf_scalar_waddr;
-  logic [31:0] cf_scalar_wdata;
-
-  // ------------------------------------------------------------
-  // Vector Register File <-> Custom FP4 MAC Unit interface
-  // ------------------------------------------------------------
-  logic [4:0]  mac_vrf_raddr; //[stev] - need to param?
-  logic [4:0]  mac_vrf_relem;
-//  logic [2:0]  mac_vrf_relem;
-  logic [31:0] mac_vrf_rdata;
-logic mac_vrf_en;
-
-// --- [end] ---
-
-  // Vector data bus (arbitrated against scalar LSU)
-  logic        vec_data_req;
-  logic        vec_data_we;
-  logic [31:0] vec_data_addr;
-  logic [31:0] vec_data_wdata;
-  logic [3:0]  vec_data_be;
-  logic        vec_data_gnt;
-  logic        vec_data_rvalid;
-  logic [31:0] vec_data_rdata;
-  logic        vec_data_err;
-
-// --- [stev] ---
-  logic        cf_data_req;
-  logic        cf_data_we;
-  logic [31:0] cf_data_addr;
-  logic [31:0] cf_data_wdata;
-  logic [3:0]  cf_data_be;
-  logic        cf_data_gnt; //mac
-  logic        cf_data_rvalid;
-  logic [31:0] cf_data_rdata;
-  logic        cf_data_err;
-
-// --- [end] ---
-
-  // Scalar LSU data bus (internal)
-  logic        data_req_lsu;
-  logic        data_we_lsu;
-  logic [31:0] data_addr_lsu;
-  logic [31:0] data_wdata_lsu;
-  logic [3:0]  data_be_lsu;
-  logic        data_gnt_lsu;
-  logic        data_rvalid_lsu;
-  logic [31:0] data_rdata_lsu;
-  logic        data_err_lsu;
 
   logic [4:0]  rf_waddr_id;
   logic [31:0] rf_wdata_id;
@@ -271,29 +201,6 @@ logic mac_vrf_en;
 
   logic [31:0] alu_adder_result_ex;    // Used to forward computed address to LSU
   logic [31:0] result_ex;
-
-  // Vector -> EX reuse path
-  logic        vec_ex_req;
-  logic        vec_ex_is_mul;
-  logic [1:0]  vec_ex_alu_op;
-  logic [31:0] vec_ex_operand_a;
-  logic [31:0] vec_ex_operand_b;
-  logic [31:0] vec_result_ex;
-  logic        vec_ex_valid;
-
-  // EX input muxes (scalar or vector micro-op)
-  alu_op_e     alu_operator_ex_mux;
-  logic [31:0] alu_operand_a_ex_mux;
-  logic [31:0] alu_operand_b_ex_mux;
-  logic        alu_instr_first_cycle_ex_mux;
-  md_op_e      multdiv_operator_ex_mux;
-  logic        mult_en_ex_mux;
-  logic        div_en_ex_mux;
-  logic        mult_sel_ex_mux;
-  logic        div_sel_ex_mux;
-  logic [1:0]  multdiv_signed_mode_ex_mux;
-  logic [31:0] multdiv_operand_a_ex_mux;
-  logic [31:0] multdiv_operand_b_ex_mux;
 
   // Multiplier Control
   logic        mult_en_ex;
@@ -348,6 +255,7 @@ logic mac_vrf_en;
   pmp_cfg_t     csr_pmp_cfg  [PMPNumRegions];
   pmp_mseccfg_t csr_pmp_mseccfg;
   logic         pmp_req_err  [PMP_NUM_CHAN];
+  logic         data_req_out;
 
   logic        csr_save_if;
   logic        csr_save_id;
@@ -601,8 +509,11 @@ logic mac_vrf_en;
     .rf_rdata_a_i      (rf_rdata_a),
     .rf_raddr_b_o      (rf_raddr_b),
     .rf_rdata_b_i      (rf_rdata_b),
+    .rf_raddr_c_o      (rf_raddr_c),
+    .rf_rdata_c_i      (rf_rdata_c),
     .rf_ren_a_o        (rf_ren_a),
     .rf_ren_b_o        (rf_ren_b),
+    .rf_ren_c_o        (rf_ren_c),
     .rf_waddr_id_o     (rf_waddr_id),
     .rf_wdata_id_o     (rf_wdata_id),
     .rf_we_id_o        (rf_we_id),
@@ -617,164 +528,11 @@ logic mac_vrf_en;
     .perf_dside_wait_o(perf_dside_wait),
     .perf_wfi_wait_o  (perf_wfi_wait),
     .perf_div_wait_o  (perf_div_wait),
-    .instr_id_done_o  (instr_id_done),
-
-    // RVV-Lite vector unit request channel
-    .vec_req_valid_o      (vec_req_valid),
-    .vec_req_ready_i      (vec_req_ready),
-    .vec_req_instr_o      (vec_req_instr),
-    .vec_req_rs1_o        (vec_req_rs1),
-    .vec_req_rs2_o        (vec_req_rs2),
-
-    // RVV-Lite vector unit completion channel
-    .vec_busy_i           (vec_busy),
-    .vec_done_i           (vec_done),
-    .vec_scalar_we_i      (vec_scalar_we),
-    // setting this to 0 to confirm suspicion
-    // .vec_scalar_we_i      (1'b0),
-    .vec_scalar_waddr_i   (vec_scalar_waddr),
-    .vec_scalar_wdata_i   (vec_scalar_wdata),
-
-// --- [stev] ---
-    .cf_req_valid_o(cf_req_valid),
-    .cf_req_op_o(cf_req_op_int), //output logic [3:0] cf_op_o
-    .cf_req_instr_o(cf_req_instr),
-    .cf_req_rs1_o(cf_req_rs1),
-    .cf_req_rs2_o(cf_req_rs2),
-    .cf_req_ready_i(cf_req_ready),
-
-    .cf_busy_i(cf_busy),
-    .cf_done_i(cf_done),
-
-    .cf_scalar_we_i(cf_scalar_we),
-    .cf_scalar_waddr_i(cf_scalar_waddr),
-    .cf_scalar_wdata_i(cf_scalar_wdata)
-
-// --- [end] ---
-
+    .instr_id_done_o  (instr_id_done)
   );
-
-// --- [stev] ---
-// ------------------------------------------------------------
-// CF writeback leaving ID stage
-// ------------------------------------------------------------
-`ifdef CPU_DEBUG
-always_ff @(posedge clk_i) begin
-  if (cf_scalar_we || rf_we_id || rf_we_wb) begin
-    $display("========== [ID -> WB] ==========");
-    $display("cf_we      = %0b", cf_scalar_we);
-    $display("cf_rd      = x%0d", cf_scalar_waddr);
-    $display("cf_data    = 0x%08h", cf_scalar_wdata);
-
-    $display("rf_we_id   = %0b", rf_we_id);
-    $display("rf_rd_id   = x%0d", rf_waddr_id);
-    $display("rf_data_id = 0x%08h", rf_wdata_id);
-
-    $display("rf_we_wb   = %0b", rf_we_wb);
-    $display("rf_rd_wb   = x%0d", rf_waddr_wb);
-    $display("rf_data_wb = 0x%08h", rf_wdata_wb);
-    $display("================================");
-  end
-end
-`endif
-
-// --- [end] ---
 
   // for RVFI only
   assign unused_illegal_insn_id = illegal_insn_id;
-
-  // Reuse scalar EX hardware for vector arithmetic/multiply micro-ops.
-  wire sel_vec_ex = vec_ex_req;
-
-  // // Temporary Debug Prints
-  // always_ff @(posedge clk_i) begin
-  //   if (vec_ex_req || sel_vec_ex) begin
-  //     $display("[CORE-SEL] vec_ex_req=%0d vec_busy=%0d vec_ex_is_mul=%0d sel_vec_ex=%0d",
-  //             vec_ex_req, vec_busy, vec_ex_is_mul, sel_vec_ex);
-  //   end
-  // end
-
-  always_comb begin
-
-    alu_operator_ex_mux          = alu_operator_ex;
-    alu_operand_a_ex_mux         = alu_operand_a_ex;
-    alu_operand_b_ex_mux         = alu_operand_b_ex;
-    alu_instr_first_cycle_ex_mux = instr_first_cycle_id;
-
-    multdiv_operator_ex_mux      = multdiv_operator_ex;
-    mult_en_ex_mux               = mult_en_ex;
-    div_en_ex_mux                = div_en_ex;
-    mult_sel_ex_mux              = mult_sel_ex;
-    div_sel_ex_mux               = div_sel_ex;
-    multdiv_signed_mode_ex_mux   = multdiv_signed_mode_ex;
-    multdiv_operand_a_ex_mux     = multdiv_operand_a_ex;
-    multdiv_operand_b_ex_mux     = multdiv_operand_b_ex;
-
-    if (sel_vec_ex) begin
-      alu_operand_a_ex_mux         = vec_ex_operand_a;
-      alu_operand_b_ex_mux         = vec_ex_operand_b;
-      alu_instr_first_cycle_ex_mux = 1'b1;
-
-      multdiv_operand_a_ex_mux     = vec_ex_operand_a;
-      multdiv_operand_b_ex_mux     = vec_ex_operand_b;
-
-      // Safe defaults for vector EX
-      alu_operator_ex_mux          = ALU_ADD;
-      multdiv_signed_mode_ex_mux   = 2'b00;
-      div_en_ex_mux                = 1'b0;
-      div_sel_ex_mux               = 1'b0;
-
-      if (vec_ex_is_mul) begin
-        // vmul.vx: keep ALU in harmless mode while mult path is selected
-        alu_operator_ex_mux        = ALU_ADD;
-        multdiv_operator_ex_mux    = MD_OP_MULL;
-        mult_en_ex_mux             = 1'b1;
-        mult_sel_ex_mux            = 1'b1;
-      end else begin
-        unique case (vec_ex_alu_op)
-          2'd0: alu_operator_ex_mux = ALU_ADD;
-          2'd1: alu_operator_ex_mux = ALU_AND;
-          2'd2: alu_operator_ex_mux = ALU_SRL;
-          default: alu_operator_ex_mux = ALU_ADD;
-        endcase
-        mult_en_ex_mux             = 1'b0;
-        mult_sel_ex_mux            = 1'b0;
-      end
-    end
-
-
-    // // Temporary Debug Prints
-    // if (sel_vec_ex) begin
-    //   $write("[CORE-MUX-COMB] sel_vec_ex=%0d vec_ex_is_mul=%0d vec_ex_alu_op=%0d alu_operator_ex=%0d alu_operator_ex_mux=%0d mult_sel_ex=%0d mult_sel_ex_mux=%0d div_sel_ex=%0d div_sel_ex_mux=%0d\n",
-    //         sel_vec_ex, vec_ex_is_mul, vec_ex_alu_op,
-    //         alu_operator_ex, alu_operator_ex_mux,
-    //         mult_sel_ex, mult_sel_ex_mux,
-    //         div_sel_ex, div_sel_ex_mux);
-    // end
-
-  end
-
-  assign vec_result_ex = result_ex;
-  assign vec_ex_valid  = ex_valid & sel_vec_ex;
-
-  // // Temporary Debug Prints
-  // always_ff @(posedge clk_i) begin
-  //   if (sel_vec_ex || vec_ex_valid) begin
-  //     $display("[CORE-VEX-OP] vec_ex_alu_op=%0d alu_operator_ex_mux=%0d sel_vec_ex=%0d req=%0d is_mul=%0d op_a=%h op_b=%h result_ex=%h ex_valid=%0d vec_ex_valid=%0d",
-  //              vec_ex_alu_op, alu_operator_ex_mux, sel_vec_ex,
-  //              vec_ex_req, vec_ex_is_mul,
-  //              vec_ex_operand_a, vec_ex_operand_b,
-  //              result_ex, ex_valid, vec_ex_valid);
-  //   end
-  // end
-
-  // always_ff @(posedge clk_i) begin
-  //   if (vec_ex_req || vec_ex_valid) begin
-  //     $display("[CORE-VEX-VALID] req=%0d sel=%0d is_mul=%0d result_ex=%h ex_valid=%0d vec_valid=%0d",
-  //             vec_ex_req, sel_vec_ex, vec_ex_is_mul,
-  //             result_ex, ex_valid, vec_ex_valid);
-  //   end
-  // end
 
   cve2_ex_block #(
     .RV32M          (RV32M),
@@ -784,20 +542,20 @@ end
     .rst_ni(rst_ni),
 
     // ALU signal from ID stage
-    .alu_operator_i         (alu_operator_ex_mux),
-    .alu_operand_a_i        (alu_operand_a_ex_mux),
-    .alu_operand_b_i        (alu_operand_b_ex_mux),
-    .alu_instr_first_cycle_i(alu_instr_first_cycle_ex_mux),
+    .alu_operator_i         (alu_operator_ex),
+    .alu_operand_a_i        (alu_operand_a_ex),
+    .alu_operand_b_i        (alu_operand_b_ex),
+    .alu_instr_first_cycle_i(instr_first_cycle_id),
 
     // Multipler/Divider signal from ID stage
-    .multdiv_operator_i   (multdiv_operator_ex_mux),
-    .mult_en_i            (mult_en_ex_mux),
-    .div_en_i             (div_en_ex_mux),
-    .mult_sel_i           (mult_sel_ex_mux),
-    .div_sel_i            (div_sel_ex_mux),
-    .multdiv_signed_mode_i(multdiv_signed_mode_ex_mux),
-    .multdiv_operand_a_i  (multdiv_operand_a_ex_mux),
-    .multdiv_operand_b_i  (multdiv_operand_b_ex_mux),
+    .multdiv_operator_i   (multdiv_operator_ex),
+    .mult_en_i            (mult_en_ex),
+    .div_en_i             (div_en_ex),
+    .mult_sel_i           (mult_sel_ex),
+    .div_sel_i            (div_sel_ex),
+    .multdiv_signed_mode_i(multdiv_signed_mode_ex),
+    .multdiv_operand_a_i  (multdiv_operand_a_ex),
+    .multdiv_operand_b_i  (multdiv_operand_b_ex),
 
     // Intermediate value register
     .imd_val_we_o(imd_val_we_ex),
@@ -818,156 +576,25 @@ end
   // Load/store unit //
   /////////////////////
 
-  // Data bus arbitration:
-  // - When the RVV-Lite vector unit is busy, it owns the data bus.
-  // - Otherwise, the scalar LSU owns the data bus (with optional PMP gating).
-  wire sel_vec_data = vec_busy;
-
-// --- [stev] ---
-  wire sel_cf_data = cf_busy;
-
-  // External data bus drive
-  assign data_req_o   = sel_cf_data ? cf_data_req : (sel_vec_data ? vec_data_req : (data_req_lsu & ~pmp_req_err[PMP_D]));
-  assign data_addr_o  = sel_cf_data ? cf_data_addr : (sel_vec_data ? vec_data_addr : data_addr_lsu);
-  assign data_we_o    = sel_cf_data ? cf_data_we : (sel_vec_data ? vec_data_we : data_we_lsu);
-  assign data_be_o    = sel_cf_data ? cf_data_be : (sel_vec_data ? vec_data_be : data_be_lsu);
-  assign data_wdata_o = sel_cf_data ? cf_data_wdata : (sel_vec_data ? vec_data_wdata : data_wdata_lsu);
-// --- [end] ---
-
-  // Feed responses back only to the selected master
-  //assign data_gnt_lsu     = data_gnt_i    & ~sel_vec_data;
-  //assign data_rvalid_lsu  = data_rvalid_i & ~sel_vec_data;
-  //assign data_err_lsu     = data_err_i    & ~sel_vec_data;
-  assign data_gnt_lsu     = data_gnt_i    & ~sel_vec_data & ~sel_cf_data;
-  assign data_rvalid_lsu  = data_rvalid_i & ~sel_vec_data & ~sel_cf_data;
-  assign data_err_lsu     = data_err_i    & ~sel_vec_data & ~sel_cf_data;
-  assign data_rdata_lsu   = data_rdata_i;
-
-  assign vec_data_gnt     = data_gnt_i    & sel_vec_data;
-  assign vec_data_rvalid  = data_rvalid_i & sel_vec_data;
-  assign vec_data_err     = data_err_i    & sel_vec_data;
-  assign vec_data_rdata   = data_rdata_i;
-
-// --- [stev] ---
-  assign cf_data_gnt     = data_gnt_i    & sel_cf_data;
-  assign cf_data_rvalid  = data_rvalid_i & sel_cf_data;
-  assign cf_data_err     = data_err_i    & sel_cf_data;
-  assign cf_data_rdata   = data_rdata_i;
-
-// --- [end] ---
-
+  assign data_req_o   = data_req_out & ~pmp_req_err[PMP_D];
   assign lsu_resp_err = lsu_load_err | lsu_store_err;
-
-// --- [stev] ---
-  // mac
-  cve2_cf_mac_unit cf_unit_i (
-    .clk_i       (clk_i),
-    .rst_ni      (rst_ni),
-
-    .req_valid_i (cf_req_valid),
-    .req_instr_i (cf_req_instr),
-    .req_rs1_i   (cf_req_rs1),
-    .req_rs2_i   (cf_req_rs2),
-    .req_ready_o (cf_req_ready),
-
-    .busy_o      (cf_busy),
-    .done_o      (cf_done),
-
-    .scalar_we_o    (cf_scalar_we),
-    .scalar_waddr_o (cf_scalar_waddr),
-    .scalar_wdata_o (cf_scalar_wdata),
-
-    .data_req_o    (cf_data_req),
-    .data_gnt_i    (cf_data_gnt),
-    .data_addr_o   (cf_data_addr),
-    .data_we_o     (cf_data_we),
-    .data_be_o     (cf_data_be),
-    .data_wdata_o  (cf_data_wdata),
-    .data_rdata_i  (cf_data_rdata),
-    .data_rvalid_i (cf_data_rvalid),
-    .data_err_i    (cf_data_err),
-
-// some unused signals here
-    //.ex_req_o       (cf_ex_req),
-    //.ex_is_mul_o    (cf_ex_is_mul),
-    //.ex_alu_op_o    (cf_ex_alu_op),
-    //.ex_operand_a_o (cf_ex_operand_a),
-    //.ex_operand_b_o (cf_ex_operand_b),
-    //.ex_result_i    (cf_result_ex),
-    //.ex_valid_i     (cf_ex_valid),
-	.cf_req_op_i(cf_req_op_int),
-
-// --- [stev] ---
-.mac_vrf_raddr_o (mac_vrf_raddr),
-    .mac_vrf_relem_o (mac_vrf_relem),
-    .mac_vrf_rdata_i (mac_vrf_rdata),
-.mac_vrf_en_o(mac_vrf_en)
-// --- [end] ---
-  );
-
-
-// --- [end] ---
-
-  // RVV-Lite vector unit (minimal subset)
-  cve2_vec_unit vec_unit_i (
-    .clk_i       (clk_i),
-    .rst_ni      (rst_ni),
-
-    .req_valid_i (vec_req_valid),
-    .req_instr_i (vec_req_instr),
-    .req_rs1_i   (vec_req_rs1),
-    .req_rs2_i   (vec_req_rs2),
-    .req_ready_o (vec_req_ready),
-
-    .busy_o      (vec_busy),
-    .done_o      (vec_done),
-
-    .scalar_we_o    (vec_scalar_we),
-    .scalar_waddr_o (vec_scalar_waddr),
-    .scalar_wdata_o (vec_scalar_wdata),
-
-    .data_req_o    (vec_data_req),
-    .data_gnt_i    (vec_data_gnt),
-    .data_addr_o   (vec_data_addr),
-    .data_we_o     (vec_data_we),
-    .data_be_o     (vec_data_be),
-    .data_wdata_o  (vec_data_wdata),
-    .data_rdata_i  (vec_data_rdata),
-    .data_rvalid_i (vec_data_rvalid),
-    .data_err_i    (vec_data_err),
-
-    .ex_req_o       (vec_ex_req),
-    .ex_is_mul_o    (vec_ex_is_mul),
-    .ex_alu_op_o    (vec_ex_alu_op),
-    .ex_operand_a_o (vec_ex_operand_a),
-    .ex_operand_b_o (vec_ex_operand_b),
-    .ex_result_i    (vec_result_ex),
-    .ex_valid_i     (vec_ex_valid),
-
-// --- [stev] ---
-.mac_vrf_raddr_i (mac_vrf_raddr),
-    .mac_vrf_relem_i (mac_vrf_relem),
-    .mac_vrf_rdata_o (mac_vrf_rdata),
-.mac_vrf_en_i(mac_vrf_en)
-// --- [end] ---
-  );
 
   cve2_load_store_unit load_store_unit_i (
     .clk_i (clk_i),
     .rst_ni(rst_ni),
 
     // data interface
-    .data_req_o    (data_req_lsu),
-    .data_gnt_i    (data_gnt_lsu),
-    .data_rvalid_i (data_rvalid_lsu),
-    .data_err_i    (data_err_lsu),
+    .data_req_o    (data_req_out),
+    .data_gnt_i    (data_gnt_i),
+    .data_rvalid_i (data_rvalid_i),
+    .data_err_i    (data_err_i),
     .data_pmp_err_i(pmp_req_err[PMP_D]),
 
-    .data_addr_o (data_addr_lsu),
-    .data_we_o   (data_we_lsu),
-    .data_be_o   (data_be_lsu),
-    .data_wdata_o(data_wdata_lsu),
-    .data_rdata_i(data_rdata_lsu),
+    .data_addr_o (data_addr_o),
+    .data_we_o   (data_we_o),
+    .data_be_o   (data_be_o),
+    .data_wdata_o(data_wdata_o),
+    .data_rdata_i(data_rdata_i),
 
     // signals to/from ID/EX stage
     .lsu_we_i      (lsu_we),
@@ -1037,20 +664,6 @@ end
   // Debug output      //
   ///////////////////////
 
-  // // temporary debug
-  // always_ff @(posedge clk_i) begin
-  //   if (rf_we_wb) begin
-  //     $display("RF WRITE wb: x%0d <= %h", rf_waddr_wb, rf_wdata_wb);
-  //   end
-  // end
-
-  // always_ff @(posedge clk_i) begin
-  //   if (vec_done || vec_scalar_we) begin
-  //     $display("CORE VEC SIG DBG: vec_done=%0d vec_we=%0d vec_waddr=%0d vec_wdata=%h",
-  //             vec_done, vec_scalar_we, vec_scalar_waddr, vec_scalar_wdata);
-  //   end
-  // end
-
   assign debug_halted_o = debug_mode;
 
   // Explict INC_ASSERT block to avoid unused signal lint warnings were asserts are not included
@@ -1084,7 +697,8 @@ end
   cve2_register_file_ff #(
     .RV32E            (RV32E),
     .DataWidth        (32),
-    .WordZeroVal      (32'h0)
+    .WordZeroVal      (32'h0),
+    .XInterface       (XInterface)
   ) register_file_i (
     .clk_i (clk_i),
     .rst_ni(rst_ni),
@@ -1095,25 +709,13 @@ end
     .rdata_a_o(rf_rdata_a),
     .raddr_b_i(rf_raddr_b),
     .rdata_b_o(rf_rdata_b),
+    .raddr_c_i(rf_raddr_c),
+    .rdata_c_o(rf_rdata_c),
     .waddr_a_i(rf_waddr_wb),
     .wdata_a_i(rf_wdata_wb),
     .we_a_i   (rf_we_wb)
   );
 
-
-// --- [stev] ---
-`ifdef CPU_DEBUG
-always_ff @(posedge clk_i) begin
-  if (rf_we_wb) begin
-    $display("========== [REGFILE WRITE] ==========");
-    $display("rd    = x%0d", rf_waddr_wb);
-    $display("data  = 0x%08h", rf_wdata_wb);
-    $display("=====================================");
-  end
-end
-`endif
-
-// --- [end] ---
 
   /////////////////////////////////////////
   // CSRs (Control and Status Registers) //
@@ -1821,17 +1423,6 @@ end
       rvfi_intr_q        <= rvfi_intr_d;
     end
   end
-
-// // Temporary Debug Prints
-// always_ff @(posedge clk_i) begin
-//   if (vec_ex_req || vec_ex_valid) begin
-//     $display("[CORE-VEX] req=%0d is_mul=%0d alu_op=%0d op_a=%h op_b=%h result=%h valid=%0d sel_vec_ex=%0d vec_busy=%0d ex_valid=%0d",
-//              vec_ex_req, vec_ex_is_mul, vec_ex_alu_op,
-//              vec_ex_operand_a, vec_ex_operand_b,
-//              vec_result_ex, vec_ex_valid,
-//              sel_vec_ex, vec_busy, ex_valid);
-//   end
-// end
 
 `else
   logic unused_instr_new_id, unused_instr_id_done;

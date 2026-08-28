@@ -83,33 +83,19 @@ module cve2_alu #(
 
   // prepare operand a
   always_comb begin
-  if (multdiv_sel_i && (adder_op_a_shift1 || adder_op_a_shift2 || adder_op_a_shift3)) begin
-    $write("[ALU-ASSERTDBG-A] operator_i=%0d multdiv_sel_i=%0d shift1=%0d shift2=%0d shift3=%0d operand_a_i=%h multdiv_operand_a_i=%h\n",
-           operator_i, multdiv_sel_i,
-           adder_op_a_shift1, adder_op_a_shift2, adder_op_a_shift3,
-           operand_a_i, multdiv_operand_a_i);
+    unique case(1'b1)
+      multdiv_sel_i:     adder_in_a = multdiv_operand_a_i;
+      adder_op_a_shift1: adder_in_a = {operand_a_i[30:0],2'b01};
+      adder_op_a_shift2: adder_in_a = {operand_a_i[29:0],3'b001};
+      adder_op_a_shift3: adder_in_a = {operand_a_i[28:0],4'b0001};
+      default:           adder_in_a = {operand_a_i,1'b1};
+    endcase
   end
-
-  priority case (1'b1)
-    multdiv_sel_i:     adder_in_a = multdiv_operand_a_i;
-    adder_op_a_shift1: adder_in_a = {operand_a_i[30:0],2'b01};
-    adder_op_a_shift2: adder_in_a = {operand_a_i[29:0],3'b001};
-    adder_op_a_shift3: adder_in_a = {operand_a_i[28:0],4'b0001};
-    default:           adder_in_a = {operand_a_i,1'b1};
-  endcase
-end
 
   // prepare operand b
   assign operand_b_neg = {operand_b_i,1'b0} ^ {33{1'b1}};
   always_comb begin
-    // Temporary Debug Prints
-    // if (multdiv_sel_i && adder_op_b_negate) begin
-    //   $write("[ALU-ASSERTDBG-B] operator_i=%0d multdiv_sel_i=%0d adder_op_b_negate=%0d operand_a_i=%h operand_b_i=%h multdiv_operand_b_i=%h\n",
-    //         operator_i, multdiv_sel_i, adder_op_b_negate,
-    //         operand_a_i, operand_b_i, multdiv_operand_b_i);
-    // end
-
-    priority case (1'b1)
+    unique case (1'b1)
       multdiv_sel_i:     adder_in_b = multdiv_operand_b_i;
       adder_op_b_negate: adder_in_b = operand_b_neg;
       default:           adder_in_b = {operand_b_i, 1'b0};

@@ -175,19 +175,9 @@ module cve2_ex_block #(
     assign multdiv_imd_val_we = '0;
   end
 
-  // adding temporary debug block
-  // always_ff @(posedge clk_i) begin
-  //   if (branch_decision_o === 1'b0 && alu_operator_i == ALU_NE) begin
-  //     $display("BRANCH DEBUG");
-  //     $display("operand_a = %h", alu_operand_a_i);
-  //     $display("operand_b = %h", alu_operand_b_i);
-  //   end
-  // end
-
   // Multiplier/divider may require multiple cycles. The ALU output is valid in the same cycle
   // unless the intermediate result register is being written (which indicates this isn't the
   // final cycle of ALU operation).
   assign ex_valid_o = multdiv_sel ? multdiv_valid : ~(|alu_imd_val_we);
 
 endmodule
-
