@@ -45,6 +45,7 @@ filesets:
       - rtl/parameterized_adder.sv
       - rtl/accumulator_reg.sv
       - rtl/sat16_adder.sv
+      - rtl/int4_mul_int8.sv
       - rtl/fp4_mul_int9.sv
       - rtl/mac_cell.sv
       - rtl/mac_controller.sv

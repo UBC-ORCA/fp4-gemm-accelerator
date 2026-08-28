@@ -126,6 +126,40 @@ extern void mac_mem_test_v31(uint32_t *ptr);
 uint32_t weight_scales[2] = {0x80808080, 0x80808080};
 uint32_t act_scales[2]    = {0x80808080, 0x80808080};
 
+  // ==========================================
+  // Initialize Activation Matrix with INT4
+  // ==========================================
+  //
+  // Each uint32_t contains eight packed INT4 values.
+  //
+  // INT4 encoding:
+  //   0x0 =   0
+  //   0x1 =  +1
+  //   0x2 =  +2
+  //   0x3 =  +3
+  //   0x4 =  +4
+  //   0x5 =  +5
+  //   0x6 =  +6
+  //   0x7 =  +7
+  //   0x8 =  -8
+  //   0x9 =  -7
+  //   ...
+  //   0xF =  -1
+  //
+  // Word pattern repeats:
+  //   +1, +2, +3, +4, +5, +6, +7, -1
+  //
+  static const uint32_t int4_pattern[8] = {
+      0x11111111,
+      0x22222222,
+      0x33333333,
+      0x44444444,
+      0x55555555,
+      0x66666666,
+      0x77777777,
+      0xFFFFFFFF
+  };
+
 
 extern void load_act_scales(const uint32_t *base);
 extern void load_w_scales(const uint32_t *base);
@@ -146,7 +180,10 @@ int main(void)
   for (int v = 0; v < NUM_VREGS; v++) {
     for (int i = 0; i < WORDS_PER_VREG; i++) {
 //      mat_a[v * WORDS_PER_VREG + i] = 0x11111111 * (v + 1);
-      mat_a[v * WORDS_PER_VREG + i] = 0x11111111;
+      //mat_a[v * WORDS_PER_VREG + i] = 0x11111111;
+	
+//mat_a[v * WORDS_PER_VREG + i] = int4_pattern[i % 8]; // int4
+mat_a[v * WORDS_PER_VREG + i] = 0x22222222;  // eight +2
 
     }
   }
@@ -162,6 +199,7 @@ int main(void)
 // Each uint32_t contains 8 FP4 values (4 bits each)
 // Pattern: 0x11111111 ... 0x88888888, repeat
 
+/*
 for (int i = 0; i < WORDS_PER_VREG * NUM_VREGS; i++) {
     uint32_t fp4 = (i % 8) + 1;   // 1..8
     weights[i] = fp4 |
@@ -173,6 +211,29 @@ for (int i = 0; i < WORDS_PER_VREG * NUM_VREGS; i++) {
                  (fp4 << 24) |
                  (fp4 << 28);
 }
+*/
+
+ // ==========================================
+  // Initialize Weight Matrix with INT4
+  // ==========================================
+  //
+  // Each uint32_t contains eight packed INT4
+  // values. Use a simple repeating pattern.
+  //
+  // Word 0: +1
+  // Word 1: +2
+  // Word 2: +3
+  // Word 3: +4
+  // Word 4: +5
+  // Word 5: +6
+  // Word 6: +7
+  // Word 7: -1
+  // Then repeat.
+
+  for (int i = 0; i < WORDS_PER_VREG * NUM_VREGS; i++) {
+    //weights[i] = int4_pattern[i % 8]; //int4
+weights[i] = 0x33333333;                       // eight +3
+  }
 
   // Begin hardware performance profiling
   *COMP_START_MMIO = 1u;
@@ -193,7 +254,7 @@ for (int i = 0; i < WORDS_PER_VREG * NUM_VREGS; i++) {
   // BRING-UP TEST 1: Register v0 Verification
   // ==========================================
   load_v0(&mat_a[0]);               // Loads v0 (Words 0 to 31)
-  //mac_zz();                         // Clear accumulator tile
+                   // Clear accumulator tile
  mac_mem_test_v0(weights);         // Multiplies v0 by weights[0..31]
   mac_as();                         // Apply activation scales
   mac_ws();                         // Apply weight scales
@@ -201,38 +262,19 @@ for (int i = 0; i < WORDS_PER_VREG * NUM_VREGS; i++) {
   // ==========================================
   // BRING-UP TEST 2: Register v1 Verification
   // ==========================================
+
+
   load_act_scales(act_scales);
   load_w_scales(weight_scales);
   load_v1(&mat_a[32]);              // Loads v1 (Words 32 to 63)
-  //mac_zz();
+
   mac_mem_test_v1(weights);         // Multiplies v1 by weights[32..63]
   mac_as();
   mac_ws();
-  //chk = mac_out(0, 0, 2);
+
 mac_bias(31,7,7,0x3fc0); 
 
-//BRAM write check
-  // mac_bias(0,0,0,0x3f80);   // tile0 row0 col0 (even row)
-  // mac_bias(0,0,1,0x4000);   // tile0 row0 col1 (neighbor col - must not clobber col0)
-  // mac_bias(0,7,7,0x4120);   // tile0 row7 col7 (ODD row - must not assert or spill to tile1)
-  // mac_bias(1,0,0,0x4040);   // tile1 row0 col0 (must stay clean)
-  // mac_bias(31,7,7,0x3fc0);  // tile31 row7 col7 (ODD row, last tile - must not spill past)
 
-  // mac_bias(0,0,0,0x3f80);   // tile0 row0 col0 (even row), test double write to one cell
-
-  // mac_bias(0,7,7,0x4120);   // tile0 row7 col7 (ODD row - must not assert or spill to tile1)
-
-  // ==========================================
-  // BRING-UP TEST 3: Register v31 Boundary Verification
-  // ==========================================
-/*
-  load_v31(&mat_a[992]);            // Loads v31 (Words 992 to 1023)
-  mac_zz();
-  mac_mem_test_v31(weights);        // Multiplies v31 by weights[992..1023]
-  mac_as();
-  mac_ws();
-  chk = mac_out(0, 0, 2);
-*/
   // End hardware profiling and report output register status
   *COMP_END_MMIO = 1u;
   *DONE_MMIO = 0xFF;

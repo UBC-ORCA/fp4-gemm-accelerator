@@ -31,16 +31,16 @@ import fp4_pkg::*; #(
     input logic clear_i,
 
     //----------------------------------------------------------
-    // One FP4 activation per row
+    // One INT4 activation per row
     //----------------------------------------------------------
 
-    input fp4_e2m1_t act_i [0:TT-1],
+    input int4_t act_i [0:TT-1],
 
     //----------------------------------------------------------
-    // One FP4 weight per column
+    // One INT4 weight per column
     //----------------------------------------------------------
 
-    input fp4_e2m1_t wt_i [0:TT-1],
+    input int4_t wt_i [0:TT-1],
 
     //----------------------------------------------------------
     // Full accumulator tile
@@ -68,7 +68,7 @@ import fp4_pkg::*; #(
                     .mac_en_i (mac_en_i),
                     .clear_i  (clear_i),
 
-                    // decoded FP4 quanta
+                    // decoded INT4 quanta
                     .act_i    (act_i[r]),
                     .wt_i     (wt_i[c]),
 
