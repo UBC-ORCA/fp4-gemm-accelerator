@@ -46,6 +46,10 @@ import fp4_pkg::*; (
     		.product_o(product)
 	);
 
+    // [rbs] two's complement -> sign-magnitude for sat16_adder
+    logic [7:0] product_mag;
+    assign product_mag = product[7] ? (8'd0 - product) : product;
+    // [rbs - end]
 
     //-----------------------------------------
     // Saturating adder
@@ -55,7 +59,7 @@ import fp4_pkg::*; (
         .accum_i(accum_o),
   //      .product_mag_i(fp4_mul_mag),
   //      .product_sign_i(fp4_mul_sign),
-        .product_mag_i(product[6:0]),
+        .product_mag_i(product_mag),
         .product_sign_i(product[7]),
         .accum_next_o(accum_next)
 

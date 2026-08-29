@@ -243,8 +243,8 @@ module cve2_cf_mac_unit
     //------------------------------------------------------------
     logic        mac_en;
     logic        clear;
-    logic [3:0]  act_vector [0:TT-1];
-    logic [3:0]  weight_vector [0:TT-1];
+    logic signed [3:0]  act_vector [0:TT-1];
+    logic signed [3:0]  weight_vector [0:TT-1];
     
     logic        mem_req;
     logic [31:0] mem_addr;

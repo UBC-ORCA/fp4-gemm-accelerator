@@ -58,8 +58,8 @@ output logic mac_vrf_en_o,
     // [rbs - end]
 
     // Optimized Vector Slices
-    output logic [3:0]                  act_vector_o    [0:TT-1],
-    output logic [3:0]                  weight_vector_o [0:TT-1],
+    output logic signed [3:0]           act_vector_o    [0:TT-1],
+    output logic signed [3:0]           weight_vector_o [0:TT-1],
 
     // Scale register interface
     output logic [31:0]                 act_scale_lo_o,
