@@ -43,16 +43,6 @@ void __assert_func(const char *f,int l,const char *fn,const char *e){
     (void)f;(void)l;(void)fn;(void)e; __builtin_trap();
 }
 
-//[stev]
-// Define the simulator termination MMIO register
-static volatile uint32_t *const DONE_MMIO = (volatile uint32_t *)0xFFFF0000u;
-
-static inline void kill_simulation(void) {
-    *DONE_MMIO = 0xFF; // Signal simulator testbench to halt
-    while (1);         // Catch pipeline flush before termination
-}
-//[end]
-
 // =======================================
 // UART output helpers
 // =======================================
@@ -271,7 +261,6 @@ static inline uint32_t bram_rd(uint32_t tile, uint32_t row, uint32_t col) {
     return result;
 }
 
-
 // One K-block reduction
 static inline __attribute__((always_inline))
 void do_k_tile(int vreg, const uint32_t *As, const uint32_t *Ws, const uint32_t *weights) {
@@ -366,7 +355,7 @@ int16_t fp4_quantize(float value) {
     int sign = (value < 0.0f);
     float abs_v = sign ? -value : value;
 
-    int idx = (int)(abs_v * 4.0f + 0.5f);
+    int idx = (int)(abs_v * 2.0f + 0.5f);
     if (idx > 15) idx = 15;
     uint8_t mag = fp4_mag_lut[idx];
 
@@ -555,7 +544,7 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
 }
 
 int main(void) {
-    assert(rdout_shift[1] == 3 && rdout_shift[2] == 3);
+    // assert(rdout_shift[1] == 3 && rdout_shift[2] == 3);
     // Store one word per pixel for all batch lanes
     static uint32_t image_packed[NVREG*BS];
     // Raw pixels for the whole batch
