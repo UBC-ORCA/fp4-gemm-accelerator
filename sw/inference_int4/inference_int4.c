@@ -354,7 +354,7 @@ int16_t int4_quantize(float value) {
     int sign = (value < 0.0f);
     float abs_v = sign ? -value : value;
 
-    int mag = (int)(abs_v * (float)(1 << rdout_shift[0]) + 0.5f);
+    int mag = (int)(abs_v * 4.0f + 0.5f);
     if (mag > 7) mag = 7;
 
     return (int16_t)(sign ? ((-mag) & 0xF) : mag);
