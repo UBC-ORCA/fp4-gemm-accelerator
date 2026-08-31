@@ -544,7 +544,7 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
 }
 
 int main(void) {
-    // assert(rdout_shift[1] == 3 && rdout_shift[2] == 3);
+    assert(rdout_shift[1] == 3 && rdout_shift[2] == 3);
     // Store one word per pixel for all batch lanes
     static uint32_t image_packed[NVREG*BS];
     // Raw pixels for the whole batch
