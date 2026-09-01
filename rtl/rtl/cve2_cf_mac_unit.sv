@@ -228,8 +228,10 @@ module cve2_cf_mac_unit
             bram_wr_tile = ctrl_accum_wr_tile;
             bram_wr_row  = ctrl_accum_wr_row;
             bram_wr_col  = ctrl_accum_wr_col;
-            bram_wr_data = {16'b0, ctrl_accum_wr_data};
-            bram_wr_pair = 1'b0;   
+            //bram_wr_data = {16'b0, ctrl_accum_wr_data};
+            //bram_wr_pair = 1'b0;
+            bram_wr_data = {ctrl_accum_wr_data, ctrl_accum_wr_data};
+            bram_wr_pair = 1'b1;      
         end
     end
 
