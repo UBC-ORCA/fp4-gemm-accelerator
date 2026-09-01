@@ -401,8 +401,8 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
                     uint16_t lo = (uint16_t)(word & 0xFFFF);   // even col 2c
                     uint16_t hi = (uint16_t)(word >> 16);      // odd  col 2c+1
 
-                    #pragma GCC unroll 8 // BATCH
-                    for (int r = 0; r < BATCH; r++) {  // 8 rows
+                    #pragma GCC unroll 4 // BATCH/2
+                    for (int r = 0; r < BATCH; r += 2) {  // 4 row pairs
                         mac_bias(T, r, 2*c,   lo);
                         mac_bias(T, r, 2*c+1, hi);
                     }
