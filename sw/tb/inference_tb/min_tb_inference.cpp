@@ -335,7 +335,7 @@ int main(int argc, char** argv) {
     {
       auto *r = dut->rootp;
       uint32_t a3_now =
-          (uint32_t)r->cve2_top__DOT__u_cve2_core__DOT__register_file_i__DOT__rf_reg[13];
+          (uint32_t)r->cve2_top__DOT__u_cve2_core__DOT__register_file_i__DOT__rf_reg_q[13];
       if (a3_now != a3_prev) {
         A3Chg &e = a3_ring[a3_ring_n % A3_RING];
         e.cyc          = cyc;
@@ -345,7 +345,7 @@ int main(int argc, char** argv) {
         e.cf_busy      = (uint8_t)r->cve2_top__DOT__u_cve2_core__DOT__cf_busy;
         e.cf_done      = (uint8_t)r->cve2_top__DOT__u_cve2_core__DOT__cf_done;
         e.cf_scalar_we = (uint8_t)r->cve2_top__DOT__u_cve2_core__DOT__cf_scalar_we;
-        e.ctx_ready    = (uint8_t)r->cve2_top__DOT__u_cve2_core__DOT__cf_unit_i__DOT__context_ready;
+        // e.ctx_ready    = (uint8_t)r->cve2_top__DOT__u_cve2_core__DOT__cf_unit_i__DOT__u_mac_fsm;
         // scale_busy is (state_q != IDLE), and IDLE is 0
         e.scale_busy   = (uint8_t)(r->cve2_top__DOT__u_cve2_core__DOT__cf_unit_i__DOT__u_scale_fsm__DOT__state_q != 0);
         a3_ring_n++;
@@ -393,7 +393,7 @@ int main(int argc, char** argv) {
               "a2","a3","a4","a5","a6","a7","s2","s3","s4","s5","s6","s7",
               "s8","s9","s10","s11","t3","t4","t5","t6"};
             auto &rf = dut->rootp
-                       ->cve2_top__DOT__u_cve2_core__DOT__register_file_i__DOT__rf_reg;
+                       ->cve2_top__DOT__u_cve2_core__DOT__register_file_i__DOT__rf_reg_q;
             std::printf("[TB]   register file:\n");
             for (int i = 0; i < 32; i += 4) {
               std::printf("[TB]    ");
