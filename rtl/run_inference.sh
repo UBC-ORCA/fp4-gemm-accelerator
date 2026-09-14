@@ -42,6 +42,7 @@ Versions:
   hardware   scalar + vector + MAC array, full length vector loads
 
 Options:
+  --trace-wave      enable FST waveform dumping
   --traces          enable instruction and data traces
   --trace-if        instruction-fetch trace only
   --trace-d         data trace only
@@ -67,6 +68,7 @@ NO_UART=0
 SAVE=0
 LOGFILE=""
 YES=0
+TRACE_WAVE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -78,6 +80,7 @@ while [[ $# -gt 0 ]]; do
     1k|test_1k|test1k)          SIZE=1k ;;
     2k|test_2k|test2k)          SIZE=2k ;;
     10k|test_10k|test10k)       SIZE=10k ;;
+    --trace-wave) TRACE_WAVE=1 ;;
     --traces)      TRACE_IF=1; TRACE_D=1 ;;
     --trace-if)    TRACE_IF=1 ;;
     --trace-d)     TRACE_D=1 ;;
@@ -129,6 +132,7 @@ make -C "../sw/$DIR" -f inference.mk DATASET="$DATASET" SIZE="$SIZE" -B \
 ARGS=("$HEX" --data "$DATA" --max-cycles "$MAX_CYCLES" --print-every "$PRINT_EVERY")
 [[ $TRACE_IF -eq 1 ]] && ARGS+=(--trace-if)
 [[ $TRACE_D  -eq 1 ]] && ARGS+=(--trace-d)
+[[ $TRACE_WAVE -eq 1 ]] && ARGS+=(--trace-wave)
 [[ $NO_UART  -eq 1 ]] && ARGS+=(--no-uart)
 
 echo "[run] version=$VERSION  dataset=$DATASET size=test_${SIZE}.bin  traces=if:$TRACE_IF,d:$TRACE_D  print-every=$PRINT_EVERY"

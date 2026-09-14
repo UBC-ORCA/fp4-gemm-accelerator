@@ -453,3 +453,24 @@ make -f sim.mk mac_cell
 build/unit_test/mac_cell/obj_dir/Vmac_cell [test_name]
 ```
 
+# Wave Generation
+
+To generate a waveform trace during inference, use:
+
+```bash
+./run_inference.sh hardware mnist 8 --trace-wave
+```
+
+This generates the waveform file:
+
+```bash
+wave.fst
+```
+
+Open the waveform using GTKWave:
+
+```bash
+gtkwave wave.fst
+```
+
+

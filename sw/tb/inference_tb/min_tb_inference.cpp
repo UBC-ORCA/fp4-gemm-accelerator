@@ -2,6 +2,8 @@
 // Internal model, for reading mac_en inside the accelerator
 #include "Vcve2_top___024root.h"
 #include "verilated.h"
+//#include "verilated_vcd_c.h"
+#include "verilated_fst_c.h"
 
 #include <chrono>
 #include <cstdint>
@@ -34,7 +36,7 @@ static std::ofstream uart_log;
 static std::string uart_name_from_hex(const std::string& hex_path) {
   size_t slash = hex_path.find_last_of('/');
   if (slash == std::string::npos) return "uart_out.txt";   // no dir -> default
-  std::string dir  = hex_path.substr(0, slash);            // strip "/inference.hex"
+  std::string dir   = hex_path.substr(0, slash);            // strip "/inference.hex"
   size_t prev      = dir.find_last_of('/');
   std::string leaf = (prev == std::string::npos) ? dir : dir.substr(prev + 1);
   return leaf.empty() ? "uart_out.txt" : ("uart_out_" + leaf + ".txt");
@@ -151,7 +153,7 @@ int main(int argc, char** argv) {
     std::cerr << "Usage: " << argv[0]
               << " <inference.hex> [--data FILE] [--max-cycles N] [--print-every N]"
                  " [--stall-after N]"
-                 " [--trace-if] [--trace-d] [--no-uart] [--uart-file NAME]\n";
+                 " [--trace-if] [--trace-d] [--trace-wave] [--no-uart] [--uart-file NAME]\n";
     return 1;
   }
 
@@ -162,6 +164,7 @@ int main(int argc, char** argv) {
   uint64_t stall_after   = 0;
   bool trace_if          = false;
   bool trace_d           = false;
+  bool trace_wave        = false;
   bool uart_file         = true;   // tee UART to a file (disable: --no-uart)
   std::string uart_path;           // explicit --uart-file NAME (else derived from hex dir)
 
@@ -173,6 +176,7 @@ int main(int argc, char** argv) {
     else if (a == "--stall-after" && i+1 < argc) stall_after = std::stoull(argv[++i]);
     else if (a == "--trace-if") trace_if = true;
     else if (a == "--trace-d")  trace_d  = true;
+    else if (a == "--trace-wave") trace_wave = true;
     else if (a == "--no-uart")  uart_file = false;
     else if (a == "--uart-file" && i+1 < argc) uart_path = argv[++i];
     else { std::cerr << "Unknown arg: " << a << "\n"; return 1; }
@@ -199,28 +203,39 @@ int main(int argc, char** argv) {
   }
 
   Vcve2_top* dut = new Vcve2_top();
-  dut->clk_i         = 0;
-  dut->rst_ni        = 0;
+
+  //VerilatedVcdC* tfp = nullptr;
+  VerilatedFstC* tfp = nullptr;
+  if (trace_wave) {
+    Verilated::traceEverOn(true);
+    tfp = new VerilatedFstC;
+    dut->trace(tfp, 99);
+    tfp->open("wave.fst");
+    std::cout << "[TB] Waveform -> wave.vcd\n";
+  }
+
+  dut->clk_i          = 0;
+  dut->rst_ni         = 0;
   dut->fetch_enable_i = 0;
-  dut->hart_id_i     = 0;
-  dut->boot_addr_i   = 0x00000000;
-  dut->instr_gnt_i   = 0;
+  dut->hart_id_i      = 0;
+  dut->boot_addr_i    = 0x00000000;
+  dut->instr_gnt_i    = 0;
   dut->instr_rvalid_i = 0;
-  dut->instr_rdata_i = 0;
-  dut->instr_err_i   = 0;
-  dut->data_gnt_i    = 0;
-  dut->data_rvalid_i = 0;
-  dut->data_rdata_i  = 0;
-  dut->data_err_i    = 0;
+  dut->instr_rdata_i  = 0;
+  dut->instr_err_i    = 0;
+  dut->data_gnt_i     = 0;
+  dut->data_rvalid_i  = 0;
+  dut->data_rdata_i   = 0;
+  dut->data_err_i     = 0;
 
   for (int i = 0; i < 10; i++) {
-    dut->clk_i = 0; dut->eval(); main_time++;
-    dut->clk_i = 1; dut->eval(); main_time++;
+    dut->clk_i = 0; dut->eval(); if (tfp) tfp->dump(main_time); main_time++;
+    dut->clk_i = 1; dut->eval(); if (tfp) tfp->dump(main_time); main_time++;
   }
   dut->rst_ni = 1;
   for (int i = 0; i < 5; i++) {
-    dut->clk_i = 0; dut->eval(); main_time++;
-    dut->clk_i = 1; dut->eval(); main_time++;
+    dut->clk_i = 0; dut->eval(); if (tfp) tfp->dump(main_time); main_time++;
+    dut->clk_i = 1; dut->eval(); if (tfp) tfp->dump(main_time); main_time++;
   }
   dut->fetch_enable_i = 1;
   std::cout << "[TB] Reset released, running...\n";
@@ -321,6 +336,7 @@ int main(int argc, char** argv) {
     dut->data_gnt_i  = d_resp_due  ? 0 : 1;
 
     dut->eval();
+    if (tfp) tfp->dump(main_time);
     main_time++;
 
     bool if_fire = dut->instr_req_o && dut->instr_gnt_i;
@@ -329,28 +345,6 @@ int main(int argc, char** argv) {
     // Settled value the coming posedge will latch into the accumulators
     if (dut->rootp->cve2_top__DOT__u_cve2_core__DOT__cf_unit_i__DOT__mac_en) {
       mac_en_cycles++;
-    }
-
-    // Record every change to a3 with the accelerator state at that cycle
-    {
-      auto *r = dut->rootp;
-      uint32_t a3_now =
-          (uint32_t)r->cve2_top__DOT__u_cve2_core__DOT__register_file_i__DOT__rf_reg[13];
-      if (a3_now != a3_prev) {
-        A3Chg &e = a3_ring[a3_ring_n % A3_RING];
-        e.cyc          = cyc;
-        e.old_v        = a3_prev;
-        e.new_v        = a3_now;
-        e.pc           = (uint32_t)dut->instr_addr_o;
-        e.cf_busy      = (uint8_t)r->cve2_top__DOT__u_cve2_core__DOT__cf_busy;
-        e.cf_done      = (uint8_t)r->cve2_top__DOT__u_cve2_core__DOT__cf_done;
-        e.cf_scalar_we = (uint8_t)r->cve2_top__DOT__u_cve2_core__DOT__cf_scalar_we;
-        e.ctx_ready    = (uint8_t)r->cve2_top__DOT__u_cve2_core__DOT__cf_unit_i__DOT__context_ready;
-        // scale_busy is (state_q != IDLE), and IDLE is 0
-        e.scale_busy   = (uint8_t)(r->cve2_top__DOT__u_cve2_core__DOT__cf_unit_i__DOT__u_scale_fsm__DOT__state_q != 0);
-        a3_ring_n++;
-        a3_prev = a3_now;
-      }
     }
 
     if_resp_due = false;
@@ -386,32 +380,17 @@ int main(int argc, char** argv) {
                       (unsigned long long)cyc,
                       d_resp_is_write ? "WR" : "RD", d_resp_addr,
                       (d_resp_addr & 3) ? "  UNALIGNED" : "");
-          // Register file at the fault
-          {
-            static const char *abi[32] = {
-              "zero","ra","sp","gp","tp","t0","t1","t2","s0","s1","a0","a1",
-              "a2","a3","a4","a5","a6","a7","s2","s3","s4","s5","s6","s7",
-              "s8","s9","s10","s11","t3","t4","t5","t6"};
-            auto &rf = dut->rootp
-                       ->cve2_top__DOT__u_cve2_core__DOT__register_file_i__DOT__rf_reg;
-            std::printf("[TB]   register file:\n");
-            for (int i = 0; i < 32; i += 4) {
-              std::printf("[TB]    ");
-              for (int j = i; j < i + 4; j++)
-                std::printf(" x%-2d %-4s 0x%08x", j, abi[j], (uint32_t)rf[j]);
-              std::printf("\n");
-            }
-          }
+
           // Every change to a3 leading up to the stall
           {
             int an = a3_ring_n < A3_RING ? a3_ring_n : A3_RING;
             int as = a3_ring_n < A3_RING ? 0 : (a3_ring_n % A3_RING);
-            std::printf("[TB]   last %d changes to a3:\n", an);
-            std::printf("[TB]     %-9s %-10s %-10s %-8s %-6s  cf_busy done swe "
+            std::printf("[TB]    last %d changes to a3:\n", an);
+            std::printf("[TB]      %-9s %-10s %-10s %-8s %-6s  cf_busy done swe "
                         "ctx_rdy scale_busy\n", "cyc", "old", "new", "delta", "pc");
             for (int k = 0; k < an; k++) {
               const A3Chg &e = a3_ring[(as + k) % A3_RING];
-              std::printf("[TB]     %-9llu 0x%08x 0x%08x %+-8d 0x%04x %s   %d    %d   %d   %d       %d\n",
+              std::printf("[TB]      %-9llu 0x%08x 0x%08x %+-8d 0x%04x %s    %d    %d   %d   %d       %d\n",
                           (unsigned long long)e.cyc, e.old_v, e.new_v,
                           (int)(e.new_v - e.old_v), e.pc,
                           (e.new_v & 3) ? "MISALIGNED" : "          ",
@@ -421,22 +400,22 @@ int main(int argc, char** argv) {
           }
           // instr_addr_o is the next fetch address, not the culprit PC. The
           // fetched-PC ring is what shows the instruction stream that led here.
-          std::printf("[TB]   next fetch addr 0x%08x (not the culprit PC)\n",
+          std::printf("[TB]    next fetch addr 0x%08x (not the culprit PC)\n",
                       (uint32_t)dut->instr_addr_o);
           int qn = pc_ring_n < PC_RING ? pc_ring_n : PC_RING;
           int qs = pc_ring_n < PC_RING ? 0 : (pc_ring_n % PC_RING);
-          std::printf("[TB]   last %d fetched PCs:\n", qn);
+          std::printf("[TB]    last %d fetched PCs:\n", qn);
           for (int k = 0; k < qn; k++) {
             if (k % 8 == 0) std::printf("[TB]    ");
             std::printf(" 0x%08x", pc_ring[(qs + k) % PC_RING]);
             if (k % 8 == 7 || k == qn - 1) std::printf("\n");
           }
-          std::printf("[TB]   preceding data accesses:\n");
+          std::printf("[TB]    preceding data accesses:\n");
           int pn = d_ring_n < D_RING ? d_ring_n : D_RING;
           int ps = d_ring_n < D_RING ? 0 : (d_ring_n % D_RING);
           for (int k = 0; k < pn; k++) {
             uint32_t a = d_ring_addr[(ps + k) % D_RING];
-            std::printf("[TB]     %s 0x%08x\n",
+            std::printf("[TB]      %s 0x%08x\n",
                         d_ring_wr[(ps + k) % D_RING] ? "WR" : "RD", a);
           }
           std::fflush(stdout);
@@ -510,21 +489,21 @@ int main(int argc, char** argv) {
       std::printf("\n[TB] STALL: no UART for %llu cycles (cyc=%llu)\n",
                   (unsigned long long)(cyc - last_uart_cyc),
                   (unsigned long long)cyc);
-      std::printf("[TB]   fetch : req=%d gnt=%d rvalid=%d pc=0x%08x\n",
+      std::printf("[TB]    fetch : req=%d gnt=%d rvalid=%d pc=0x%08x\n",
                   (int)dut->instr_req_o, (int)dut->instr_gnt_i,
                   (int)dut->instr_rvalid_i, (uint32_t)dut->instr_addr_o);
-      std::printf("[TB]   data  : req=%d gnt=%d rvalid=%d we=%d addr=0x%08x\n",
+      std::printf("[TB]    data  : req=%d gnt=%d rvalid=%d we=%d addr=0x%08x\n",
                   (int)dut->data_req_o, (int)dut->data_gnt_i,
                   (int)dut->data_rvalid_i, (int)dut->data_we_o,
                   (uint32_t)dut->data_addr_o);
-      std::printf("[TB]   sleep=%d  fetches=%d\n",
+      std::printf("[TB]    sleep=%d  fetches=%d\n",
                   (int)dut->core_sleep_o, pc_ring_n);
 
       // Last fetched PCs, oldest first. A single repeated address means the
       // core is stalled on one instruction; a short cycle means a spin loop.
       int n = pc_ring_n < PC_RING ? pc_ring_n : PC_RING;
       int start = pc_ring_n < PC_RING ? 0 : (pc_ring_n % PC_RING);
-      std::printf("[TB]   last %d fetched PCs:\n", n);
+      std::printf("[TB]    last %d fetched PCs:\n", n);
       for (int k = 0; k < n; k++) {
         if (k % 8 == 0) std::printf("[TB]    ");
         std::printf(" 0x%08x", pc_ring[(start + k) % PC_RING]);
@@ -535,13 +514,13 @@ int main(int argc, char** argv) {
       // unaligned address is where the base register went bad.
       int dn = d_ring_n < D_RING ? d_ring_n : D_RING;
       int dstart = d_ring_n < D_RING ? 0 : (d_ring_n % D_RING);
-      std::printf("[TB]   last %d data transactions (oldest first):\n", dn);
+      std::printf("[TB]    last %d data transactions (oldest first):\n", dn);
       for (int k = 0; k < dn; k++) {
         uint32_t a = d_ring_addr[(dstart + k) % D_RING];
         uint32_t off = 0;
         const char *where = imem_translate(a, off) ? "imem"
                           : dmem_translate(a, off) ? "dmem" : "UNMAPPED";
-        std::printf("[TB]     %s 0x%08x  %-8s%s\n",
+        std::printf("[TB]      %s 0x%08x  %-8s%s\n",
                     d_ring_wr[(dstart + k) % D_RING] ? "WR" : "RD",
                     a, where, (a & 3) ? "  UNALIGNED" : "");
       }
@@ -551,6 +530,7 @@ int main(int argc, char** argv) {
 
     dut->clk_i = 1;
     dut->eval();
+    if (tfp) tfp->dump(main_time);
     main_time++;
 
     if (done_seen && cyc > done_cycle + 4) break;
@@ -576,6 +556,10 @@ int main(int argc, char** argv) {
     std::cerr << "[TB] TIMEOUT after " << max_cycles << " cycles\n";
 
   dut->final();
+  if (tfp) {
+    tfp->close();
+    delete tfp;
+  }
   delete dut;
   return done_seen ? 0 : 1;
 }

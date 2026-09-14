@@ -225,6 +225,7 @@ build-sim:
 		-Wall \
 		-Wno-fatal \
 		--cc --exe --build \
+		--trace-fst \
 		--top-module $(TOP_MODULE) \
 		-LDFLAGS "-lelf" \
 		$(MATMUL_TB_CPP)
