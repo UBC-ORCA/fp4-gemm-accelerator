@@ -261,9 +261,13 @@ module cve2_cf_mac_unit
     assign data_wdata_o  = mem_wdata;
 
     logic busy_main;
-    assign busy_o = busy_main || scale_busy;
+//    assign busy_o = busy_main || scale_busy;
+    assign busy_o = busy_main;
+
     logic done_main;
-    assign done_o = done_main || scale_done;
+//    assign done_o = done_main || scale_done;
+    assign done_o = done_main;
+
 
     mac_controller #(
         .VL(32),
