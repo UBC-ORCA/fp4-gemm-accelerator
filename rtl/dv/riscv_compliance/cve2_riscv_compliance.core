@@ -1,0 +1,77 @@
+CAPI=2:
+# Copyright (c) 2025 Eclipse Foundation
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+name: "openhwgroup:cve2:cve2_riscv_compliance:0.1"
+description: "CVE2 simulation for RISC-V compliance testing (using Verilator)"
+filesets:
+  files_sim:
+    depend:
+      - openhwgroup:cve2:cve2_top_tracing
+      - openhwgroup:cve2:sim_shared
+    files:
+      - rtl/cve2_riscv_compliance.sv
+      - rtl/riscv_testutil.sv
+    file_type: systemVerilogSource
+
+  files_verilator:
+    depend:
+      - lowrisc:dv_verilator:memutil_verilator
+      - lowrisc:dv_verilator:simutil_verilator
+    files:
+      - cve2_riscv_compliance.cc: { file_type: cppSource }
+      - lint/verilator_waiver.vlt: {file_type: vlt}
+
+parameters:
+  RV32E:
+    datatype: int
+    paramtype: vlogparam
+    default: 0
+    description: "Enable the E ISA extension (reduced register set) [0/1]"
+
+  RV32M:
+    datatype: str
+    default: cve2_pkg::RV32MFast
+    paramtype: vlogdefine
+    description: "RV32M implementation parameter enum. See the cve2_pkg::rv32m_e enum in cve2_pkg.sv for permitted values."
+
+  MHPMCounterNum:
+    datatype: int
+    default: 10
+    paramtype: vlogparam
+
+  MHPMCounterWidth:
+    datatype: int
+    default: 40
+    paramtype: vlogparam
+
+targets:
+  sim:
+    default_tool: verilator
+    filesets:
+      - files_sim
+      - tool_verilator ? (files_verilator)
+    parameters:
+      - RV32E
+      - RV32M
+      - MHPMCounterNum
+      - MHPMCounterWidth
+    toplevel: cve2_riscv_compliance
+    tools:
+      verilator:
+        mode: cc
+        verilator_options:
+          # Disabling tracing reduces compile times but doesn't have a
+          # huge influence on runtime performance.
+          - '--trace'
+          - '--trace-fst' # this requires -DVM_TRACE_FMT_FST in CFLAGS below!
+          - '--trace-structs'
+          - '--trace-params'
+          - '--trace-max-array 1024'
+          - '-CFLAGS "-std=c++14 -Wall -DVM_TRACE_FMT_FST -DTOPLEVEL_NAME=cve2_riscv_compliance -g"'
+          - '-LDFLAGS "-pthread -lutil -lelf"'
+          # - "-Wall"
+          - "-Wno-COMBDLY"
+          - "-Wno-WIDTHEXPAND"
+          - "-Wno-WIDTHTRUNC"

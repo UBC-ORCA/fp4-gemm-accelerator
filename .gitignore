@@ -36,6 +36,16 @@
 *.exe
 *.out
 *.app
+*.elf
+*.map
+*.hex
 
 # debug information files
 *.dwo
+
+# venv
+venv*
+
+# build
+build/
+

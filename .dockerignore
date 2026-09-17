@@ -1,0 +1,15 @@
+# Regenerable / host-specific artifacts. Everything here is rebuilt inside the
+# container, so keep it out of the build context (Docker does not read .gitignore).
+.git
+**/build
+**/obj_dir
+**/venv*
+**/__pycache__
+**/*.o
+**/*.d
+**/*.elf
+**/*.hex
+**/*.map
+**/*.log
+**/uart_out*.txt
+**/*.vcd
