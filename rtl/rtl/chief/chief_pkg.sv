@@ -1,0 +1,51 @@
+`timescale 1ns / 1ps
+
+package chief_pkg;
+
+typedef enum int {
+    FP4_MAC_ACC, 
+    INT4_MAC_ACC
+} chief_mac_acc_format_t;
+
+typedef enum int  { 
+    SCALE_MXE8M0, 
+    SCALE_E4M3
+} chief_scale_format_t; 
+// fp4_scale_format_t;
+
+typedef struct packed {
+    logic sign; 
+    logic [3:0] exp;
+    logic [2:0] mant;
+} chief_scaler_e4m3_t;
+// } fp4_scaler_e4m3_t;
+
+typedef struct packed {
+    logic sign;
+    logic [1:0] exp;
+    logic mant;
+} fp4_e2m1_t;
+
+typedef logic signed [3:0] int4_t;
+
+typedef struct packed {
+    /* MX format of the scaler E8M0 has no sign bits */
+    logic [7:0] exp;
+} chief_scaler_mxe8m0_t;
+
+typedef union packed {
+    chief_scaler_e4m3_t e4m3;
+    chief_scaler_mxe8m0_t mxe8m0;
+    logic [7:0] raw;
+} chief_scaler_t;
+
+/* E8M7 */
+typedef struct packed {
+    logic sign; 
+    logic [7:0] exp;
+    logic [6:0] mant;
+} bf16_t;
+    
+endpackage : chief_pkg
+ 
+
