@@ -30,7 +30,7 @@ run_inference.sh - launch a CVE2 FP4 MNIST inference build under Verilator
 
   ./run_inference.sh <version> [dataset] [size] [options]
 
-  version : baseline | novec | hardware    (required)
+  version : baseline | novec | hardware | int4    (required)
   dataset : mnist | fashion                (default: mnist)
   size    : 8 | 80 | 400 | 1k | 2k | 10k   (default: 80 | UPDATE IN C)
 

@@ -30,6 +30,10 @@ VC_PATCHED := openhwgroup_cve2_cve2_top_0.1_patched.vc
 
 VIVADO_DIR := build/openhwgroup_cve2_cve2_top_0.1/syn-vivado
 
+# What software kernel to build
+# opts: hardware | novec | baseline | int4
+INFERENCE_KERNEL ?= hardware 
+
 RTL := rtl
 
 ###############################################################################
@@ -150,7 +154,7 @@ clean_vivado:
 #    make -f sim.mk platform_impl
 ################################################################################
 SUPPORT_IP    := ../support_ip
-SW_HW_DIR     := ../sw/inference_hardware
+SW_HW_DIR     := ../sw/inference_$(INFERENCE_VERSION)
 XPR           := $(VIVADO_DIR)/openhwgroup_cve2_cve2_top_0.1.xpr
 XSA           := output/accelerator_top.xsa
 PROGRAM_MEM   := $(SUPPORT_IP)/program.mem
