@@ -104,8 +104,8 @@ output logic mac_vrf_en_o,
     logic [4:0]  weight_blk_q;
     logic [31:0] base_q;
 
-    logic        mem_req_sent_q;
-    logic        mem_req_sent_d;
+    logic        mem_req_sent_q; //[STEV] - need to rm
+    logic        mem_req_sent_d; //[STEV] - need to rm
 
     cve2_pkg::mac_op_e op_q;
 
@@ -269,6 +269,18 @@ output logic mac_vrf_en_o,
                     state_d = DONE;
                 end 
                 else if (op_q == cve2_pkg::OP_VMAC) begin
+
+ 		    if (data_gnt_i) begin // Req granted, increment next. Also assume rvalid becomes high on the next cycle
+			if (count_q == (VL-1)) begin
+                            state_d = DONE;
+                            count_d = '0;
+                        end else begin
+                            count_d = count_q + 1'b1;
+                        end
+                    end
+
+
+		/*
                     if (!mem_req_sent_q) begin
                         if (data_gnt_i) begin
                             mem_req_sent_d = 1'b1;
@@ -284,6 +296,9 @@ output logic mac_vrf_en_o,
                             end
                         end
                     end
+		*/
+
+
                 end
             end
 
@@ -391,13 +406,14 @@ output logic mac_vrf_en_o,
                 endcase
 
                 if (op_q == cve2_pkg::OP_VMAC) begin
-		    mac_vrf_en_o    = 1'b1;
-                    mac_vrf_raddr_o = mac_vrf_addr;
-                    mac_vrf_relem_o = elem_idx;
-                    if (!mem_req_sent_q) begin
+                    //if (data_gnt_i) begin // if rdy to accept req, send req
+		    	mac_vrf_en_o    = 1'b1;
+                    	mac_vrf_raddr_o = mac_vrf_addr;
+                    	mac_vrf_relem_o = elem_idx;
+                    //if (!mem_req_sent_q) begin
                         data_req_o  = 1'b1;
                         data_addr_o = base_q + (count_q << 2); 
-                    end
+                    //end
                 end
             end
 
