@@ -215,6 +215,7 @@ module cve2_vec_unit #(
 
   assign last_elem   = (idx_q == (vl_q[$bits(idx_q)-1:0] - 1'b1));
 
+
   // Decide element index for synchronous VRF read
   always_comb begin
     vrf_elem_idx = idx_q;
@@ -395,6 +396,9 @@ module cve2_vec_unit #(
           data_addr_o = mem_addr_q;
           data_be_o   = 4'b1111;
 
+          mem_addr_d = mem_addr_q + 32'd4; // need to setup read for next state
+
+
           if (vop_q == VOP_VLE32) begin
             data_we_o    = 1'b0;
             data_wdata_o = 32'd0;
@@ -432,7 +436,20 @@ module cve2_vec_unit #(
               state_d = S_IDLE;
             end else begin
               idx_d   = idx_q + 1'b1;
-              state_d = S_MEM_REQ;
+              //state_d = S_MEM_REQ;
+              state_d = S_MEM_WAIT; // re-rout back to wait
+ 	      data_req_o  = 1'b1; // wait now also sends mem req
+              data_addr_o = mem_addr_q;
+              data_be_o   = 4'b1111;
+
+              if (vop_q == VOP_VLE32) begin
+            	data_we_o    = 1'b0;
+            	data_wdata_o = 32'd0;
+              end else begin
+            	data_we_o    = 1'b1;
+            	data_wdata_o = v_r1;
+              end
+
             end
           end
         end
