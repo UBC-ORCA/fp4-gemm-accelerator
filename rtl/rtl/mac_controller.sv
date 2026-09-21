@@ -104,9 +104,6 @@ output logic mac_vrf_en_o,
     logic [4:0]  weight_blk_q;
     logic [31:0] base_q;
 
-    logic        mem_req_sent_q; //[STEV] - need to rm
-    logic        mem_req_sent_d; //[STEV] - need to rm
-
     cve2_pkg::mac_op_e op_q;
 
     localparam int CNT_W = $clog2(VL);
@@ -162,7 +159,6 @@ output logic mac_vrf_en_o,
             base_q             <= '0; 
             state_q            <= IDLE;
             count_q            <= '0;
-            mem_req_sent_q     <= 1'b0;
             scalar_waddr_q     <= '0;
             act_scale_lo_q     <= '0;
             act_scale_hi_q     <= '0;
@@ -175,7 +171,6 @@ output logic mac_vrf_en_o,
         end else begin
             state_q            <= state_d;
             count_q            <= count_d;
-            mem_req_sent_q     <= mem_req_sent_d;
             brd_phase_q        <= brd_phase_d;
 
             snapshot_valid_q   <= 1'b0;
@@ -217,12 +212,10 @@ output logic mac_vrf_en_o,
         state_d        = state_q;
         count_d        = count_q;
         brd_phase_d    = brd_phase_q;
-        mem_req_sent_d = mem_req_sent_q;
 
         case (state_q)
             IDLE: begin
                 count_d        = '0;
-                mem_req_sent_d = 1'b0;
                 brd_phase_d    = 1'b0;
 
                 if (req_valid_i) begin
@@ -278,26 +271,6 @@ output logic mac_vrf_en_o,
                             count_d = count_q + 1'b1;
                         end
                     end
-
-
-		/*
-                    if (!mem_req_sent_q) begin
-                        if (data_gnt_i) begin
-                            mem_req_sent_d = 1'b1;
-                        end
-                    end else begin
-                        if (data_rvalid_i) begin
-                            mem_req_sent_d = 1'b0;
-                            if (count_q == (VL-1)) begin
-                                state_d = DONE;
-                                count_d = '0;
-                            end else begin
-                                count_d = count_q + 1'b1;
-                            end
-                        end
-                    end
-		*/
-
 
                 end
             end
@@ -406,14 +379,11 @@ output logic mac_vrf_en_o,
                 endcase
 
                 if (op_q == cve2_pkg::OP_VMAC) begin
-                    //if (data_gnt_i) begin // if rdy to accept req, send req
 		    	mac_vrf_en_o    = 1'b1;
                     	mac_vrf_raddr_o = mac_vrf_addr;
                     	mac_vrf_relem_o = elem_idx;
-                    //if (!mem_req_sent_q) begin
                         data_req_o  = 1'b1;
                         data_addr_o = base_q + (count_q << 2); 
-                    //end
                 end
             end
 
@@ -443,9 +413,9 @@ output logic mac_vrf_en_o,
     always_ff @(posedge clk_i) begin
         if (rst_ni && (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i) begin
             $display(
-                "[%0t] [VMAC] vreg=v%0d elem=%0d flat=%0d vrf=%08x mem_addr=%08x weight=%08x mem_req=%0b mem_gnt=%0b mem_rvalid=%0b mac_en=%0b",
+                "[%0t] [VMAC] vreg=v%0d elem=%0d flat=%0d vrf=%08x mem_addr=%08x weight=%08x mem_gnt=%0b mem_rvalid=%0b mac_en=%0b",
                 $time, mac_vrf_addr, elem_idx, count_q, mac_vrf_rdata_i,
-                base_q + (count_q << 2), data_rdata_i, mem_req_sent_q, data_gnt_i, data_rvalid_i, mac_en_o
+                base_q + (count_q << 2), data_rdata_i, data_gnt_i, data_rvalid_i, mac_en_o
             );
         end
     end
