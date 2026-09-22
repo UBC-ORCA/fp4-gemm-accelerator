@@ -85,7 +85,6 @@ module mac_accum_bram #(
     // Data read from RAM directly, 
     logic [NBANKS-1:0][DATA_W-1:0] ram_read_q;
 
-`define BRAM_DEBUG
     // Debug Only BRAM Debug signals
 `ifdef BRAM_DEBUG   
     logic [DATA_W-1:0] bram_dbg_d [0:NBANKS-1][0:DEPTH-1];    
