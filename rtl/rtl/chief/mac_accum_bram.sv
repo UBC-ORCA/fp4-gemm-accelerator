@@ -62,14 +62,6 @@ module mac_accum_bram #(
     // Dynamic / Changeable Indexing Rules
     // Edit this function to modify physical coordinate mapping dynamically.
     //--------------------------------------------------------------------------
-    // function automatic logic [ADDR_W-1:0] calc_addr(
-    //     input logic [4:0] tile,
-    //     input logic [2:0] row,
-    //     input logic [2:0] col
-    // );
-    //     // Default Rule: [Tile: 5 bits] | [Row Group (Pair): 2 bits] | [Col: 3 bits]
-    //     return (ADDR_W'(tile) << 5) | (ADDR_W'(row[2:1]) << 3) | ADDR_W'(col);
-    // endfunction
     function automatic logic [ADDR_W-1:0] calc_addr(
         input logic [TILE_W-1:0] tile,
         input logic [ROW_WIDTH-1:0] row,
@@ -90,11 +82,14 @@ module mac_accum_bram #(
     assign rd_addr = calc_addr(rd_tile_i, rd_row_i, rd_col_i);
     assign wr_addr = calc_addr(wr_tile_i, wr_row_i, wr_col_i);
 
-
-    // Internal RAM output registers
-    // logic [15:0] ram_low_q;
-    // logic [15:0] ram_high_q;
+    // Data read from RAM directly, 
     logic [NBANKS-1:0][DATA_W-1:0] ram_read_q;
+
+`define BRAM_DEBUG
+    // Debug Only BRAM Debug signals
+`ifdef BRAM_DEBUG   
+    logic [DATA_W-1:0] bram_dbg_d [0:NBANKS-1][0:DEPTH-1];    
+`endif
 
     // Generation of RAM Banks for parallel access
     generate
@@ -110,6 +105,10 @@ module mac_accum_bram #(
                     ram_read_q[b] <= bram_bank_b[rd_addr];
                 end
             end 
+
+            `ifdef BRAM_DEBUG
+                assign bram_dbg_d[b] = bram_bank_b;
+            `endif
         end : gen_bram_banks
     endgenerate
 
@@ -194,120 +193,104 @@ module mac_accum_bram #(
     //--------------------------------------------------------------------------
     // Simulation Visual Debug Display
     //--------------------------------------------------------------------------
-// `ifdef BRAM_DEBUG
-//     begin 
-//         integer r,c, dbg_addr;
-//         always_ff @(posedge clk_i) begin
-//             if (rst_ni && wr_en_i) begin
-//                 $display("\n======================================================");
-//                 $display("ACCUMULATOR BRAM TILE %0d SNAPSHOT @ time %0t", wr_tile_i, $time);
-//                 for (r = 0; r < NROWS; r++) begin
-//                     $write("Row %0d :", r);
-//                     for (c = 0; c < NCOLS; c++) begin
-//                         logic [BANK_ADDR_W-1:0] bank_num = r[BANK_ADDR_W-1:0];
-//                         dbg_addr = calc_addr(wr_tile_i, r[2:0], c[2:0]);
-//                         // $write(" %6h ", gen_bram_banks[bank_num].;
-//                     end
-//                     $write("\n");
-//                 end
-//                 $display("======================================================\n");
-//             end
-//         end
-//     end
-// `endif
+`ifdef BRAM_DEBUG
+    begin 
+        integer r,c, dbg_addr;
+        always_ff @(posedge clk_i) begin
+            if (rst_ni && wr_en_i) begin
+                $display("\n======================================================");
+                $display("ACCUMULATOR BRAM TILE %0d SNAPSHOT @ time %0t", wr_tile_i, $time);
+                for (r = 0; r < NROWS; r++) begin
+                    $write("Row %0d :", r);
+                    for (c = 0; c < NCOLS; c++) begin
+                        dbg_addr = calc_addr(wr_tile_i[TILE_W-1:0],
+                                             r[2:0],
+                                             c[2:0]);
+                        $write(" %6h ", bram_dbg_d[r[BANK_ADDR_W-1:0]][dbg_addr]);
+                    end
+                    $write("\n");
+                end
+                $display("======================================================\n");
+            end
+        end
+    end
+`endif
 
 //--------------------------------------------------------------------------
 // Simulation Visual Debug Display
 //--------------------------------------------------------------------------
-//`ifdef BRAM_DEBUG
+`ifdef BRAM_DEBUG
     // Register read address for logging debug output 1 cycle later
-//     logic [2:0] rd_row_q, rd_col_q;
-//     logic [4:0] rd_tile_q;
-//     logic       rd_en_q;
+    logic [2:0] rd_row_q, rd_col_q;
+    logic [4:0] rd_tile_q;
 
-//     always_ff @(posedge clk_i or negedge rst_ni) begin
-//         if (!rst_ni) begin
-//             rd_en_q   <= 1'b0;
-//             rd_tile_q <= '0;
-//             rd_row_q  <= '0;
-//             rd_col_q  <= '0;
-//         end else begin
-//             rd_en_q   <= rd_en_i;
-//             rd_tile_q <= rd_tile_i;
-//             rd_row_q  <= rd_row_i;
-//             rd_col_q  <= rd_col_i;
-//         end
-//     end
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            rd_tile_q <= '0;
+            rd_row_q  <= '0;
+            rd_col_q  <= '0;
+        end else begin
+            rd_tile_q <= rd_tile_i;
+            rd_row_q  <= rd_row_i;
+            rd_col_q  <= rd_col_i;
+        end
+    end
 
-//     // Transaction Logger
-//     always_ff @(posedge clk_i) begin
-//         if (rst_ni) begin
-//             if (rd_en_q) begin
-//                 $display("[BRAM_ACCUM_DEBUG] [%0t ns] MEMORY READ COMPLETE:", $time);
-//                 $display("[BRAM_ACCUM_DEBUG]    Coordinates -> Tile=%2d | Rows=%1d,%1d | Col=%1d", rd_tile_q, rd_row_q, rd_row_q+1, rd_col_q);
-//                 $display("[BRAM_ACCUM_DEBUG]    Payload     -> Out Data=32'h%h", rd_data_o);
-//                 $display("[BRAM_ACCUM_DEBUG]                 row0=%4h row1=%4h", rd_data_o[15:0], rd_data_o[31:16]);
-//             end
+    // Transaction Logger
+     // Transaction Logger
+    always_ff @(posedge clk_i) begin
+        if (rst_ni) begin
+            if (rd_en_q) begin
+                automatic logic [ROW_WIDTH-1:0] rd_grp_base =
+                    {rd_row_q[ROW_WIDTH-1:BANK_ADDR_W], {BANK_ADDR_W{1'b0}}};
 
-//             if (wr_en_i) begin
-//                 $display("[BRAM_ACCUM_DEBUG] [%0t ns] MEMORY WRITE TRANSACTION COMMITTED:", $time);
-//                 $display("[BRAM_ACCUM_DEBUG]    Coordinates -> Tile=%2d | Row=%1d | Col=%1d", wr_tile_i, wr_row_i, wr_col_i);
-//                 $display("[BRAM_ACCUM_DEBUG]    Payload     -> In Data=32'h%h | Pair Write=%0b", wr_data_i, wr_pair_i);
-//             end
-//         end
-//     end
+                $display("[BRAM_ACCUM_DEBUG] [%0t ns] MEMORY READ COMPLETE:", $time);
+                $display("[BRAM_ACCUM_DEBUG]    Coordinates -> Tile=%2d | Rows=[%0d,%0d] | Col=%1d",
+                          rd_tile_q, rd_grp_base, rd_grp_base + (NBANKS-1), rd_col_q);
+                $display("[BRAM_ACCUM_DEBUG]    Payload     -> Out Data=64'h%8h", rd_data_o);
+            end
 
-//     // Visual Matrix Snapshot Generator for Tiles 0, 1, and 31
-//     //integer r, c, dbg_addr;
-//     always_ff @(posedge clk_i) begin
-//        // if (rst_ni && wr_en_i) begin
-//             // Evaluate on write commit cycle
-            
-//             //--------------------------------------------------
-//             // Tile 0 Visual Matrix Dump
-//             //--------------------------------------------------
-//             $display("\n======================================================");
-//             $display("ACCUMULATOR BRAM TILE 0 SNAPSHOT @ time %0t", $time);
-//             for (r = 0; r < 8; r++) begin
-//                 $write("Row %0d :", r);
-//                 for (c = 0; c < 8; c++) begin
-//                     dbg_addr = calc_addr(5'd0, r[2:0], c[2:0]);
-//                     $write(" %6h", (r[0] == 1'b0) ? bram_low[dbg_addr] : bram_high[dbg_addr]);
-//                 end
-//                 $write("\n");
-//             end
-//             $display("======================================================");
+            if (wr_en_i) begin
+                automatic logic [ROW_WIDTH-1:0] wr_grp_base =
+                    {wr_row_i[ROW_WIDTH-1:BANK_ADDR_W], {BANK_ADDR_W{1'b0}}};
 
-//             //--------------------------------------------------
-//             // Tile 1 Visual Matrix Dump
-//             //--------------------------------------------------
-//             $display("\n======================================================");
-//             $display("ACCUMULATOR BRAM TILE 1 SNAPSHOT @ time %0t", $time);
-//             for (r = 0; r < 8; r++) begin
-//                 $write("Row %0d :", r);
-//                 for (c = 0; c < 8; c++) begin
-//                     dbg_addr = calc_addr(5'd1, r[2:0], c[2:0]);
-//                     $write(" %6h", (r[0] == 1'b0) ? bram_low[dbg_addr] : bram_high[dbg_addr]);
-//                 end
-//                 $write("\n");
-//             end
-//             $display("======================================================");
+                $display("[BRAM_ACCUM_DEBUG] [%0t ns] MEMORY WRITE TRANSACTION COMMITTED:", $time);
+                $display("[BRAM_ACCUM_DEBUG]    Coordinates -> Tile=%2d | Rows=[%0d,%0d] | Col=%1d",
+                          wr_tile_i, wr_grp_base, wr_grp_base + (NBANKS-1), wr_col_i);
+                $display("[BRAM_ACCUM_DEBUG]    Payload     -> In Data=0x%h | Bank Sel=%0b", wr_data_i, bank_sel);
+            end
+        end
+    end
 
-//             //--------------------------------------------------
-//             // Tile 31 Visual Matrix Dump
-//             //--------------------------------------------------
-//             $display("\n======================================================");
-//             $display("ACCUMULATOR BRAM TILE 31 SNAPSHOT @ time %0t", $time);
-//             for (r = 0; r < 8; r++) begin
-//                 $write("Row %0d :", r);
-//                 for (c = 0; c < 8; c++) begin
-//                     dbg_addr = calc_addr(5'd31, r[2:0], c[2:0]);
-//                     $write(" %6h", (r[0] == 1'b0) ? bram_low[dbg_addr] : bram_high[dbg_addr]);
-//                 end
-//                 $write("\n");
-//             end
-//             $display("======================================================\n");
-//        // end
-//     end
-// `endif
+    // Visual Matrix Snapshot Generator for Tiles 0, 1, and 31
+    localparam int unsigned NUM_DBG_TILES = 3;
+    localparam int unsigned DBG_TILE_IDX [NUM_DBG_TILES] = '{0, 1, 31};
+
+    always_ff @(posedge clk_i) begin
+        if (rst_ni && wr_en_i) begin
+            for (int unsigned t = 0; t < NUM_DBG_TILES; ++t) begin
+                automatic int unsigned dbg_tile_idx = DBG_TILE_IDX[t];
+
+                if (dbg_tile_idx < NTILES) begin
+                    automatic logic [TILE_W-1:0] dbg_tile = TILE_W'(dbg_tile_idx);
+
+                    $display("\n======================================================");
+                    $display("ACCUMULATOR BRAM TILE %0d SNAPSHOT @ time %0t", dbg_tile, $time);
+                    for (int unsigned r = 0; r < NROWS; r++) begin
+                        automatic logic [ROW_WIDTH-1:0]   dbg_row  = ROW_WIDTH'(r);
+                        automatic logic [BANK_ADDR_W-1:0] dbg_bank = dbg_row[BANK_ADDR_W-1:0];
+                        $write("Row %0d (bank%0d):", r, dbg_bank);
+                        for (int unsigned c = 0; c < NCOLS; c++) begin
+                            automatic logic [COL_WIDTH-1:0] dbg_col  = COL_WIDTH'(c);
+                            automatic logic [ADDR_W-1:0]    dbg_addr = calc_addr(dbg_tile, dbg_row, dbg_col);
+                            $write(" %6h", bram_dbg_d[dbg_bank][dbg_addr]);
+                        end
+                        $write("\n");
+                    end
+                    $display("======================================================\n");
+                end
+            end
+        end
+    end
+`endif
 endmodule
