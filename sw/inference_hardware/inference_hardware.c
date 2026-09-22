@@ -227,7 +227,7 @@ static void pc_report(void) {
 // MAC accelerator instructions
 // =======================================
 // Encodings mirror matmul8_vec.S. CUSTOM1=0x2b, CUSTOM2=0x5b, funct3=0 unless noted
-//   VMAC64(N,ptr)      VMAC64   CUSTOM1   vN x weight block at ptr -> raw tile
+//   VMAC64(N,ptr,off)  VMAC64   CUSTOM1   vN x weight block at ptr+off -> raw tile
 //   MAC_AS(a,b)        MAC_AS   f7=0x0A   apply act scale words a,b to the tile
 //   MAC_WS(a,b)        MAC_WS   f7=0x0B   apply wgt scale words a,b -> fold into bank
 //   MAC_BIAS(p,v)      MACBIAS  f7=0x0C   seed bf16 v into the cell addressed by p
@@ -236,7 +236,11 @@ static void pc_report(void) {
 //   BRAM_RD_FP4(rd,p)  BRAMFP4  f7=0x08   read tile/col at p, 8 samples -> packed fp4
 //   VSETVLI(avl)       vsetvli  OPV=0x57  set vl=avl, e32,m1,ta,ma
 //   VLE32(N,ptr)       vle32.v  0x07      load vl words at ptr -> vN
-#define VMAC64(N,ptr)       __asm__ volatile(".insn i 0x2b,0x0,x" #N ",%0,0" :: "r"(ptr))
+// static assert and macro used for VMAC64
+// off is unsigned in the unit, the assembler only takes -2048..2047
+_Static_assert(4 * (NVREG - 1) * BS <= 0xFFF, "block offset does not fit in imm12");
+#define UINT12_TO_INT12(u12) (((u12) & 0x7FF) - ((u12) & 0x800))
+#define VMAC64(N,ptr,off)   __asm__ volatile(".insn i 0x2b,0x0,x" #N ",%0,%c1" :: "r"(ptr), "i"(UINT12_TO_INT12(off)))
 #define MAC_AS(a,b)         __asm__ volatile(".insn r 0x5b,0x0,0x0a, x0,%0,%1" :: "r"(a),"r"(b))
 #define MAC_WS(a,b)         __asm__ volatile(".insn r 0x5b,0x0,0x0b, x0,%0,%1" :: "r"(a),"r"(b))
 #define MAC_BIAS(p,v)       __asm__ volatile(".insn r 0x5b,0x0,0x0c, x0,%0,%1" :: "r"(p),"r"(v))
@@ -266,38 +270,38 @@ static inline uint32_t bram_rd(uint32_t tile, uint32_t row, uint32_t col) {
 static inline __attribute__((always_inline))
 void do_k_tile(int vreg, const uint32_t *As, const uint32_t *Ws, const uint32_t *weights) {
     switch (vreg) {
-        case  0: VMAC64(0,  weights +  0*BS); break;
-        case  1: VMAC64(1,  weights +  1*BS); break;
-        case  2: VMAC64(2,  weights +  2*BS); break;
-        case  3: VMAC64(3,  weights +  3*BS); break;
-        case  4: VMAC64(4,  weights +  4*BS); break;
-        case  5: VMAC64(5,  weights +  5*BS); break;
-        case  6: VMAC64(6,  weights +  6*BS); break;
-        case  7: VMAC64(7,  weights +  7*BS); break;
-        case  8: VMAC64(8,  weights +  8*BS); break;
-        case  9: VMAC64(9,  weights +  9*BS); break;
-        case 10: VMAC64(10, weights + 10*BS); break;
-        case 11: VMAC64(11, weights + 11*BS); break;
-        case 12: VMAC64(12, weights + 12*BS); break;
-        case 13: VMAC64(13, weights + 13*BS); break;
-        case 14: VMAC64(14, weights + 14*BS); break;
-        case 15: VMAC64(15, weights + 15*BS); break;
-        case 16: VMAC64(16, weights + 16*BS); break;
-        case 17: VMAC64(17, weights + 17*BS); break;
-        case 18: VMAC64(18, weights + 18*BS); break;
-        case 19: VMAC64(19, weights + 19*BS); break;
-        case 20: VMAC64(20, weights + 20*BS); break;
-        case 21: VMAC64(21, weights + 21*BS); break;
-        case 22: VMAC64(22, weights + 22*BS); break;
-        case 23: VMAC64(23, weights + 23*BS); break;
-        case 24: VMAC64(24, weights + 24*BS); break;
-        case 25: VMAC64(25, weights + 25*BS); break;
-        case 26: VMAC64(26, weights + 26*BS); break;
-        case 27: VMAC64(27, weights + 27*BS); break;
-        case 28: VMAC64(28, weights + 28*BS); break;
-        case 29: VMAC64(29, weights + 29*BS); break;
-        case 30: VMAC64(30, weights + 30*BS); break;
-        case 31: VMAC64(31, weights + 31*BS); break;
+        case  0: VMAC64(0, weights, 4 * 0 * BS); break;
+        case  1: VMAC64(1, weights, 4 * 1 * BS); break;
+        case  2: VMAC64(2, weights, 4 * 2 * BS); break;
+        case  3: VMAC64(3, weights, 4 * 3 * BS); break;
+        case  4: VMAC64(4, weights, 4 * 4 * BS); break;
+        case  5: VMAC64(5, weights, 4 * 5 * BS); break;
+        case  6: VMAC64(6, weights, 4 * 6 * BS); break;
+        case  7: VMAC64(7, weights, 4 * 7 * BS); break;
+        case  8: VMAC64(8, weights, 4 * 8 * BS); break;
+        case  9: VMAC64(9, weights, 4 * 9 * BS); break;
+        case 10: VMAC64(10, weights, 4 * 10 * BS); break;
+        case 11: VMAC64(11, weights, 4 * 11 * BS); break;
+        case 12: VMAC64(12, weights, 4 * 12 * BS); break;
+        case 13: VMAC64(13, weights, 4 * 13 * BS); break;
+        case 14: VMAC64(14, weights, 4 * 14 * BS); break;
+        case 15: VMAC64(15, weights, 4 * 15 * BS); break;
+        case 16: VMAC64(16, weights, 4 * 16 * BS); break;
+        case 17: VMAC64(17, weights, 4 * 17 * BS); break;
+        case 18: VMAC64(18, weights, 4 * 18 * BS); break;
+        case 19: VMAC64(19, weights, 4 * 19 * BS); break;
+        case 20: VMAC64(20, weights, 4 * 20 * BS); break;
+        case 21: VMAC64(21, weights, 4 * 21 * BS); break;
+        case 22: VMAC64(22, weights, 4 * 22 * BS); break;
+        case 23: VMAC64(23, weights, 4 * 23 * BS); break;
+        case 24: VMAC64(24, weights, 4 * 24 * BS); break;
+        case 25: VMAC64(25, weights, 4 * 25 * BS); break;
+        case 26: VMAC64(26, weights, 4 * 26 * BS); break;
+        case 27: VMAC64(27, weights, 4 * 27 * BS); break;
+        case 28: VMAC64(28, weights, 4 * 28 * BS); break;
+        case 29: VMAC64(29, weights, 4 * 29 * BS); break;
+        case 30: VMAC64(30, weights, 4 * 30 * BS); break;
+        case 31: VMAC64(31, weights, 4 * 31 * BS); break;
         default: break;
     }
     MAC_AS(As[0], As[1]);   // apply activation scales
