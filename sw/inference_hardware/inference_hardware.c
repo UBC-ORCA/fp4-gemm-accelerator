@@ -39,6 +39,19 @@ static const int rdout_shift[3] = RDOUT_SHIFT_HDR;
 // Enable intermediate UART prints (P|T|M results)
 // #define PTM_PRINTS
 
+//[stev]
+
+//#define PROBE 1 //turn off if no dump
+
+// Define the simulator termination MMIO register
+static volatile uint32_t *const DONE_MMIO = (volatile uint32_t *)0xFFFF0000u;
+
+static inline void kill_simulation(void) {
+    *DONE_MMIO = 0xFF; // Signal simulator testbench to halt
+    while (1);         // Catch pipeline flush before termination
+}
+//[end]
+
 void __assert_func(const char *f,int l,const char *fn,const char *e){
     (void)f;(void)l;(void)fn;(void)e; __builtin_trap();
 }
@@ -114,6 +127,15 @@ static void putdec64(uint64_t n) {
 static void pc_line(const char *name, uint64_t v) {
     print_str("  "); 
     print_str(name); 
+    print_str(" "); 
+    putdec64(v); 
+    print_str("\n");
+}
+static void pc_WA(const char *name, uint64_t index, uint64_t v) { //[stev] - for printing act and w
+    print_str("  "); 
+    print_str(name); 
+    print_str(" ");
+    putdec64(index); 
     print_str(" "); 
     putdec64(v); 
     print_str("\n");
@@ -266,11 +288,19 @@ static inline uint32_t bram_rd(uint32_t tile, uint32_t row, uint32_t col) {
 static inline __attribute__((always_inline))
 void do_k_tile(int vreg, const uint32_t *As, const uint32_t *Ws, const uint32_t *weights) {
     switch (vreg) {
-        case  0: VMAC64(0,  weights +  0*BS); break;
+        case  0: VMAC64(0,  weights +  0*BS); break; 
         case  1: VMAC64(1,  weights +  1*BS); break;
         case  2: VMAC64(2,  weights +  2*BS); break;
         case  3: VMAC64(3,  weights +  3*BS); break;
-        case  4: VMAC64(4,  weights +  4*BS); break;
+        case  4: 
+	VMAC64(4,  weights +  4*BS);
+#ifdef PROBE
+	for (int i_w = 0; i_w < BS; i_w++){
+		pc_WA("W |", i_w, *(weights+4*BS+i_w));
+	}
+	kill_simulation(); 
+#endif 
+	break;
         case  5: VMAC64(5,  weights +  5*BS); break;
         case  6: VMAC64(6,  weights +  6*BS); break;
         case  7: VMAC64(7,  weights +  7*BS); break;
@@ -312,7 +342,14 @@ void load_vreg(int vreg, const uint32_t *ptr) {
         case  1: VLE32(1,  ptr); break;
         case  2: VLE32(2,  ptr); break;
         case  3: VLE32(3,  ptr); break;
-        case  4: VLE32(4,  ptr); break;
+        case  4: 
+	VLE32(4,  ptr); 
+#ifdef PROBE
+	for (int i_a = 0; i_a < BS; i_a++){
+		pc_WA("A |", i_a, ptr[i_a]);
+	}
+#endif
+	break;
         case  5: VLE32(5,  ptr); break;
         case  6: VLE32(6,  ptr); break;
         case  7: VLE32(7,  ptr); break;
@@ -614,6 +651,13 @@ int main(void) {
             }
         });
 
+/*
+#ifdef PROBE
+            for (int p = 0; p < IN_DIM; p++) { //quick print for packed img
+		pc_WA("IMG |", p, image_packed[p]);
+            }
+#endif
+*/
         inference_batch(image_packed, predictions);
 
         for (int j = 0; j < n; j++) {

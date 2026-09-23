@@ -110,6 +110,12 @@ output logic mac_vrf_en_o,
     logic [CNT_W-1:0] count_q;
     logic [CNT_W-1:0] count_d;
 
+    logic [CNT_W-1:0] count_v_q;
+    logic [CNT_W-1:0] count_v_d;
+
+    logic delay_q;
+    //logic delay_d;
+
     // ISA Bitfield Extraction for MAC_BIAS Controls
     logic [2:0]  bias_col;
     logic [2:0]  bias_row;
@@ -124,8 +130,11 @@ output logic mac_vrf_en_o,
     // VRF flattening logic
     logic [4:0] elem_idx;
     logic [4:0] mac_vrf_addr;
+    logic mem_lag_q;
+    logic mem_lag_d;
 
-    assign elem_idx     = count_q;
+    //assign elem_idx     = count_q;
+    assign elem_idx     = count_v_q;
     assign mac_vrf_addr = vs1_q;
 
     logic        vmac_last_q;
@@ -168,6 +177,9 @@ output logic mac_vrf_en_o,
             act_scale_pulse    <= 1'b1;
             weight_scale_pulse <= 1'b0;
             vmac_last_q        <= 1'b0;
+            mem_lag_q          <= 1'b0;
+            count_v_q            <= '0;
+	    delay_q <= 1'b0;
         end else begin
             state_q            <= state_d;
             count_q            <= count_d;
@@ -176,6 +188,9 @@ output logic mac_vrf_en_o,
             snapshot_valid_q   <= 1'b0;
             act_scale_pulse    <= 1'b0;
             weight_scale_pulse <= 1'b0;
+
+            mem_lag_q          <= mem_lag_d;
+            count_v_q            <= count_v_d;
 
             if (req_valid_i && req_ready_o) begin
                 op_q           <= cf_req_op_i;
@@ -199,7 +214,11 @@ output logic mac_vrf_en_o,
                 endcase
             end
 
-            vmac_last_q <= (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i && (count_q == (VL-1));
+            //vmac_last_q <= (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i && (count_q == (VL-1));
+            vmac_last_q <= (op_q == cve2_pkg::OP_VMAC) && (count_v_q == (VL-1));
+            //delay_q <= (op_q == cve2_pkg::OP_VMAC) && (state_q == EXEC);
+
+
 
             if (vmac_last_q) begin
                 snapshot_valid_q <= 1'b1;
@@ -213,10 +232,16 @@ output logic mac_vrf_en_o,
         count_d        = count_q;
         brd_phase_d    = brd_phase_q;
 
+	mem_lag_d = mem_lag_q;
+        count_v_d        = count_v_q;
+
+
         case (state_q)
             IDLE: begin
                 count_d        = '0;
                 brd_phase_d    = 1'b0;
+		mem_lag_d = 1'b0;
+                count_v_d = '0;
 
                 if (req_valid_i) begin
                     if (cf_req_op_i == cve2_pkg::OP_VMAC)
@@ -265,12 +290,26 @@ output logic mac_vrf_en_o,
 
  		    if (data_gnt_i) begin // Req granted, increment next. Also assume rvalid becomes high on the next cycle
 			if (count_q == (VL-1)) begin
-                            state_d = DONE;
+                            //state_d = DONE;
                             count_d = '0;
                         end else begin
                             count_d = count_q + 1'b1;
                         end
                     end
+
+		    //if (data_rvalid_i) begin
+		      //mem_lag_d = 1'b1;
+		    //end
+
+		    //if (mem_lag_q) begin
+		    if (data_rvalid_i) begin
+			if (count_v_q == (VL-1)) begin
+                            state_d = DONE;
+                            count_v_d = '0;
+                        end else begin
+                            count_v_d = count_v_q + 1'b1;
+                        end
+		    end
 
                 end
             end
@@ -295,7 +334,7 @@ output logic mac_vrf_en_o,
         fp4_capture_o  = 1'b0;   // [rbs]
 
         // Clean output decode logic
-        mac_en_o = ((state_q == EXEC) && (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i); 
+        mac_en_o = (((state_q == EXEC) || (state_q == DONE)) && (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i); 
 
         clear_o  = (state_q == CLEAR);
 
@@ -379,9 +418,11 @@ output logic mac_vrf_en_o,
                 endcase
 
                 if (op_q == cve2_pkg::OP_VMAC) begin
-		    	mac_vrf_en_o    = 1'b1;
-                    	mac_vrf_raddr_o = mac_vrf_addr;
-                    	mac_vrf_relem_o = elem_idx;
+			//if(delay_q) begin
+		    	  mac_vrf_en_o    = 1'b1;
+                     	  mac_vrf_raddr_o = mac_vrf_addr;
+                    	  mac_vrf_relem_o = elem_idx;
+			//end
                         data_req_o  = 1'b1;
                         data_addr_o = base_q + (count_q << 2); 
                 end
