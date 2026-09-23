@@ -241,8 +241,9 @@ static void pc_report(void) {
 #define BRAM_ADDR(tile, row, col)  (((uint32_t)(tile) << 6) | ((uint32_t)(row) << 3) | (col))
 
 // Seed one accumulator cell (tile,row,col) with a bf16 bias value
-static inline void mac_bias(uint8_t tile, uint8_t row, uint8_t column, uint16_t bf16) {
-    MAC_BIAS(BRAM_ADDR(tile, row, column), (uint32_t)bf16);
+// the value is passed raw, the unit only uses rs2[15:0] so the upper half is ignored
+static inline void mac_bias(uint8_t tile, uint8_t row, uint8_t column, uint32_t bf16_raw) {
+    MAC_BIAS(BRAM_ADDR(tile, row, column), bf16_raw);
 }
 
 // Read the accumulator bram pair {row+1,row} at (tile,row,col) into a register
@@ -395,16 +396,19 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
             // seed each bank with its TTxTT bias tile
             for (int T = 0; T < tiles_this_strip; T++) {
                 int idx = J/TT + T;                    // tile index
-                for (int c = 0; c < 4; c++) {          // 4 column-pairs
+                int cols = WH - idx*TT;                // real neurons in this tile
+                if (cols > TT) cols = TT;
+
+                for (int c = 0; c < (cols + 1)/2; c++) {   // column-pairs holding a neuron
                     // load it once (r=0) and seed every row with the same value
                     uint32_t word = bias_packed[idx*32 + c*8];
-                    uint16_t lo = (uint16_t)(word & 0xFFFF);   // even col 2c
-                    uint16_t hi = (uint16_t)(word >> 16);      // odd  col 2c+1
+                    uint32_t lo = word;            // even col 2c
+                    uint32_t hi = word >> 16;      // odd  col 2c+1
 
                     #pragma GCC unroll 4 // BATCH/2
                     for (int r = 0; r < BATCH; r += 2) {  // 4 row pairs
                         mac_bias(T, r, 2*c,   lo);
-                        mac_bias(T, r, 2*c+1, hi);
+                        if (2*c + 1 < cols) mac_bias(T, r, 2*c+1, hi);
                     }
                 }
             }
