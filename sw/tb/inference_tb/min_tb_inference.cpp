@@ -22,6 +22,11 @@
 #define UART_MMIO_ADDR 0x10000000u
 #endif
 
+// pixels per image, set by the build from DATASET: 784 mnist, 3072 cifar
+#ifndef IMG_PIXELS
+#define IMG_PIXELS 784
+#endif
+
 static vluint64_t main_time = 0;
 double sc_time_stamp() { return static_cast<double>(main_time); }
 
@@ -53,7 +58,6 @@ static constexpr uint32_t IMG_LOAD_ADDR  = 0xFFFF0010u;
 static constexpr uint32_t IMG_LABEL_ADDR = 0xFFFF0014u;
 static constexpr uint32_t IMG_PRED_ADDR  = 0xFFFF0018u;
 static constexpr uint32_t IMG_STAGE_ADDR = 0x80070000u;   // in DMEM
-static constexpr uint32_t IMG_PIXELS     = 784u;
 
 // host-side dataset, loaded once from a raw .bin (not compiled into the ELF)
 static std::vector<uint8_t> host_images, host_labels, host_preds;

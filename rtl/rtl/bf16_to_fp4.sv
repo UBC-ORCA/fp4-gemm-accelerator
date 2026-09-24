@@ -1,14 +1,22 @@
 `timescale 1ns/1ps
 
-// [rbs] whole file
-module bf16_to_fp4 (
+// readout shift, 3 unless the build overrides it (-DRDOUT_SHIFT=n)
+// must match RDOUT_SHIFT_HDR in the weights header
+`ifndef RDOUT_SHIFT
+`define RDOUT_SHIFT 3
+`endif
+
+module bf16_to_fp4 #(
+    parameter int RDOUT_SHIFT = `RDOUT_SHIFT
+) (
     input logic     [15:0] bf16_i,
     output logic     [3:0] fp4_o
 );
 
-    // BF16_EXP_025 (125) - RDOUT_SHIFT (3) = 122
-    // since this is for readout, which always uses a shift of 3, this is okay
-    localparam logic [7:0] LUT_FLOOR = 8'd122;
+    // BF16_EXP_025 (125) - RDOUT_SHIFT, below this the value rounds to zero
+    localparam logic [7:0] LUT_FLOOR = 8'd125 - 8'(RDOUT_SHIFT);
+    // BF16_EXP_2 (128) - RDOUT_SHIFT, above this it saturates at the top code
+    localparam logic [7:0] LUT_TOP   = 8'd128 - 8'(RDOUT_SHIFT);
 
     logic   sign;
     logic   [7:0] exp;
@@ -45,12 +53,10 @@ module bf16_to_fp4 (
 
     logic below, clamp;
     assign below = (exp < LUT_FLOOR);
-    assign clamp = (exp > 8'd125);
+    assign clamp = (exp > LUT_TOP);
 
     logic [2:0] mag;
     assign mag = below ? 3'd0 : clamp ? 3'd6 : grid;
 
     assign fp4_o = {sign & (|mag), mag};
 endmodule
-
-    

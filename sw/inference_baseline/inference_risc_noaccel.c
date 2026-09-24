@@ -3,11 +3,19 @@
 #include "weights_blk32_pkgUINT32_scaleE8M0.h"
 #include "image.h"
 
-// Network dimensions. No K padding here, the scalar loop has no block size
-#define IN_REAL   784             // real MNIST pixels
-#define L1_DIM    128
-#define L2_DIM     96
-#define OUT_DIM    10
+// Network dimensions, picked by DS_* from the make DATASET.
+// No K padding here, the scalar loop has no block size
+#if defined(DS_CIFAR10) || defined(DS_CIFAR100)
+  #define IN_REAL   3072          // 32*32*3 rgb
+  #define L1_DIM     256
+  #define L2_DIM      96
+  #define OUT_DIM     10
+#else
+  #define IN_REAL    784          // 28*28 greyscale
+  #define L1_DIM     128
+  #define L2_DIM      96
+  #define OUT_DIM     10
+#endif
 
 #define TT          8             // FP4 codes per weight word
 #define FP4_BITS    4             // bits per code, so 8 fit in a 32 bit word
@@ -20,8 +28,10 @@
 // 1 MAC is one multiply plus one add
 #define FLOPS_PER_IMAGE (2 * MACS_PER_IMAGE)
 
-// Accumulator shift before requantizing to an FP4 code
+// Accumulator shift before requantizing to an FP4 code, set by the build
+#ifndef RDOUT_SHIFT
 #define RDOUT_SHIFT  3
+#endif
 
 // Enable performance counters
 #define PERF_COUNTERS

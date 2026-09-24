@@ -39,7 +39,20 @@ RTL := rtl
 # Subsystems: MAC (mac unit/array/controller/mac8x8), BRAM (accumulator bram),
 #             CF (cf dispatch unit), ADDER (bf16 adder), CPU (core/alu trace)
 ###############################################################################
-DBG_DEFINES := $(if $(MAC_DEBUG),+define+MAC_DEBUG) \
+# dataset this build targets: sets the bytes per image the tb stages and the
+# readout shift the lut is built for, which follows the model's hardtanh clamp
+# (mnist/fashion +-0.5 -> 3, cifar +-1.0 -> 2). override RDOUT_SHIFT to force it
+DATASET ?= mnist
+ifneq ($(filter $(DATASET),cifar10 cifar100),)
+IMG_PIXELS  := 3072
+RDOUT_SHIFT ?= 2
+else
+IMG_PIXELS  := 784
+RDOUT_SHIFT ?= 3
+endif
+
+DBG_DEFINES := +define+RDOUT_SHIFT=$(RDOUT_SHIFT) \
+               $(if $(MAC_DEBUG),+define+MAC_DEBUG) \
                $(if $(BRAM_DEBUG),+define+BRAM_DEBUG) \
                $(if $(CF_DEBUG),+define+CF_DEBUG) \
                $(if $(ADDER_DEBUG),+define+ADDER_DEBUG) \
@@ -226,7 +239,9 @@ build-sim:
 		-Wno-fatal \
 		--cc --exe --build \
 		--trace-fst \
+		--public-flat-rw \
 		--top-module $(TOP_MODULE) \
+		-CFLAGS "-DIMG_PIXELS=$(IMG_PIXELS)" \
 		-LDFLAGS "-lelf" \
 		$(MATMUL_TB_CPP)
 

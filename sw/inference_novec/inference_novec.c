@@ -5,12 +5,20 @@
 #include "weights_blk32_pkgUINT32_scaleE8M0.h"
 #include "image.h"
 
-// Network dimensions for the MLP layers
-#define IN_REAL   784             // real MNIST pixels
-#define IN_DIM    800             // pad K only up to a BS multiple: 25*32=800
-#define L1_DIM    128
-#define L2_DIM     96
-#define OUT_DIM    10
+// Network dimensions for the MLP layers, picked by DS_* from the make DATASET
+#if defined(DS_CIFAR10) || defined(DS_CIFAR100)
+  #define IN_REAL   3072          // 32*32*3 rgb
+  #define IN_DIM    3072
+  #define L1_DIM     256
+  #define L2_DIM      96
+  #define OUT_DIM     10
+#else
+  #define IN_REAL    784          // 28*28 greyscale
+  #define IN_DIM     800          // pad K only up to a BS multiple: 25*32=800
+  #define L1_DIM     128
+  #define L2_DIM      96
+  #define OUT_DIM     10
+#endif
 
 #define BATCH       8             // Parallel batch size for MNIST samples
 #define TT          8             // Tile dimension for 8x8 MACs
@@ -460,9 +468,9 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
 }
 
 int main(void) {
-    assert(rdout_shift[1] == 3 && rdout_shift[2] == 3);
+    assert(rdout_shift[1] == RDOUT_SHIFT && rdout_shift[2] == RDOUT_SHIFT);
     // Store one word per pixel for all batch lanes
-    static uint32_t image_packed[NVREG*BS];
+    static uint32_t image_packed[IN_DIM];
     // Raw pixels for the whole batch
     static uint32_t stage_buf[BATCH][IN_REAL/4];
     int predictions[BATCH];
