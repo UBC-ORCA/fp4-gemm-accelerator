@@ -31,7 +31,7 @@ run_inference.sh - launch a CVE2 FP4 MNIST inference build under Verilator
   ./run_inference.sh <version> [dataset] [size] [options]
 
   version : baseline | novec | hardware    (required)
-  dataset : mnist | fashion                (default: mnist)
+  dataset : mnist | fashion | cifar10      (default: mnist)
   size    : 8 | 80 | 400 | 1k | 2k | 10k   (default: 80 | UPDATE IN C)
 
 Run ./run_inference.sh --help for the full option list.
@@ -73,7 +73,7 @@ TRACE_WAVE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     baseline|novec|hardware) VERSION="$1" ;;
-    mnist|fashion)     DATASET="$1" ;;
+    mnist|fashion|cifar10)     DATASET="$1" ;;
     8|test_8|test8)          SIZE=8 ;;
     80|test_80|test80)          SIZE=80 ;;
     400|test_400|test400)          SIZE=400 ;;

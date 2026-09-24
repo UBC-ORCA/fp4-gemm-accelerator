@@ -96,7 +96,17 @@ CFLAGS := \
 
 # FPGA=1 uses start_fpga.S + auto-incrementing UART pointer; FPGA=0 (default)
 # uses the simulator start.S / UART.
-CFLAGS += -DIMAGE_BIN_FILE='"test_$(SIZE).bin"' -DN_SAMPLES=$(N_SAMPLES)
+# readout shift, derived from DATASET
+ifneq ($(filter $(DATASET),cifar10 cifar100),)
+RDOUT_SHIFT ?= 2
+else
+RDOUT_SHIFT ?= 3
+endif
+
+CFLAGS += -DIMAGE_BIN_FILE='"test_$(SIZE).bin"' -DN_SAMPLES=$(N_SAMPLES) -DRDOUT_SHIFT=$(RDOUT_SHIFT)
+
+# DS_MNIST / DS_FASHION / DS_CIFAR10 / DS_CIFAR100, picks the layer dimensions
+CFLAGS += -DDS_$(shell echo $(DATASET) | tr '[:lower:]' '[:upper:]')
 
 FPGA ?= 0
 ifeq ($(FPGA),1)
