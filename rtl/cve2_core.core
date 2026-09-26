@@ -7,6 +7,32 @@ name: "openhwgroup:cve2:cve2_core:0.1"
 description: "CVE2 CPU Core Components"
 
 filesets:
+  files_chief:
+    depend:
+      - openhwgroup:cve2:cve2_pkg
+    files:
+      - rtl/chief/mac_accum_bram.sv
+      - rtl/chief/chief_pkg.sv
+      - rtl/chief/fp4_e4m3_scale_mul.sv
+      - rtl/chief/e4m3_scale.sv
+      - rtl/chief/mac_scale_fsm.sv
+      - rtl/chief/int16_to_bf16.sv
+      - rtl/chief/bf16_accumulate.sv
+      - rtl/chief/mac_scale_accum.sv
+      - rtl/chief/parameterized_adder.sv
+      - rtl/chief/accumulator_reg.sv
+      - rtl/chief/sat16_adder.sv
+      - rtl/chief/int4_mul_int8.sv
+      - rtl/chief/fp4_mul_int9.sv
+      - rtl/chief/mac_cell.sv
+      - rtl/chief/mac_controller.sv
+      - rtl/chief/mac_array.sv
+      - rtl/chief/bf16_to_fp4.sv
+      - rtl/chief/cve2_cf_mac_unit.sv
+      - rtl/chief/cve2_vec_regfile.sv
+      - rtl/chief/cve2_vec_unit.sv
+    file_type: systemVerilogSource
+
   files_rtl:
     depend:
       - lowrisc:prim:assert
@@ -29,32 +55,6 @@ filesets:
       - rtl/cve2_multdiv_fast.sv
       - rtl/cve2_multdiv_slow.sv
       - rtl/cve2_prefetch_buffer.sv
-      - rtl/mac_accum_bram.sv
-      - rtl/mx_pkg.sv
-      - rtl/fp4_pkg.sv
-      - rtl/fp4_e4m3_scale_mul.sv
-      - rtl/parameterized_adder_e4m3.sv
-      - rtl/e4m3_scale.sv
-      - rtl/mac_scale_accum_bram.sv
-      - rtl/mac_scale_fsm.sv
-      - rtl/int16_to_bf16.sv
-      - rtl/e8m0_scale.sv
-      - rtl/bf16_accumulate.sv
-      - rtl/int16_to_bf16_scaled.sv
-      - rtl/mac_scale_accum.sv
-      - rtl/parameterized_adder.sv
-      - rtl/accumulator_reg.sv
-      - rtl/sat16_adder.sv
-      - rtl/int4_mul_int8.sv
-      - rtl/fp4_mul_int9.sv
-      - rtl/mac_cell.sv
-      - rtl/mac_controller.sv
-      - rtl/mac_array.sv
-      - rtl/bf16_to_fp4.sv
-      - rtl/cve2_cf_mac_unit.sv
-      - rtl/fp4_mac8x8_gen1.sv
-      - rtl/cve2_vec_regfile.sv
-      - rtl/cve2_vec_unit.sv
       - rtl/cve2_pmp.sv
       - rtl/cve2_wb.sv
       - rtl/cve2_core.sv
@@ -104,6 +104,7 @@ targets:
     filesets:
       - tool_verilator ? (files_lint_verilator)
       - tool_veriblelint ? (files_lint_verible)
+      - files_chief
       - files_rtl
     toplevel: cve2_core
     parameters:
@@ -124,6 +125,7 @@ targets:
           - "--unroll-count 72"
   format:
     filesets:
+      - files_chief
       - files_rtl
     parameters:
       - SYNTHESIS=true
