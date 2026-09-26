@@ -202,11 +202,16 @@ module cve2_cf_mac_unit
 
     logic        bram_scale_rd_en;
     logic [2:0]  scale_rd_col;
-    logic [1:0]  scale_rd_row_group;
+    logic [0:0]  scale_rd_row_group;
     logic [2:0]  scale_ctx_col;
-    logic [1:0]  scale_ctx_row_group;
+    logic [0:0]  scale_ctx_row_group;
     logic [2:0]  scale_wr_col;
-    logic [1:0]  scale_wr_row_group;
+    logic [0:0]  scale_wr_row_group;
+    logic [0:0]  scale_wr_row_group_vec [N_SCALE_UNITS-1:0];
+    logic [2:0] scale_wr_col_vec [N_SCALE_UNITS-1:0];
+
+    assign scale_wr_col = scale_wr_col_vec[0];
+    assign scale_wr_row_group = scale_wr_row_group_vec[0];
 
     // BRAM Control
     always_comb begin
@@ -214,12 +219,12 @@ module cve2_cf_mac_unit
         if (scale_busy) begin
             bram_rd_en   = bram_scale_rd_en;
             bram_rd_tile = scale_tile_q;
-            bram_rd_row  = {scale_rd_row_group, 1'b0};
+            bram_rd_row  = {scale_rd_row_group, 2'b0};
             bram_rd_col  = scale_rd_col;
 
             bram_wr_en   = scale_write_valid[0];
             bram_wr_tile = scale_tile_q;
-            bram_wr_row  = {scale_wr_row_group, 1'b0};
+            bram_wr_row  = {scale_wr_row_group, 2'b0};
             bram_wr_col  = scale_wr_col;
             bram_wr_data = scale_accum_out;
             bram_bank_sel = scale_write_valid;
@@ -402,12 +407,12 @@ module cve2_cf_mac_unit
                 .a_scale_i         (scaleA[i]),
                 .w_scale_i         (scaleW[i]),
                 .bram_acc_i        (scale_accum_in[i]),
-                .bram_rd_col_addr_i(bram_rd_col_addr_i),
-                .bram_rd_row_addr_i(bram_rd_row_addr_i),
+                .bram_rd_col_addr_i(scale_ctx_col),
+                .bram_rd_row_addr_i(scale_ctx_row_group),
                 .out_valid_o       (scale_write_valid[i]),
                 .bram_acc_o        (scale_accum_out[i]),
-                .bram_wr_col_addr_o(bram_wr_col_addr_o),
-                .bram_wr_row_addr_o(bram_wr_row_addr_o),
+                .bram_wr_col_addr_o(scale_wr_col_vec[i]),
+                .bram_wr_row_addr_o(scale_wr_row_group_vec[i]),
                 .end_tok_i         (scale_rd_end_tok[i]),
                 .end_tok_o         (scale_wr_end_tok[i])
             );
@@ -448,12 +453,30 @@ module cve2_cf_mac_unit
     // [rbs]
     logic [3:0]     fp4_lo, fp4_hi;
     logic [31:0]    fp4_pack_q, fp4_pack_d;
+    
+    // Signals for BRAM word selection
+    // FIXME: PARAMETERIZE ROW BITFIELDS
+    logic [1:0]     bram_rd_bank_q;
+    logic [1:0]     bram_rd_bank_d;
+    logic [15:0]    bf16_hi, bf16_lo;
+    logic [31:0]    bram_rd_scalar_word;
 
-    bf16_to_fp4 u_fp4_lo (.bf16_i(bram_rd_data[15:0]),  .fp4_o(fp4_lo));
-    bf16_to_fp4 u_fp4_hi (.bf16_i(bram_rd_data[31:16]), .fp4_o(fp4_hi));
+    bf16_to_fp4 u_fp4_lo (.bf16_i(bf16_lo),  .fp4_o(fp4_lo));
+    bf16_to_fp4 u_fp4_hi (.bf16_i(bf16_hi), .fp4_o(fp4_hi));
 
     always_comb begin
         fp4_pack_d = fp4_pack_q;
+        bram_rd_bank_d = bram_rd_row[1:0];
+
+        // FIXME: parametrize
+        // Selection is based on bit 1 from the bank address index 
+        // In other words, the 2 half-words that are processed are
+        // taken from row addresses: {(R/2)*2, (R/2)*2 + 1}. 
+        bram_rd_scalar_word = {bram_rd_data[{bram_rd_bank_q[1], 1'b1}],
+                              bram_rd_data[{bram_rd_bank_q[1], 1'b0}]};
+
+        {bf16_hi, bf16_lo} = bram_rd_scalar_word;
+
         if (ctrl_fp4_capture) begin
             fp4_pack_d[{1'b0, ctrl_fp4_idx, 2'b00} +: 4] = fp4_lo;   // nibble k
             fp4_pack_d[{1'b1, ctrl_fp4_idx, 2'b00} +: 4] = fp4_hi;   // nibble k+4
@@ -461,11 +484,16 @@ module cve2_cf_mac_unit
     end
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni) fp4_pack_q <= '0;
-        else         fp4_pack_q <= fp4_pack_d;
+        if (!rst_ni) begin 
+            fp4_pack_q <= '0;
+            bram_rd_bank_q <= 'b0;
+        end else begin 
+            bram_rd_bank_q <= bram_rd_bank_d;
+            fp4_pack_q <= fp4_pack_d;
+        end 
     end
 
-    assign scalar_wdata_o = ctrl_fp4_sel ? fp4_pack_d : bram_rd_data;
+    assign scalar_wdata_o = ctrl_fp4_sel ? fp4_pack_d : bram_rd_scalar_word;
     // [rbs - end]
 
 
