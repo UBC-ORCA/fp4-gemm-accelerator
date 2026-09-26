@@ -333,7 +333,6 @@ module cve2_cf_mac_unit
         .accum_rd_tile_o      (ctrl_accum_rd_tile),
         .accum_rd_row_o       (ctrl_accum_rd_row),
         .accum_rd_col_o       (ctrl_accum_rd_col),
-        .accum_rd_data_i      (bram_rd_data[15:0]), 
         .accum_wr_en_o        (ctrl_accum_wr_en),
         .accum_wr_tile_o      (ctrl_accum_wr_tile),
         .accum_wr_row_o       (ctrl_accum_wr_row),

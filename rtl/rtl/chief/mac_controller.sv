@@ -82,7 +82,6 @@ module mac_controller #(
     output logic [4:0]                  accum_rd_tile_o,
     output logic [2:0]                  accum_rd_row_o,
     output logic [2:0]                  accum_rd_col_o,
-    input  logic [15:0]                 accum_rd_data_i,
 
     output logic                        accum_wr_en_o,
     output logic [4:0]                  accum_wr_tile_o,

@@ -1,5 +1,6 @@
 `timescale 1ns / 1ps
 
+
 module e4m3_scale 
 import fp4_pkg::*;
 #(
@@ -19,13 +20,13 @@ import fp4_pkg::*;
     input bf16_t bram_acc_i,
 
     input logic [2:0] bram_rd_col_addr_i,
-    input logic [1:0] bram_rd_row_addr_i, 
+    input logic [0:0] bram_rd_row_addr_i, 
 
     // Output payload
     output logic out_valid_o, 
     output bf16_t bram_acc_o,
     output logic [2:0] bram_wr_col_addr_o,
-    output logic [1:0] bram_wr_row_addr_o,
+    output logic [0:0] bram_wr_row_addr_o,
 
     // Indicators for the final token to be streamed
     // to the BRAM  
@@ -45,7 +46,7 @@ import fp4_pkg::*;
     assign bram_wr_col_addr_o = addr_col_pipe_q[N_PIPE_STAGES-1];
     assign bram_wr_row_addr_o = addr_row_pipe_q[N_PIPE_STAGES-1];
     assign end_tok_o = end_tok_pipe_q[N_PIPE_STAGES-1];
-
+    assign out_valid_o = valid_pipe_q[N_PIPE_STAGES-1];
     // Pipeline registers for each stage 
     // Stage 1: Input Capture 
     logic signed [15:0] tile_s1; 
