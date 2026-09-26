@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 
 module bf16_accumulate 
-import mx_pkg::*;
+import chief_pkg::*;
 (
     input  bf16_t       bf16_scaled,
     input  logic [15:0] accumulator_in,

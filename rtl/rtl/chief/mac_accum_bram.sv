@@ -46,7 +46,7 @@ module mac_accum_bram #(
     // One-Hot Write Select  
     input logic [NBANKS-1:0]               bank_sel 
 );
-
+ 
     /* Elaboration Time Check for parameters */
     generate 
         if (NROWS < NBANKS) begin 

@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 
 module e8m0_scale 
-import mx_pkg::*;
+import chief_pkg::*;
 (
     input  bf16_t      bf16_in,
     input  logic [7:0] scale_a,

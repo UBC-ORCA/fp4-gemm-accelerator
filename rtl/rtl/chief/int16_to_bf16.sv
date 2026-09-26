@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 
 module int16_to_bf16 
-import mx_pkg::*;
+import chief_pkg::*;
 (
     input  logic signed [15:0] int_in,
     output bf16_t              bf16_out

@@ -9,7 +9,7 @@ import fp4_pkg::*;
 )
 (
     input logic clk_i, 
-    input logic rst_n_i, 
+    input logic rst_ni, 
 
     // Input data payload 
     input logic input_valid_i,
@@ -25,7 +25,12 @@ import fp4_pkg::*;
     output logic out_valid_o, 
     output bf16_t bram_acc_o,
     output logic [2:0] bram_wr_col_addr_o,
-    output logic [1:0] bram_wr_row_addr_o
+    output logic [1:0] bram_wr_row_addr_o,
+
+    // Indicators for the final token to be streamed
+    // to the BRAM  
+    input logic end_tok_i, 
+    output logic end_tok_o
 
 );
     // Pipeline Shift Registers,
@@ -35,9 +40,11 @@ import fp4_pkg::*;
     logic [N_PIPE_STAGES-1:0] valid_pipe_q;
     logic [2:0] addr_col_pipe_q [N_PIPE_STAGES-1:0];
     logic [1:0] addr_row_pipe_q [N_PIPE_STAGES-1:0];
+    logic [N_PIPE_STAGES-1:0] end_tok_pipe_q; 
 
     assign bram_wr_col_addr_o = addr_col_pipe_q[N_PIPE_STAGES-1];
     assign bram_wr_row_addr_o = addr_row_pipe_q[N_PIPE_STAGES-1];
+    assign end_tok_o = end_tok_pipe_q[N_PIPE_STAGES-1];
 
     // Pipeline registers for each stage 
     // Stage 1: Input Capture 
@@ -61,14 +68,17 @@ import fp4_pkg::*;
 
     assign bram_acc_o = acc_result_q;
 
-    always_ff @(posedge clk_i or negedge rst_n_i) begin 
-        if (~rst_n_i) begin
+    // Control signal propagation
+    always_ff @(posedge clk_i or negedge rst_ni) begin 
+        if (~rst_ni) begin
             valid_pipe_q <= 4'b0;
         end else begin
             // For any i > 0, shift_regs[i] gets shift_regs[i-1] 
             valid_pipe_q <= 
                 {valid_pipe_q[N_PIPE_STAGES-2:0], input_valid_i};
             
+            end_tok_pipe_q <= 
+                {end_tok_pipe_q[N_PIPE_STAGES-2:0], end_tok_i};
         end
     end
 
@@ -105,6 +115,7 @@ import fp4_pkg::*;
         .isNaN(scaled_tile_nan_s2_d), 
         .isZero(scaled_tile_zero_s2_d)
     );
+    
     always_ff @(posedge clk_i) begin : pipe_scale
         scaled_tile_s2_q <= scaled_tile_s2_d;    
         scaled_tile_zero_s2_q <= scaled_tile_zero_s2_d;

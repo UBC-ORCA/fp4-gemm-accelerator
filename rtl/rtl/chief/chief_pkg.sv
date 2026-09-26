@@ -39,7 +39,7 @@ typedef union packed {
     logic [7:0] raw;
 } chief_scaler_t;
 
-/* E8M7 */
+// Packed structure representing standard BF16 (bfloat16)
 typedef struct packed {
     logic sign; 
     logic [7:0] exp;

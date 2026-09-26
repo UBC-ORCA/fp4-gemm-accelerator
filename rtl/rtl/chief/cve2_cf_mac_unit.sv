@@ -37,6 +37,7 @@ module cve2_cf_mac_unit
 );
 
     localparam int TT = 8;
+    localparam N_SCALE_UNITS = 4;
 
     logic [4:0]  vs1;
     logic unsigned [11:0] imm12;
@@ -64,21 +65,17 @@ module cve2_cf_mac_unit
     assign weight_addr = weight_base + imm12;
 
     // BRAM_RD returns the accumulator read pair; MV ops return the raw tile.
-    logic [31:0] bram_rd_data; 
+    logic [3:0][15:0] bram_rd_data; 
 
     logic [4:0]  scalar_waddr;
     assign scalar_waddr = req_instr_i[11:7];
-
-    logic signed [15:0] scale_tile_value [0:1]; 
+    
+    logic signed [15:0] scale_tile_value [0:N_SCALE_UNITS-1]; 
 
     logic [31:0] act_scale_lo, act_scale_hi;
     logic [31:0] weight_scale_lo, weight_scale_hi;
     logic        act_scale_ready, weight_scale_ready;
     logic        snapshot_valid;
-
-    // help with inst reordering
-    logic [31:0] act_scale_lo_safe, act_scale_hi_safe;
-    logic [31:0] weight_scale_lo_safe, weight_scale_hi_safe;
 
     logic signed [15:0] tile_snapshot [0:TT-1][0:TT-1];
 
@@ -87,30 +84,37 @@ module cve2_cf_mac_unit
     logic                weight_scale_valid_q;
 
     // Inbound staged registers (Pending context holding)
-    logic [31:0]        ctx_act_scale_lo;
-    logic [31:0]        ctx_act_scale_hi;
-    logic [31:0]        ctx_weight_scale_lo;
-    logic [31:0]        ctx_weight_scale_hi;
+    // logic [31:0]        ctx_act_scale_lo;
+    // logic [31:0]        ctx_act_scale_hi;
+    logic [63:0]        ctx_act_scale_packed;
+    logic [7:0][7:0]    ctx_act_scale;
+    // logic [31:0]        ctx_weight_scale_lo;
+    // logic [31:0]        ctx_weight_scale_hi;
+    logic [63:0]        ctx_weight_scale_packed;
+    logic [7:0][7:0]    ctx_weight_scale;
     logic signed [15:0] ctx_tile_snapshot [0:TT-1][0:TT-1];
 
     logic                context_ready;
     logic                context_accept;
     logic                scale_busy;
-    logic                scale_write;
+    // logic                scale_write;
     logic                scale_done;
 
+    logic [N_SCALE_UNITS-1:0]       scale_write_valid;
+    logic [N_SCALE_UNITS-1:0][15:0] scale_write_data;
+    logic [N_SCALE_UNITS-1:0] scale_rd_valid;
+
+    assign ctx_act_scale = ctx_act_scale_packed;
+    assign ctx_weight_scale = ctx_weight_scale_packed;
     assign context_ready = snapshot_valid_q && act_scale_valid_q && weight_scale_valid_q;
 
-// Staging Context Logic
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-        if (!rst_ni) begin
+    // Staging Context Logic
+    always_ff @(posedge clk_i or negedge rst_ni) begin if (!rst_ni) begin
             snapshot_valid_q     <= 1'b0;
             act_scale_valid_q    <= 1'b0;
             weight_scale_valid_q <= 1'b0;
-            ctx_act_scale_lo     <= '0;
-            ctx_act_scale_hi     <= '0;
-            ctx_weight_scale_lo  <= '0;
-            ctx_weight_scale_hi  <= '0;
+            ctx_act_scale_packed <= '0;
+            ctx_weight_scale_packed <= '0;
             ctx_tile_snapshot    <= '{default: '{default: '0}};
         end else begin
             // Capture the matrix tile snapshot directly
@@ -123,14 +127,12 @@ module cve2_cf_mac_unit
             // when the ready handshake hits to prevent 1-cycle sampling gaps.
             if (act_scale_ready && !act_scale_valid_q) begin
                 act_scale_valid_q <= 1'b1;
-                ctx_act_scale_lo  <= act_scale_lo;
-                ctx_act_scale_hi  <= act_scale_hi;
+                ctx_act_scale_packed <= {act_scale_hi, act_scale_lo};
             end
             
             if (weight_scale_ready && !weight_scale_valid_q) begin
                 weight_scale_valid_q <= 1'b1;
-                ctx_weight_scale_lo  <= weight_scale_lo;
-                ctx_weight_scale_hi  <= weight_scale_hi;
+                ctx_weight_scale_packed <= {weight_scale_hi, weight_scale_lo};
             end
             
             // Clear down tokens once the FSM starts processing the context block
@@ -174,8 +176,8 @@ module cve2_cf_mac_unit
     logic [4:0]  bram_wr_tile;
     logic [2:0]  bram_wr_row;
     logic [2:0]  bram_wr_col;
-    logic [31:0] bram_wr_data;
-    logic        bram_wr_pair;   
+    logic [3:0][15:0] bram_wr_data;
+    logic [3:0]  bram_bank_sel;
 
     logic        ctrl_accum_rd_en;
     logic [4:0]  ctrl_accum_rd_tile;
@@ -194,10 +196,11 @@ module cve2_cf_mac_unit
     logic [1:0]  ctrl_fp4_idx;
     // [rbs - end]
 
-    logic [15:0] scale_accum_in  [0:1];
-    logic [15:0] scale_accum_out [0:1];
+    // Scale accumulators input for the scale units
+    logic [N_SCALE_UNITS-1:0][15:0] scale_accum_in;
+    logic [N_SCALE_UNITS-1:0][15:0] scale_accum_out;
 
-    logic        scale_rd_en;
+    logic        bram_scale_rd_en;
     logic [2:0]  scale_rd_col;
     logic [1:0]  scale_rd_row_group;
     logic [2:0]  scale_ctx_col;
@@ -205,20 +208,24 @@ module cve2_cf_mac_unit
     logic [2:0]  scale_wr_col;
     logic [1:0]  scale_wr_row_group;
 
+    // BRAM Control
     always_comb begin
+        bram_bank_sel = 'b0;
         if (scale_busy) begin
-            bram_rd_en   = scale_rd_en;
+            bram_rd_en   = bram_scale_rd_en;
             bram_rd_tile = scale_tile_q;
             bram_rd_row  = {scale_rd_row_group, 1'b0};
             bram_rd_col  = scale_rd_col;
 
-            bram_wr_en   = scale_write;
+            bram_wr_en   = scale_write_valid[0];
             bram_wr_tile = scale_tile_q;
             bram_wr_row  = {scale_wr_row_group, 1'b0};
             bram_wr_col  = scale_wr_col;
-            bram_wr_data = {scale_accum_out[1], scale_accum_out[0]};
-            bram_wr_pair = 1'b1;   
+            bram_wr_data = scale_accum_out;
+            bram_bank_sel = scale_write_valid;
         end else begin
+            // For other instructions, BRAM gets written 
+            // 2 words at a time
             bram_rd_en   = ctrl_accum_rd_en;
             bram_rd_tile = ctrl_accum_rd_tile;
             bram_rd_row  = ctrl_accum_rd_row;
@@ -228,17 +235,24 @@ module cve2_cf_mac_unit
             bram_wr_tile = ctrl_accum_wr_tile;
             bram_wr_row  = ctrl_accum_wr_row;
             bram_wr_col  = ctrl_accum_wr_col;
-            //bram_wr_data = {16'b0, ctrl_accum_wr_data};
-            //bram_wr_pair = 1'b0;  
-	    bram_wr_data = {ctrl_accum_wr_data, ctrl_accum_wr_data};
-            bram_wr_pair = 1'b1;   
+
+            // Check bank[1] to determine the bank selection 
+            // for the address.
+            if (bram_wr_row[1]) begin 
+                bram_wr_data = {16'b0, 16'b0, 
+                                ctrl_accum_wr_data,
+                                ctrl_accum_wr_data};
+                bram_bank_sel = 4'b0011;
+            end else begin 
+                bram_bank_sel = 4'b1100;
+                bram_wr_data = {ctrl_accum_wr_data, 
+                                ctrl_accum_wr_data, 
+                                16'b0, 
+                                16'b0};
+            end 
         end
     end
 
-    always_comb begin
-        scale_accum_in[0] = bram_rd_data[15:0];  
-        scale_accum_in[1] = bram_rd_data[31:16]; 
-    end
 
     //------------------------------------------------------------
     // Submodule Instantiations
@@ -342,41 +356,27 @@ module cve2_cf_mac_unit
     mac_accum_bram #(
         .NTILES(32),
         .NROWS(8),
-        .NCOLS(8)
+        .NCOLS(8), 
+        .NBANKS(N_SCALE_UNITS),
+        .DATA_W(16)
     ) u_accum_bram (
         .clk_i                (clk_i),
         .rst_ni               (rst_ni),
+
         .rd_en_i              (bram_rd_en),
         .rd_tile_i            (bram_rd_tile),
         .rd_row_i             (bram_rd_row),
         .rd_col_i             (bram_rd_col),
         .rd_data_o            (bram_rd_data),
+        
         .wr_en_i              (bram_wr_en),
         .wr_tile_i            (bram_wr_tile),
         .wr_row_i             (bram_wr_row),
         .wr_col_i             (bram_wr_col),
-        .wr_data_i            (bram_wr_data),
-        .wr_pair_i            (bram_wr_pair)
+        .wr_data_i            (bram_wr_data), 
+        .bank_sel             (bram_bank_sel)
     );
 
-    mac_scale_fsm #(
-        .NUM_GROUPS(32)
-    ) u_scale_fsm (
-        .clk_i                (clk_i),
-        .rst_ni               (rst_ni),
-        .context_ready_i      (context_ready),
-        .context_accept_o     (context_accept),
-        .scale_busy_o         (scale_busy),
-        .scale_rd_en_o        (scale_rd_en),
-        .scale_write_o        (scale_write),
-        .scale_done_o         (scale_done),
-        .scale_ctx_col_o      (scale_ctx_col),
-        .scale_ctx_row_group_o(scale_ctx_row_group),
-        .scale_rd_col_o       (scale_rd_col),
-        .scale_rd_row_group_o (scale_rd_row_group),
-        .scale_wr_col_o       (scale_wr_col),
-        .scale_wr_row_group_o (scale_wr_row_group)
-    );
 
     // Use the T+1 context coordinate: the snapshot is combinational but the
     // accumulator comes back from BRAM a cycle late, and mac_scale_accum latches
@@ -386,28 +386,63 @@ module cve2_cf_mac_unit
         scale_tile_value[1] = ctx_tile_snapshot[{scale_ctx_row_group,1'b0}+1][scale_ctx_col];
     end
 
-    logic [7:0] scaleA [0:1];
-    logic [7:0] scaleB [0:1];
+    logic [7:0] scaleA [0:N_SCALE_UNITS-1];
+    logic [7:0] scaleW [0:N_SCALE_UNITS-1];
+    logic [N_SCALE_UNITS-1:0] scale_rd_end_tok;
+    logic [N_SCALE_UNITS-1:0] scale_wr_end_tok;
+    generate
+        for (genvar i = 0; i < N_SCALE_UNITS; ++i) begin : gen_scale_unit
+            e4m3_scale #(
+                .TILE_EXP_BIAS(-2)
+            ) e4m3_scale (
+                .clk_i             (clk_i),
+                .rst_ni            (rst_ni),
+                .input_valid_i     (scale_rd_valid[i]),
+                .tile_i            (scale_tile_value[i]),
+                .a_scale_i         (scaleA[i]),
+                .w_scale_i         (scaleW[i]),
+                .bram_acc_i        (scale_accum_in[i]),
+                .bram_rd_col_addr_i(bram_rd_col_addr_i),
+                .bram_rd_row_addr_i(bram_rd_row_addr_i),
+                .out_valid_o       (scale_write_valid[i]),
+                .bram_acc_o        (scale_accum_out[i]),
+                .bram_wr_col_addr_o(bram_wr_col_addr_o),
+                .bram_wr_row_addr_o(bram_wr_row_addr_o),
+                .end_tok_i         (scale_rd_end_tok[i]),
+                .end_tok_o         (scale_wr_end_tok[i])
+            );
 
-    // FIX: Connected clk_i and rst_ni so the internal pipeline registers actually clock data
-    mac_scale_accum u_scale_accum0 (
-        .clk_i(clk_i),
-        .rst_ni(rst_ni),
-        .tile_value(scale_tile_value[0]),
-        .scaleA(scaleA[0]),
-        .scaleB(scaleB[0]),
-        .accumulator(scale_accum_in[0]),
-        .accumulator_out(scale_accum_out[0])
-    );
+            // Address mapping from context address to scale unit inputs
+            assign scaleA[i] = ctx_act_scale[scale_ctx_row_group*N_SCALE_UNITS + i];
+            assign scaleW[i] = ctx_weight_scale[scale_ctx_col];
+            assign scale_accum_in[i] = bram_rd_data[i];
+        end : gen_scale_unit
+    endgenerate 
 
-    mac_scale_accum u_scale_accum1 (
-        .clk_i(clk_i),
-        .rst_ni(rst_ni),
-        .tile_value(scale_tile_value[1]),
-        .scaleA(scaleA[1]),
-        .scaleB(scaleB[1]),
-        .accumulator(scale_accum_in[1]),
-        .accumulator_out(scale_accum_out[1])
+
+    mac_scale_fsm #(
+        .N_SCALE(N_SCALE_UNITS), 
+        .N_COLS(8), 
+        .N_ROWS(2)
+    ) u_scale_fsm (
+        .clk_i                (clk_i),
+        .rst_ni               (rst_ni),
+
+        .context_ready_i      (context_ready),
+        .context_accept_o     (context_accept),
+        .scale_busy_o         (scale_busy),
+        .scale_done_o         (scale_done),
+
+        .scale_wr_end_tok_i   (scale_wr_end_tok), 
+        .scale_rd_end_tok_o   (scale_rd_end_tok), 
+        .scale_rd_valid_o     (scale_rd_valid), 
+
+        .scale_ctx_col_o(scale_ctx_col),
+        .scale_ctx_row_group_o(scale_ctx_row_group),
+
+        .bram_rd_en_o(bram_scale_rd_en),
+        .bram_rd_col_o(scale_rd_col),
+        .bram_rd_row_group_o(scale_rd_row_group)
     );
 
     // [rbs]
@@ -433,43 +468,14 @@ module cve2_cf_mac_unit
     assign scalar_wdata_o = ctrl_fp4_sel ? fp4_pack_d : bram_rd_data;
     // [rbs - end]
 
-    // Scale muxes track the same T+1 context coordinate as the tile snapshot
-    always_comb begin
-        case(scale_ctx_row_group)
-            2'd0: begin
-                scaleA[0] = ctx_act_scale_lo[7:0];
-                scaleA[1] = ctx_act_scale_lo[15:8];
-            end
-            2'd1: begin
-                scaleA[0] = ctx_act_scale_lo[23:16];
-                scaleA[1] = ctx_act_scale_lo[31:24];
-            end
-            2'd2: begin
-                scaleA[0] = ctx_act_scale_hi[7:0];
-                scaleA[1] = ctx_act_scale_hi[15:8];
-            end
-            2'd3: begin
-                scaleA[0] = ctx_act_scale_hi[23:16];
-                scaleA[1] = ctx_act_scale_hi[31:24];
-            end
-        endcase
-
-        if (scale_ctx_col < 4) begin
-            scaleB[0] = ctx_weight_scale_lo[scale_ctx_col*8 +: 8];
-            scaleB[1] = ctx_weight_scale_lo[scale_ctx_col*8 +: 8];
-        end else begin
-            scaleB[0] = ctx_weight_scale_hi[(scale_ctx_col-4)*8 +: 8];
-            scaleB[1] = ctx_weight_scale_hi[(scale_ctx_col-4)*8 +: 8];
-        end
-    end
 
 `ifdef BRAM_DEBUG
     // FIX: Clear display trace that avoids mixed unaligned signals
     always_ff @(posedge clk_i) begin
         if (rst_ni && scale_busy && scale_write && scale_tile_q == 5'd0) begin
             $display("[CF_SCALE] Transaction Committed | Active Write Col = %0d", scale_wr_col);
-            $display("           Lower Vector -> Tile val: 0x%4h | ScaleB: 0x%2h | Base BRAM Acc In: 0x%4h -> Pipe Out: 0x%4h",
-                     scale_tile_value[0], scaleB[0], scale_accum_in[0], scale_accum_out[0]);
+            $display("           Lower Vector -> Tile val: 0x%4h | scaleW: 0x%2h | Base BRAM Acc In: 0x%4h -> Pipe Out: 0x%4h",
+                     scale_tile_value[0], scaleW[0], scale_accum_in[0], scale_accum_out[0]);
         end
     end
 `endif

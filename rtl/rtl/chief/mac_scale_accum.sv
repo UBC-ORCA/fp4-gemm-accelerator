@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 
 module mac_scale_accum 
-import mx_pkg::*;
+import chief_pkg::*;
 (
     input  logic        clk_i,
     input  logic        rst_ni,

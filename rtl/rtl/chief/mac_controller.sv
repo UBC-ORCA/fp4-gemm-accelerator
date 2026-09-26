@@ -30,7 +30,7 @@ module mac_controller #(
 
     output logic [4:0]                  mac_vrf_raddr_o,
     output logic [4:0]                  mac_vrf_relem_o,
-output logic mac_vrf_en_o, 
+    output logic                        mac_vrf_en_o, 
     input  logic [31:0]                 mac_vrf_rdata_i, 
 
     // Weight memory interface
@@ -391,7 +391,7 @@ output logic mac_vrf_en_o,
                 endcase
 
                 if (op_q == cve2_pkg::OP_VMAC) begin
-		    mac_vrf_en_o    = 1'b1;
+		            mac_vrf_en_o    = 1'b1;
                     mac_vrf_raddr_o = mac_vrf_addr;
                     mac_vrf_relem_o = elem_idx;
                     if (!mem_req_sent_q) begin
