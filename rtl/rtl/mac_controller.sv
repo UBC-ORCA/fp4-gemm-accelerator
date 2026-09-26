@@ -295,7 +295,7 @@ output logic mac_vrf_en_o,
         fp4_capture_o  = 1'b0;   // [rbs]
 
         // Clean output decode logic
-        mac_en_o = ((state_q == EXEC) && (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i); 
+        mac_en_o = (((state_q == EXEC) || (state_q == DONE)) && (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i); 
 
         clear_o  = (state_q == CLEAR);
 
