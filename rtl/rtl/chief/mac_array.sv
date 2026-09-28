@@ -14,7 +14,7 @@
  ******************************************************************************/
 
 module mac_array
-import fp4_pkg::*; #(
+import chief_pkg::*; #(
 
     parameter int TT = 8
 

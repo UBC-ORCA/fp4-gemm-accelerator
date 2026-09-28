@@ -17,7 +17,7 @@
  * An 8-bit signed output is sufficient for all possible products.
  */
 module int4_mul_int8
-import fp4_pkg::*; (
+import chief_pkg::*; (
 
     input  int4_t act_i,
     input  int4_t wt_i,

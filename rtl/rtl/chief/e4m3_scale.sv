@@ -2,7 +2,7 @@
 
 
 module e4m3_scale 
-import fp4_pkg::*;
+import chief_pkg::*;
 #(
     // Tile exponent biasing
     // True value is tile_i * 2**-TILE_EXP_BIAS
@@ -15,8 +15,8 @@ import fp4_pkg::*;
     // Input data payload 
     input logic input_valid_i,
     input logic signed [15:0] tile_i, 
-    input fp4_scaler_e4m3_t a_scale_i,
-    input fp4_scaler_e4m3_t w_scale_i,
+    input chief_scaler_e4m3_t a_scale_i,
+    input chief_scaler_e4m3_t w_scale_i,
     input bf16_t bram_acc_i,
 
     input logic [2:0] bram_rd_col_addr_i,
@@ -50,8 +50,8 @@ import fp4_pkg::*;
     // Pipeline registers for each stage 
     // Stage 1: Input Capture 
     logic signed [15:0] tile_s1; 
-    fp4_scaler_e4m3_t   a_scale_s1;
-    fp4_scaler_e4m3_t   w_scale_s1;
+    chief_scaler_e4m3_t   a_scale_s1;
+    chief_scaler_e4m3_t   w_scale_s1;
     bf16_t              bram_acc_s1;
 
     // Stage 2: Scaling operation 
@@ -128,7 +128,7 @@ import fp4_pkg::*;
     // Pipeline Stage 3: Accumulation and save output
     //------------------------------------------------------------ 
 
-    parameterized_adder_e4m3 u_add (
+    parameterized_adder u_add (
         .a(bram_acc_s2),
         .b(scaled_tile_s2_q), 
         .sum(acc_result_d)

@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 
 module mac_cell
-import fp4_pkg::*; (
+import chief_pkg::*; (
 
     input  logic clk,
 

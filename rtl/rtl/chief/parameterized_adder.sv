@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 
 module parameterized_adder
-import fp4_pkg::*;
+import chief_pkg::*;
 #(
     parameter int EXP_WIDTH  = 8,
     parameter int MANT_WIDTH = 7

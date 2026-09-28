@@ -26,7 +26,7 @@ module mac_controller #(
     // Vector Register File Interface
     input  logic [4:0]                  vs1_i,
     input  logic [4:0]                  weight_blk_i,
-    input  logic [31:0]                 base_i,
+    input  logic [31:0]                 base_i,             // Memory base pointer
 
     output logic [4:0]                  mac_vrf_raddr_o,
     output logic [4:0]                  mac_vrf_relem_o,
@@ -99,9 +99,20 @@ module mac_controller #(
     logic        act_scale_pulse;
     logic        weight_scale_pulse;
 
+
+    // Execution context for the vector instructions
     logic [4:0]  vs1_q;
     logic [4:0]  weight_blk_q;
     logic [31:0] base_q;
+
+
+    //  Number of elements and base vrf element pointer, 
+    //  determined from decoding the vector instruction. 
+    logic [5:0]  vrf_last_elem_d;
+    logic [4:0]  vrf_base_elem_d;  
+
+    logic [5:0]  vrf_last_elem_q;
+    logic [4:0]  vrf_base_elem_q;   
 
     logic        mem_req_sent_q;
     logic        mem_req_sent_d;
@@ -171,6 +182,8 @@ module mac_controller #(
             act_scale_pulse    <= 1'b1;
             weight_scale_pulse <= 1'b0;
             vmac_last_q        <= 1'b0;
+            vrf_last_elem_q    <= 'b0;
+            vrf_base_elem_q    <= 'b0;
         end else begin
             state_q            <= state_d;
             count_q            <= count_d;
@@ -187,6 +200,8 @@ module mac_controller #(
                 weight_blk_q   <= weight_blk_i;
                 base_q         <= base_i;
                 scalar_waddr_q <= scalar_waddr_i;
+                vrf_last_elem_q <= vrf_last_elem_d;
+                vrf_base_elem_q <= vrf_base_elem_d;
 
                 unique case (cf_req_op_i)
                     cve2_pkg::OP_MAC_AS: begin
@@ -203,13 +218,43 @@ module mac_controller #(
                 endcase
             end
 
-            vmac_last_q <= (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i && (count_q == (VL-1));
+            vmac_last_q <= (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i && (count_q == vrf_last_elem_q);
 
             if (vmac_last_q) begin
                 snapshot_valid_q <= 1'b1;
             end
         end
     end
+
+    // VMAC decode logic
+    // Calculates the base offset for the vector register file, 
+    // and the number of elements to process
+    always_comb begin : vmac_decode_blk
+        vrf_base_elem_d = 0;
+        vrf_last_elem_d = VL-1;
+        
+        if (req_valid_i && state_q == IDLE) begin 
+            case(cf_req_op_i)
+                cve2_pkg::OP_VMACH: begin 
+                    vrf_base_elem_d = VL/2;
+                    vrf_last_elem_d = VL/2-1;   
+                end
+
+                cve2_pkg::OP_VMACL: begin 
+                    vrf_base_elem_d = 0;
+                    vrf_last_elem_d = VL/2-1;   
+                end
+
+                // cve2_pkg::OP_VMAC, 
+                default: begin
+                    vrf_base_elem_d = 0;
+                    vrf_last_elem_d = VL-1;                
+                end
+            endcase
+        end
+    end: vmac_decode_blk
+
+
 
     // Next State Logic
     always_comb begin
@@ -225,10 +270,12 @@ module mac_controller #(
                 brd_phase_d    = 1'b0;
 
                 if (req_valid_i) begin
-                    if (cf_req_op_i == cve2_pkg::OP_VMAC)
+                    if (cf_req_op_i == cve2_pkg::OP_VMAC) begin 
+                        count_d = vrf_base_elem_d;
                         state_d = CLEAR;
-                    else
+                    end else begin  
                         state_d = EXEC;
+                    end
                 end
             end
 
@@ -237,53 +284,59 @@ module mac_controller #(
             end
 
             EXEC: begin
-                if (op_q == cve2_pkg::OP_BRAM_RD) begin
-                    if (!brd_phase_q) begin
-                        brd_phase_d = 1'b1;   // read issued; capture/writeback next cycle
-                    end else begin
-                        brd_phase_d = 1'b0;
-                        state_d     = DONE;
-                    end
-                end
-                // [rbs]
-                else if (op_q == cve2_pkg::OP_BRAM_FP4) begin
-                    // four row pairs
-                    if (!brd_phase_q) begin
-                        brd_phase_d = 1'b1;
-                    end else begin
-                        brd_phase_d = 1'b0;
-                        if (count_q == 3) begin
-                            count_d = '0;
-                            state_d = DONE;
+
+                case(op_q) 
+                    cve2_pkg::OP_BRAM_RD: begin
+                        if (!brd_phase_q) begin
+                            brd_phase_d = 1'b1;   // read issued; capture/writeback next cycle
                         end else begin
-                            count_d = count_q + 1'b1;
+                            brd_phase_d = 1'b0;
+                            state_d     = DONE;
                         end
                     end
-                end
-                // [rbs - end]
-                else if ((op_q == cve2_pkg::OP_MAC_AS) ||
-                         (op_q == cve2_pkg::OP_MAC_WS) ||
-                         (op_q == cve2_pkg::OP_MAC_BIAS) ||
-                         (op_q == cve2_pkg::OP_ACC_BANK)) begin // Finishes execution in one cycle
-                    state_d = DONE;
-                end 
-                else if (op_q == cve2_pkg::OP_VMAC) begin
-                    if (!mem_req_sent_q) begin
-                        if (data_gnt_i) begin
-                            mem_req_sent_d = 1'b1;
-                        end
-                    end else begin
-                        if (data_rvalid_i) begin
-                            mem_req_sent_d = 1'b0;
-                            if (count_q == (VL-1)) begin
-                                state_d = DONE;
+
+                    cve2_pkg::OP_BRAM_FP4: begin
+                        // four row pairs
+                        if (!brd_phase_q) begin
+                            brd_phase_d = 1'b1;
+                        end else begin
+                            brd_phase_d = 1'b0;
+                            if (count_q == 3) begin
                                 count_d = '0;
+                                state_d = DONE;
                             end else begin
                                 count_d = count_q + 1'b1;
                             end
                         end
                     end
-                end
+                    
+                    cve2_pkg::OP_MAC_AS,
+                    cve2_pkg::OP_MAC_WS,
+                    cve2_pkg::OP_MAC_BIAS,
+                    cve2_pkg::OP_ACC_BANK: begin 
+                        state_d = DONE;
+                    end
+
+                    cve2_pkg::OP_VMAC,
+                    cve2_pkg::OP_VMACL,
+                    cve2_pkg::OP_VMACH: begin 
+                        if (!mem_req_sent_q) begin
+                        if (data_gnt_i) begin
+                            mem_req_sent_d = 1'b1;
+                        end
+                        end else begin
+                            if (data_rvalid_i) begin
+                                mem_req_sent_d = 1'b0;
+                                if (count_q == vrf_last_elem_q) begin
+                                    state_d = DONE;
+                                    count_d = '0;
+                                end else begin
+                                    count_d = count_q + 1'b1;
+                                end
+                            end
+                        end
+                    end
+                endcase
             end
 
             DONE: begin
@@ -312,7 +365,7 @@ module mac_controller #(
 
         mac_vrf_raddr_o = '0;
         mac_vrf_relem_o = '0;
-	mac_vrf_en_o = 1'b0;
+	    mac_vrf_en_o = 1'b0;
         data_req_o      = 1'b0;
         data_addr_o     = '0;
         data_we_o       = 1'b0;

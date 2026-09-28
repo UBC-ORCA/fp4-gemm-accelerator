@@ -6,10 +6,10 @@
     infinities.
 */
 // module normalize_e4m3
-// import fp4_pkg::*;
+// import chief_pkg::*;
 // #( parameter int OUTPUT_EXP_BITS = 8)
 //  (
-//     input fp4_scaler_e4m3_t e4m3,
+//     input chief_scaler_e4m3_t e4m3,
 //     output logic [2:0] normalized_mant,
     
 //     /* Encodes *the actual* value (unbiased)*/
@@ -61,9 +61,9 @@
 
 
 module e4m3_mul
-import fp4_pkg::*; (
-    input fp4_scaler_e4m3_t A8,
-    input fp4_scaler_e4m3_t B8,
+import chief_pkg::*; (
+    input chief_scaler_e4m3_t A8,
+    input chief_scaler_e4m3_t B8,
     input logic signed [15:0] q14_2_C_in,
     output bf16_t PABC, // E8M7 (intermediate)
     output logic isNaN,
@@ -100,15 +100,15 @@ import fp4_pkg::*; (
     localparam SHIFTED_M_MSB = PABC_FIXED_PRODUCT_WIDTH-2;
     localparam SHIFTED_M_LSB = PABC_FIXED_PRODUCT_WIDTH-BF16_M-1;
 
-    function automatic e4m3_is_zero(fp4_scaler_e4m3_t x);
+    function automatic e4m3_is_zero(chief_scaler_e4m3_t x);
         e4m3_is_zero = x[6:0] == 'b0;
     endfunction
 
-    function automatic e4m3_is_nan(fp4_scaler_e4m3_t x);
+    function automatic e4m3_is_nan(chief_scaler_e4m3_t x);
         e4m3_is_nan = &x[6:0];
     endfunction
 
-    function automatic e4m3_is_subnormal(fp4_scaler_e4m3_t x); 
+    function automatic e4m3_is_subnormal(chief_scaler_e4m3_t x); 
         e4m3_is_subnormal = (x.exp == 'b0) && (!e4m3_is_zero(x));
     endfunction
 

@@ -44,6 +44,8 @@ module cve2_cf_mac_unit
     logic [31:0] weight_base;
     logic [31:0] weight_addr;
 
+    // Vector register 
+
     assign vs1         = req_instr_i[11:7];
     assign imm12       = req_instr_i[31:20];
     assign weight_base = req_rs1_i;

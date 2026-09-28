@@ -14,7 +14,7 @@
     into {sign, UINT8} representation directly using LUTs.
 **/
 module fp4_mul_int9
-import fp4_pkg::*; (
+import chief_pkg::*; (
     input fp4_e2m1_t fp4_a_i, 
     input fp4_e2m1_t fp4_b_i,
     output logic sign_o,

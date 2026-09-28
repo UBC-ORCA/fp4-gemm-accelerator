@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-package fp4_pkg;
+package chief_pkg;
 
 typedef enum int  { 
     FP4_SCALE_MXE8M0, 
@@ -39,6 +39,6 @@ typedef struct packed {
     logic [6:0] mant;
 } bf16_t;
     
-endpackage : fp4_pkg
+endpackage : chief_pkg
  
 

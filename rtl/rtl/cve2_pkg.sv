@@ -269,24 +269,25 @@ package cve2_pkg;
 
 
 // --- [stev] ---
-typedef enum logic [3:0] {
-  OP_NONE = 4'd15,
-
-  OP_ZZ   = 4'd0,
-  OP_MAX  = 4'd1,
-  OP_MAC  = 4'd2,
-  OP_ADD  = 4'd3,
-  OP_MVO  = 4'd4,
-  OP_MVE  = 4'd5,
-  OP_MV2  = 4'd6,
-  OP_LD2  = 4'd7,
-  OP_BRAM_FP4  = 4'd8, // [rbs]
-  OP_VMAC  = 4'd9,
-  OP_MAC_AS  = 4'd10,
-  OP_MAC_WS  = 4'd11,
-  OP_MAC_BIAS  = 4'd12,
-  OP_ACC_BANK  = 4'd13,
-  OP_BRAM_RD   = 4'd14
+typedef enum logic [4:0] {
+  OP_NONE,
+  OP_ZZ  ,
+  OP_MAX ,
+  OP_MAC ,
+  OP_ADD ,
+  OP_MVO ,
+  OP_MVE ,
+  OP_MV2 ,
+  OP_LD2 ,
+  OP_BRAM_FP4  ,// [rbs]
+  OP_VMAC      ,
+  OP_MAC_AS    ,
+  OP_MAC_WS    ,
+  OP_MAC_BIAS  ,
+  OP_ACC_BANK  ,
+  OP_BRAM_RD   , 
+  OP_VMACL     ,  // [kmh]
+  OP_VMACH        // [kmh]     
 } mac_op_e;
 
 // --- [end] ---

@@ -1274,6 +1274,10 @@ cve2_pkg::mac_op_e cf_op;
   //logic [2:0] cf_funct3;
   //logic [6:0] cf_funct7;
   //logic [4:0] cf_custom;
+  localparam logic [2:0] CF_FUNCT3_OPVMAC  = 3'd00;
+  localparam logic [2:0] CF_FUNCT3_OPVMACL = 3'd01;
+  localparam logic [2:0] CF_FUNCT3_OPVMACH = 3'd02;
+
   localparam logic [6:0] CF_OPC_OPV     = 7'b1011011; //custom-2
   localparam logic [6:0] CF_FUNCT7_ZZMAC64  = 7'h0;
   localparam logic [6:0] CF_FUNCT7_MAXMAC64  = 7'h01;
@@ -1304,8 +1308,21 @@ always_comb begin
     cf_op = cve2_pkg::OP_NONE;
 
 if (opcode == CF_OPC_C1) begin
-		cf_op = cve2_pkg::OP_VMAC;
-		cf_insn = 1'b1;
+
+    unique case (cf_funct3) 
+       CF_FUNCT3_OPVMAC: begin 
+          cf_op = cve2_pkg::OP_VMAC;
+       end
+
+       CF_FUNCT3_OPVMACH: begin 
+          cf_op = cve2_pkg::OP_VMACH;
+       end
+
+       CF_FUNCT3_OPVMACH: begin 
+          cf_op = cve2_pkg::OP_VMACH;
+       end
+      endcase
+    cf_insn = 1'b1;
 end
 
 else if (opcode == CF_OPC_OPV) begin
