@@ -38,7 +38,7 @@ module cve2_decoder #(
 
 // --- [stev] ---
 output logic       cf_insn_o,
-output logic [3:0] cf_op_o, //for cfu mac
+output cve2_pkg::mac_op_e cf_op_o, //for cfu mac
 // --- [end] ---
 
 
@@ -1318,8 +1318,8 @@ if (opcode == CF_OPC_C1) begin
           cf_op = cve2_pkg::OP_VMACH;
        end
 
-       CF_FUNCT3_OPVMACH: begin 
-          cf_op = cve2_pkg::OP_VMACH;
+       CF_FUNCT3_OPVMACL: begin 
+          cf_op = cve2_pkg::OP_VMACL;
        end
       endcase
     cf_insn = 1'b1;
