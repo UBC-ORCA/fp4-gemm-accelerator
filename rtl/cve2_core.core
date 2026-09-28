@@ -7,12 +7,35 @@ name: "openhwgroup:cve2:cve2_core:0.1"
 description: "CVE2 CPU Core Components"
 
 filesets:
+
+  files_chief_pkg: 
+    files: 
+      - rtl/chief/chief_pkg.sv
+    file_type: systemVerilogSource
+
+  files_mac_fp4: 
+    depend:
+      - openhwgroup:cve2:cve2_pkg
+    files:  
+      - rtl/chief/mac_cell_fp4/sat16_adder.sv
+      - rtl/chief/mac_cell_fp4/fp4_mul_int9.sv
+      - rtl/chief/mac_cell_fp4/mac_cell.sv
+    file_type: systemVerilogSource
+
+  files_mac_int4: 
+    depend:
+      - openhwgroup:cve2:cve2_pkg
+    files:  
+      - rtl/chief/mac_cell_int4/sat16_adder.sv
+      - rtl/chief/mac_cell_int4/int4_mul_int8.sv
+      - rtl/chief/mac_cell_int4/mac_cell.sv
+    file_type: systemVerilogSource
+
   files_chief:
     depend:
       - openhwgroup:cve2:cve2_pkg
     files:
       - rtl/chief/mac_accum_bram.sv
-      - rtl/chief/chief_pkg.sv
       - rtl/chief/fp4_e4m3_scale_mul.sv
       - rtl/chief/e4m3_scale.sv
       - rtl/chief/mac_scale_fsm.sv
@@ -20,11 +43,6 @@ filesets:
       - rtl/chief/bf16_accumulate.sv
       - rtl/chief/mac_scale_accum.sv
       - rtl/chief/parameterized_adder.sv
-      - rtl/chief/accumulator_reg.sv
-      - rtl/chief/sat16_adder.sv
-      - rtl/chief/int4_mul_int8.sv
-      - rtl/chief/fp4_mul_int9.sv
-      - rtl/chief/mac_cell.sv
       - rtl/chief/mac_controller.sv
       - rtl/chief/mac_array.sv
       - rtl/chief/bf16_to_fp4.sv
@@ -104,11 +122,26 @@ targets:
     filesets:
       - tool_verilator ? (files_lint_verilator)
       - tool_veriblelint ? (files_lint_verible)
+      - files_chief_pkg
       - files_chief
+      - files_mac_fp4  
       - files_rtl
     toplevel: cve2_core
     parameters:
       - tool_vivado ? (FPGA_XILINX=true)
+  
+  lint_int4: 
+    filesets:
+      - tool_verilator ? (files_lint_verilator)
+      - tool_veriblelint ? (files_lint_verible)
+      - files_chief_pkg
+      - files_chief
+      - files_mac_int4  
+      - files_rtl
+    toplevel: cve2_core
+    parameters:
+      - tool_vivado ? (FPGA_XILINX=true)
+
   lint:
     <<: *default_target
     parameters:
@@ -125,6 +158,8 @@ targets:
           - "--unroll-count 72"
   format:
     filesets:
+      - files_chief_pkg
+      - files_mac_fp4
       - files_chief
       - files_rtl
     parameters:

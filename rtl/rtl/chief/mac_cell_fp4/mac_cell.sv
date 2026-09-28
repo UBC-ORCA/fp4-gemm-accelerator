@@ -1,7 +1,9 @@
 `timescale 1ns/1ps
 
-module mac_cell
-import chief_pkg::*; (
+module mac_cell import chief_pkg::*;
+#(
+    parameter int ACC_WIDTH = 14
+) (
 
     input  logic clk,
 
@@ -39,7 +41,9 @@ import chief_pkg::*; (
     //-----------------------------------------
     // Saturating adder
     //-----------------------------------------
-    sat16_adder u_add (
+    sat16_adder #(
+        .ACC_WIDTH(ACC_WIDTH)
+    ) u_add (
 
         .accum_i(accum_o),
         .product_mag_i(fp4_mul_mag),

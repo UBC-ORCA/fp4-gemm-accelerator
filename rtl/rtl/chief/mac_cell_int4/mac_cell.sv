@@ -1,8 +1,9 @@
 `timescale 1ns/1ps
 
-module mac_cell
-import chief_pkg::*; (
-
+module mac_cell import chief_pkg::*;
+#(
+    parameter int ACC_WIDTH = 12
+) (
     input  logic clk,
 
     // control
@@ -17,14 +18,13 @@ import chief_pkg::*; (
     // Accumulator output
     //-----------------------------------------
 
-    output logic signed [15:0] accum_o
-
+    output logic signed [ACC_WIDTH-1:0] accum_o
 );
 
     //-----------------------------------------
     // Internal signals
     //-----------------------------------------
-    logic signed [15:0] accum_next;
+    logic signed [ACC_WIDTH-1:0] accum_next;
     //logic [7:0] fp4_mul_mag;
     //logic fp4_mul_sign;
 
@@ -49,7 +49,9 @@ import chief_pkg::*; (
     //-----------------------------------------
     // Saturating adder
     //-----------------------------------------
-    sat16_adder u_add (
+    sat16_adder 
+    #(  .ACC_WIDTH(.ACC_WIDTH) )
+    u_add (
         .accum_i(accum_o),
         .prod_i(product),
         .accum_next_o(accum_next)
