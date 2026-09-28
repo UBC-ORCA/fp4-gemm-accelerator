@@ -358,21 +358,31 @@ void load_vreg(int vreg, const uint32_t *ptr) {
 // =======================================
 // FP4 Quantization
 // =======================================
-static const uint8_t fp4_mag_lut[16] = {
-    0, 1, 2, 3, 4, 4, 5, 6, 6, 6, 6, 7, 7, 7, 7, 7
+// Value of each FP4 E2M1 magnitude code 0..7
+static const float fp4_grid[8] = {
+    0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f
 };
 
-// Convert input float to the nearest FP4 value
+// Convert input float to the nearest FP4 code, saturating at 6.0
 int16_t fp4_quantize(float value) {
-    int sign = (value < 0.0f);
-    float abs_v = sign ? -value : value;
+    int negative = (value < 0.0f);
+    float x = negative ? -value : value;
 
-    int idx = (int)(abs_v * 2.0f + 0.5f);
-    if (idx > 15) idx = 15;
-    uint8_t mag = fp4_mag_lut[idx];
+    // Walk up the grid until value falls below the midpoint to the next code
+    // If on a midpoint, round to nearest even takes the even code
+    uint8_t code = 7;   // past the last midpoint (5.0), saturate to 6.0
+    for (int c = 0; c < 7; c++) {
+        float midpoint = 0.5f * (fp4_grid[c] + fp4_grid[c+1]);
+        int below_midpoint = (x < midpoint);
+        int tie_to_even    = (x == midpoint) && (c % 2 == 0);
+        if (below_midpoint || tie_to_even) {
+            code = c;
+            break;
+        }
+    }
 
-    if (mag == 0) return 0;
-    return (int16_t)(sign ? (0x8 | mag) : mag);
+    if (code == 0) return 0;
+    return (int16_t)(negative ? (0x8 | code) : code);
 }
 
 // =======================================
@@ -381,9 +391,11 @@ int16_t fp4_quantize(float value) {
 // Precomputed table to convert pixel bytes to FP4
 static uint8_t pix_to_fp4[256];
 
+// Pixels are scaled by 2^rdout_shift[0] before quantizing, ascale1 undoes it
 static void build_pix_lut(void) {
+    float scale = (float)(1 << rdout_shift[0]);
     for (int v = 0; v < 256; v++) {
-        pix_to_fp4[v] = (uint8_t)(fp4_quantize((float)v / 255.0f) & 0xF);
+        pix_to_fp4[v] = (uint8_t)(fp4_quantize((float)v / 255.0f * scale) & 0xF);
     }
 }
 
