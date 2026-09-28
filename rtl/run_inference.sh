@@ -12,7 +12,8 @@
 set -euo pipefail
 
 # always run from this script's dir (rtl/) so the relative sim/hex/data paths
-# resolve and uart_out.txt lands here, matching the manual launch command
+# resolve and uart_<dataset>_inference_<version>.log lands here, matching the
+# manual launch command
 cd "$(dirname "$(readlink -f "$0")")"
 
 SIM=./build/openhwgroup_cve2_cve2_top_0.1/lint-verilator/Vcve2_top
@@ -49,7 +50,8 @@ Options:
   --print-every N   TB status interval in cycles   (default: 5000000)
   --quiet           minimal TB output (huge print-every, traces off)
   --max-cycles N    cycle cap                       (default: 5e14)
-  --no-uart         do not write uart_out.txt (still prints to stdout)
+  --no-uart         do not write uart_<dataset>_inference_<version>.log
+                    (still prints to stdout)
   --save [FILE]     tee stdout to FILE (default: <version>_<dataset>.log)
   -y, --yes         skip the dataset / N_SAMPLES confirmation prompt
   -h, --help        show this help
@@ -140,7 +142,7 @@ echo "[run] $SIM ${ARGS[*]}"
 
 if [[ $SAVE -eq 1 ]]; then
   [[ -n "$LOGFILE" ]] || LOGFILE="${VERSION}_${DATASET}.log"
-  echo "[run] tee -> $LOGFILE   (uart_out.txt also written by the TB)"
+  echo "[run] tee -> $LOGFILE   (uart_${DATASET}_inference_${VERSION}.log also written by the TB)"
   "$SIM" "${ARGS[@]}" 2>&1 | tee "$LOGFILE"
 else
   "$SIM" "${ARGS[@]}"

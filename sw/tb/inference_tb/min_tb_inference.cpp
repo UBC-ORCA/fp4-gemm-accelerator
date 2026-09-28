@@ -35,16 +35,28 @@ double sc_time_stamp() { return static_cast<double>(main_time); }
 // only when logging is enabled (default on; disable with --no-uart).
 static std::ofstream uart_log;
 
-// derive the UART log filename from the software directory in the hex path, so
-// each version writes its own file instead of clobbering a shared one, e.g.
-//   ".../sw/inference_fp4mac/inference.hex" -> "uart_out_inference_fp4mac.txt"
-static std::string uart_name_from_hex(const std::string& hex_path) {
-  size_t slash = hex_path.find_last_of('/');
-  if (slash == std::string::npos) return "uart_out.txt";   // no dir -> default
-  std::string dir   = hex_path.substr(0, slash);            // strip "/inference.hex"
-  size_t prev      = dir.find_last_of('/');
-  std::string leaf = (prev == std::string::npos) ? dir : dir.substr(prev + 1);
-  return leaf.empty() ? "uart_out.txt" : ("uart_out_" + leaf + ".txt");
+// name of the directory holding a file, "" if the path has no directory
+//   "../sw/headers/cifar10/test_400.bin" -> "cifar10"
+static std::string parent_dir_name(const std::string& path) {
+  size_t slash = path.find_last_of('/');
+  if (slash == std::string::npos) return "";
+  std::string dir = path.substr(0, slash);
+  size_t prev = dir.find_last_of('/');
+  return (prev == std::string::npos) ? dir : dir.substr(prev + 1);
+}
+
+// derive the UART log filename from the dataset dir in the data path and the
+// software dir in the hex path, so each dataset and version writes its own file
+// instead of clobbering a shared one, e.g.
+//   --data ../sw/headers/cifar10/test_400.bin + ../sw/inference_hardware/inference.hex
+//   -> "uart_cifar10_inference_hardware.log"
+static std::string uart_name(const std::string& hex_path, const std::string& data_path) {
+  std::string dataset = parent_dir_name(data_path);
+  std::string version = parent_dir_name(hex_path);
+  std::string name = "uart";
+  if (!dataset.empty()) name += "_" + dataset;
+  if (!version.empty()) name += "_" + version;
+  return name + ".log";
 }
 
 static constexpr uint32_t IMEM_BASE  = 0x00000000u;
@@ -170,7 +182,7 @@ int main(int argc, char** argv) {
   bool trace_d           = false;
   bool trace_wave        = false;
   bool uart_file         = true;   // tee UART to a file (disable: --no-uart)
-  std::string uart_path;           // explicit --uart-file NAME (else derived from hex dir)
+  std::string uart_path;           // explicit --uart-file NAME (else derived from data + hex dirs)
 
   for (int i = 2; i < argc; i++) {
     std::string a = argv[i];
@@ -187,9 +199,9 @@ int main(int argc, char** argv) {
   }
 
   // open the UART tee file only if enabled (otherwise it is never created).
-  // name defaults to the software dir in the hex path; --uart-file overrides.
+  // name defaults to the dataset and software dirs; --uart-file overrides.
   if (uart_file) {
-    if (uart_path.empty()) uart_path = uart_name_from_hex(hex_path);
+    if (uart_path.empty()) uart_path = uart_name(hex_path, data_path);
     uart_log.open(uart_path);
     std::cout << "[TB] UART -> " << uart_path << "\n";
   }
