@@ -45,16 +45,30 @@ static std::string parent_dir_name(const std::string& path) {
   return (prev == std::string::npos) ? dir : dir.substr(prev + 1);
 }
 
-// derive the UART log filename from the dataset dir in the data path and the
-// software dir in the hex path, so each dataset and version writes its own file
-// instead of clobbering a shared one, e.g.
+// dataset size from the data file name, "" if there is none
+//   "../sw/headers/cifar10/test_400.bin" -> "400"
+static std::string dataset_size(const std::string& path) {
+  size_t slash = path.find_last_of('/');
+  std::string stem = (slash == std::string::npos) ? path : path.substr(slash + 1);
+  if (stem.size() > 4 && stem.compare(stem.size() - 4, 4, ".bin") == 0)
+    stem.erase(stem.size() - 4);
+  if (stem.compare(0, 5, "test_") == 0)
+    stem.erase(0, 5);
+  return stem;
+}
+
+// derive the UART log filename from the dataset dir and size in the data path and
+// the software dir in the hex path, so each dataset, size and version writes its own
+// file instead of clobbering a shared one, e.g.
 //   --data ../sw/headers/cifar10/test_400.bin + ../sw/inference_hardware/inference.hex
-//   -> "uart_cifar10_inference_hardware.log"
+//   -> "uart_cifar10_400_inference_hardware.log"
 static std::string uart_name(const std::string& hex_path, const std::string& data_path) {
   std::string dataset = parent_dir_name(data_path);
+  std::string size    = dataset_size(data_path);
   std::string version = parent_dir_name(hex_path);
   std::string name = "uart";
   if (!dataset.empty()) name += "_" + dataset;
+  if (!size.empty())    name += "_" + size;
   if (!version.empty()) name += "_" + version;
   return name + ".log";
 }
