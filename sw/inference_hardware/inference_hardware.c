@@ -489,6 +489,49 @@ static int16_t acc[8][8];
     }
 }
 
+static inline float bf16_to_float(uint16_t x)
+{
+    uint32_t bits = ((uint32_t)x) << 16;
+    float f;
+    __builtin_memcpy(&f, &bits, sizeof(f));
+    return f;
+}
+
+static void print_bf16(uint16_t x)
+{
+    uint32_t sign = (x >> 15) & 1;
+    uint32_t exp  = (x >> 7) & 0xFF;
+    uint32_t frac = x & 0x7F;
+
+    print_str("sign=");
+    putdec(sign);
+
+    print_str(" exp=");
+    putdec(exp);
+
+    print_str(" frac=");
+    putdec(frac);
+}
+
+
+static void puthex(uint32_t n) {
+    static const char hex[] = "0123456789ABCDEF";
+
+    for (int i = 7; i >= 0; i--) {
+        uint32_t nibble = (n >> (i * 4)) & 0xF;
+        putchar_uart(hex[nibble]);
+    }
+}
+
+static void putbin16(uint16_t n) {
+    for (int i = 15; i >= 0; i--) {
+        putchar_uart((n >> i) & 1 ? '1' : '0');
+
+        // Optional separators: sign | exponent | fraction
+        if (i == 15 || i == 8)
+            putchar_uart('_');
+    }
+}
 
 #endif
 
@@ -608,7 +651,7 @@ static inline uint32_t bram_rd(uint32_t tile, uint32_t row, uint32_t col) {
 
 // One K-block reduction
 static inline __attribute__((always_inline))
-void do_k_tile(int vreg, const uint32_t *As, const uint32_t *Ws, const uint32_t *weights) {
+void do_k_tile(int vreg, const uint32_t *As, const uint32_t *Ws, const uint32_t *weights, uint32_t tile) {
     switch (vreg) {
         case  0: VMAC64(0,  weights +  0*BS); break; 
         case  1: VMAC64(1,  weights +  1*BS); break;
@@ -623,15 +666,130 @@ print_str("\n=== VMAC CASE 4 ===\n");
 	}
 
 // Show the first 8x8 outer product
+/*
     print_outer_product_8x8(
         ptr_chk,                 // activation source
         weights + 4*BS          // weight source
     ); //this print represents one vword
+*/
 
-	kill_simulation(); 
+print_str("\n=== ACTUAL BRAM DUMP [BEFORE] ===\n");
+
+for (int row = 0; row < 8; row += 2) {
+    for (int col = 0; col < 8; col++) {
+	uint32_t pair = bram_rd(tile, row, col);
+
+	uint16_t lo_bits = (uint16_t)(pair & 0xFFFF);
+	uint16_t hi_bits = (uint16_t)(pair >> 16);
+
+	float lo = bf16_to_float(lo_bits);
+	float hi = bf16_to_float(hi_bits);
+
+	print_str("raw=0x");
+	puthex(pair);
+
+	print_str(" lo_bits=0x");
+	puthex(lo_bits);
+
+	print_str(" hi_bits=0x");
+	puthex(hi_bits);
+
+	print_str("\n");
+
+print_str(" lo_bin=");
+putbin16(lo_bits);
+
+print_str(" hi_bin=");
+putbin16(hi_bits);
+
+print_str("\n");
+
+	print_str("lo: ");
+	print_bf16(lo_bits);
+	print_str("\n");
+
+	print_str("hi: ");
+	print_bf16(hi_bits);
+	print_str("\n");
+
+	print_str("BRAM [");
+	putdec(row);
+	print_str("][");
+	putdec(col);
+	print_str("] BF16=0x");
+	puthex(lo_bits);
+	print_str("\n");
+
+	print_str("BRAM [");
+	putdec(row + 1);
+	print_str("][");
+	putdec(col);
+	print_str("] BF16=0x");
+	puthex(hi_bits);
+	print_str("\n");    
+
+ }
+
+}
+
+	//kill_simulation(); 
 #endif 
 	break;
-        case  5: VMAC64(5,  weights +  5*BS); break;
+        case  5: VMAC64(5,  weights +  5*BS); 
+print_str("\n=== ACTUAL BRAM DUMP [AFTER] ===\n");
+
+for (int row = 0; row < 8; row += 2) {
+    for (int col = 0; col < 8; col++) {
+	uint32_t pair = bram_rd(tile, row, col);
+
+	uint16_t lo_bits = (uint16_t)(pair & 0xFFFF);
+	uint16_t hi_bits = (uint16_t)(pair >> 16);
+
+	float lo = bf16_to_float(lo_bits);
+	float hi = bf16_to_float(hi_bits);
+
+	print_str("raw=0x");
+	puthex(pair);
+
+	print_str(" lo_bits=0x");
+	puthex(lo_bits);
+
+	print_str(" hi_bits=0x");
+	puthex(hi_bits);
+
+	print_str("\n");
+
+print_str(" lo_bin=");
+putbin16(lo_bits);
+
+print_str(" hi_bin=");
+putbin16(hi_bits);
+
+print_str("\n");
+
+	print_str("BRAM [");
+	putdec(row);
+	print_str("][");
+	putdec(col);
+	print_str("] BF16=0x");
+	puthex(lo_bits);
+	print_str("\n");
+
+	print_str("BRAM [");
+	putdec(row + 1);
+	print_str("][");
+	putdec(col);
+	print_str("] BF16=0x");
+	puthex(hi_bits);
+	print_str("\n");    
+
+ }
+
+}
+
+	kill_simulation(); 
+
+	break;
         case  6: VMAC64(6,  weights +  6*BS); break;
         case  7: VMAC64(7,  weights +  7*BS); break;
         case  8: VMAC64(8,  weights +  8*BS); break;
@@ -884,7 +1042,7 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
                     TIME_BEG(_kt);
                     #pragma GCC unroll 32
                     for (int vreg = 0; vreg < blks; vreg++) {
-                        do_k_tile(vreg, &Ascales[vreg*2], &Wscales[vreg*2], weights);
+                        do_k_tile(vreg, &Ascales[vreg*2], &Wscales[vreg*2], weights, T);
                     }
                     TIME_END(pc_ktile[pc_layer], _kt);
 
