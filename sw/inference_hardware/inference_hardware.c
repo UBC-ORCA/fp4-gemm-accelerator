@@ -4,19 +4,12 @@
 #include "weights_blk32_pkgUINT32_scaleE8M0.h"
 #include "image.h"
 
-#if defined(DS_CIFAR10) || defined(DS_CIFAR100)
-  #define IN_REAL   3072            // 32*32*3 rgb
-  #define IN_DIM    3072
-  #define L1_DIM     256
-  #define L2_DIM      96
-  #define OUT_DIM     10
-#else
-  #define IN_REAL    784            // 28*28 greyscale
-  #define IN_DIM     800            // pad K to a BS multiple
-  #define L1_DIM     128
-  #define L2_DIM      96
-  #define OUT_DIM     10
-#endif
+// Network dimensions for the MLP layers
+#define IN_REAL   784             // real MNIST pixels
+#define IN_DIM    800             // pad K only up to a BS multiple: 25*32=800
+#define L1_DIM    128
+#define L2_DIM     96
+#define OUT_DIM    10
 
 #define BATCH       8             // Parallel batch size for MNIST samples
 #define TT          8             // Tile dimension for 8x8 MACs        
@@ -45,6 +38,23 @@ static const int rdout_shift[3] = RDOUT_SHIFT_HDR;
 
 // Enable intermediate UART prints (P|T|M results)
 // #define PTM_PRINTS
+
+//[stev]
+
+#define PROBE 1 //turn off if no dump
+
+static uint32_t ptr_chk[BS];
+
+// Define the simulator termination MMIO register
+static volatile uint32_t *const DONE_MMIO = (volatile uint32_t *)0xFFFF0000u;
+
+static inline void kill_simulation(void) {
+    *DONE_MMIO = 0xFF; // Signal simulator testbench to halt
+    while (1);         // Catch pipeline flush before termination
+}
+
+
+//[end]
 
 void __assert_func(const char *f,int l,const char *fn,const char *e){
     (void)f;(void)l;(void)fn;(void)e; __builtin_trap();
@@ -118,9 +128,31 @@ static void putdec64(uint64_t n) {
     while (i--) putchar_uart(buf[i]);
 }
 
+static void putbin32_fp4(uint32_t n) {
+    for (int i = 7; i >= 0; i--) {
+        uint32_t fp4 = (n >> (4 * i)) & 0xF;
+
+        for (int b = 3; b >= 0; b--) {
+            putchar_uart((fp4 >> b) & 1 ? '1' : '0');
+        }
+
+        if (i != 0)
+            putchar_uart('_');
+    }
+}
+
 static void pc_line(const char *name, uint64_t v) {
     print_str("  "); 
     print_str(name); 
+    print_str(" "); 
+    putdec64(v); 
+    print_str("\n");
+}
+static void pc_WA(const char *name, uint64_t index, uint64_t v) { //[stev] - for printing act and w
+    print_str("  "); 
+    print_str(name); 
+    print_str(" ");
+    putdec64(index); 
     print_str(" "); 
     putdec64(v); 
     print_str("\n");
@@ -156,6 +188,311 @@ static void pc_rate(const char *name, uint64_t count, uint64_t cycles) {
     }
     pc_fixed2(name, scaled, "");
 }
+
+//[stev]
+#ifdef PROBE
+static void putdec_signed(int32_t n) {
+    if (n < 0) {
+        putchar_uart('-');
+        // Convert to positive unsigned int to avoid undefined behavior on INT_MIN
+        putdec((uint32_t)(-n));
+    } else {
+        putdec((uint32_t)n);
+    }
+}
+
+/*
+static inline int8_t fp4_to_int4(uint32_t x, int i)
+{
+    uint8_t nibble = (x >> (4 * i)) & 0xF;
+
+    // Match the scalar reference:
+    // signed_value = (code ^ 8) - 8
+    //
+    // 0x0 -> -8
+    // 0x1 -> -7
+    // ...
+    // 0x7 -> -1
+    // 0x8 ->  0
+    // ...
+    // 0xF ->  7
+    return (int8_t)((nibble ^ 0x8) - 0x8);
+}
+*/
+
+static inline int8_t fp4_to_int4(uint32_t x, int i)
+{
+    uint8_t fp4 = (x >> (4 * i)) & 0xF;
+
+    uint8_t sign = (fp4 >> 3) & 0x1;
+    uint8_t mag  = fp4 & 0x7;
+
+    /*
+     * FP4 E2M1 magnitude encoding:
+     *
+     * mag = 0 -> 0.0 ->  0
+     * mag = 1 -> 0.5 ->  1
+     * mag = 2 -> 1.0 ->  2
+     * mag = 3 -> 1.5 ->  3
+     * mag = 4 -> 2.0 ->  4
+     * mag = 5 -> 3.0 ->  6
+     * mag = 6 -> 4.0 ->  8
+     * mag = 7 -> 6.0 -> 12
+     *
+     * The returned value is FP4_value * 2.
+     */
+    static const int8_t fp4_mag_lut[8] = {
+        0,   // 0.0 * 2
+        1,   // 0.5 * 2
+        2,   // 1.0 * 2
+        3,   // 1.5 * 2
+        4,   // 2.0 * 2
+        6,   // 3.0 * 2
+        8,   // 4.0 * 2
+        12   // 6.0 * 2
+    };
+
+    int8_t value = fp4_mag_lut[mag];
+
+    return sign ? -value : value;
+}
+
+/*
+static void print_outer_product_8x8(
+    const uint32_t *act,
+    const uint32_t *weight)
+{
+    int8_t a[8];
+    int8_t w[8];
+
+	print_str("A bits: ");
+	putbin32_fp4(act[1]);
+	putchar_uart('\n');
+
+	print_str("W bits: ");
+	putbin32_fp4(weight[1]);
+	putchar_uart('\n');
+
+    for (int i = 0; i < 8; i++) {
+        a[i] = fp4_to_int4(act[1], i);
+        w[i] = fp4_to_int4(weight[1], i);
+    	print_str("Here is the act: ");
+	putdec_signed(a[i]);
+    	print_str("\n");
+    	print_str("Here is the weight: ");
+	putdec_signed(w[i]);
+    	print_str("\n");
+    }
+
+    print_str("\nOUTER PRODUCT 8x8\n");
+
+    // Print W vector (Column headers)
+    print_str("        ");
+    for (int j = 0; j < 8; j++) {
+        putdec_signed(w[j]); // Changed to signed printer
+        print_str(" ");
+    }
+    print_str("\n");
+
+    // Print Outer Product Rows
+    for (int i = 0; i < 8; i++) {
+
+        print_str("A[");
+        putdec((uint32_t)i);
+        print_str("]=");
+        putdec_signed(a[i]); // Changed to signed printer
+        print_str(" : ");
+
+        for (int j = 0; j < 8; j++) {
+            int16_t p = (int16_t)a[i] * (int16_t)w[j];
+
+            putdec_signed(p); // Changed to signed printer
+            print_str(" ");
+        }
+
+        print_str("\n");
+    }
+}
+*/
+
+static void print_outer_product_8x8(
+    const uint32_t *act,
+    const uint32_t *weight)
+{
+
+static int16_t acc[8][8];
+
+    for (int i = 0; i < 8; i++) {
+        for (int j = 0; j < 8; j++) {
+            acc[i][j] = 0;
+        }
+    }
+
+    for (int t = 0; t < 32; t++) {
+
+        int8_t a[8];
+        int8_t w[8];
+
+        /*
+         * ============================================================
+         * TILE HEADER
+         * ============================================================
+         */
+        print_str("\n========================================\n");
+        print_str("TILE ");
+        putdec((uint32_t)t);
+        print_str("\n");
+        print_str("========================================\n");
+
+        /*
+         * Print raw FP4 words
+         */
+        print_str("A bits: ");
+        putbin32_fp4(act[t]);
+        putchar_uart('\n');
+
+        print_str("W bits: ");
+        putbin32_fp4(weight[t]);
+        putchar_uart('\n');
+
+        /*
+         * Decode activation and weight vectors
+         */
+        for (int i = 0; i < 8; i++) {
+            a[i] = fp4_to_int4(act[t], i);
+            w[i] = fp4_to_int4(weight[t], i);
+
+            print_str("Here is the act: ");
+            putdec_signed(a[i]);
+            print_str("\n");
+
+            print_str("Here is the weight: ");
+            putdec_signed(w[i]);
+            print_str("\n");
+        }
+
+        /*
+         * ============================================================
+         * OUTER PRODUCT
+         * ============================================================
+         */
+        print_str("\nOUTER PRODUCT 8x8\n");
+
+        /*
+         * Print W vector (Column headers)
+         */
+        print_str("        ");
+        for (int j = 0; j < 8; j++) {
+            putdec_signed(w[j]);
+            print_str(" ");
+        }
+        print_str("\n");
+
+        /*
+         * Print the 8x8 outer-product tile
+         */
+        for (int i = 0; i < 8; i++) {
+
+            print_str("A[");
+            putdec((uint32_t)i);
+            print_str("]=");
+            putdec_signed(a[i]);
+            print_str(" : ");
+
+            for (int j = 0; j < 8; j++) {
+
+                int16_t p = (int16_t)a[i] * (int16_t)w[j];
+
+                /*
+                 * Print this tile element
+                 */
+                putdec_signed(p);
+                print_str(" ");
+
+                /*
+                 * Update accumulated result
+                 */
+                acc[i][j] += p;
+            }
+
+            print_str("\n");
+        }
+
+        /*
+         * ============================================================
+         * UPDATED ACCUMULATION
+         * ============================================================
+         */
+        print_str("\nUPDATED ACCUMULATION AFTER TILE ");
+        putdec((uint32_t)t);
+        print_str("\n");
+
+        /*
+         * Column headers
+         */
+        print_str("        ");
+        for (int j = 0; j < 8; j++) {
+            putdec((uint32_t)j);
+            print_str(" ");
+        }
+        print_str("\n");
+
+        /*
+         * Print accumulated 8x8 matrix
+         */
+        for (int i = 0; i < 8; i++) {
+
+            print_str("A[");
+            putdec((uint32_t)i);
+            print_str("] : ");
+
+            for (int j = 0; j < 8; j++) {
+                putdec_signed(acc[i][j]);
+                print_str(" ");
+            }
+
+            print_str("\n");
+        }
+    }
+
+    /*
+     * ================================================================
+     * FINAL ACCUMULATION
+     * ================================================================
+     *
+     * This is identical to the accumulation after TILE 31.
+     * Kept here explicitly so it is easy to identify in the log.
+     */
+    print_str("\n\n========================================\n");
+    print_str("FINAL ACCUMULATED 8x8\n");
+    print_str("========================================\n");
+
+    print_str("        ");
+    for (int j = 0; j < 8; j++) {
+        putdec((uint32_t)j);
+        print_str(" ");
+    }
+    print_str("\n");
+
+    for (int i = 0; i < 8; i++) {
+
+        print_str("A[");
+        putdec((uint32_t)i);
+        print_str("] : ");
+
+        for (int j = 0; j < 8; j++) {
+            putdec_signed(acc[i][j]);
+            print_str(" ");
+        }
+
+        print_str("\n");
+    }
+}
+
+
+#endif
+
+//[end]
 
 static void pc_report(void) {
     print_str("\n[PERF] cycles over run\n");
@@ -234,7 +571,7 @@ static void pc_report(void) {
 // MAC accelerator instructions
 // =======================================
 // Encodings mirror matmul8_vec.S. CUSTOM1=0x2b, CUSTOM2=0x5b, funct3=0 unless noted
-//   VMAC64(N,ptr,off)  VMAC64   CUSTOM1   vN x weight block at ptr+off -> raw tile
+//   VMAC64(N,ptr)      VMAC64   CUSTOM1   vN x weight block at ptr -> raw tile
 //   MAC_AS(a,b)        MAC_AS   f7=0x0A   apply act scale words a,b to the tile
 //   MAC_WS(a,b)        MAC_WS   f7=0x0B   apply wgt scale words a,b -> fold into bank
 //   MAC_BIAS(p,v)      MACBIAS  f7=0x0C   seed bf16 v into the cell addressed by p
@@ -243,11 +580,7 @@ static void pc_report(void) {
 //   BRAM_RD_FP4(rd,p)  BRAMFP4  f7=0x08   read tile/col at p, 8 samples -> packed fp4
 //   VSETVLI(avl)       vsetvli  OPV=0x57  set vl=avl, e32,m1,ta,ma
 //   VLE32(N,ptr)       vle32.v  0x07      load vl words at ptr -> vN
-// static assert and macro used for VMAC64
-// off is unsigned in the unit, the assembler only takes -2048..2047
-_Static_assert(4 * (NVREG - 1) * BS <= 0xFFF, "block offset does not fit in imm12");
-#define UINT12_TO_INT12(u12) (((u12) & 0x7FF) - ((u12) & 0x800))
-#define VMAC64(N,ptr,off)   __asm__ volatile(".insn i 0x2b,0x0,x" #N ",%0,%c1" :: "r"(ptr), "i"(UINT12_TO_INT12(off)))
+#define VMAC64(N,ptr)       __asm__ volatile(".insn i 0x2b,0x0,x" #N ",%0,0" :: "r"(ptr))
 #define MAC_AS(a,b)         __asm__ volatile(".insn r 0x5b,0x0,0x0a, x0,%0,%1" :: "r"(a),"r"(b))
 #define MAC_WS(a,b)         __asm__ volatile(".insn r 0x5b,0x0,0x0b, x0,%0,%1" :: "r"(a),"r"(b))
 #define MAC_BIAS(p,v)       __asm__ volatile(".insn r 0x5b,0x0,0x0c, x0,%0,%1" :: "r"(p),"r"(v))
@@ -277,38 +610,54 @@ static inline uint32_t bram_rd(uint32_t tile, uint32_t row, uint32_t col) {
 static inline __attribute__((always_inline))
 void do_k_tile(int vreg, const uint32_t *As, const uint32_t *Ws, const uint32_t *weights) {
     switch (vreg) {
-        case  0: VMAC64(0, weights, 4 * 0 * BS); break;
-        case  1: VMAC64(1, weights, 4 * 1 * BS); break;
-        case  2: VMAC64(2, weights, 4 * 2 * BS); break;
-        case  3: VMAC64(3, weights, 4 * 3 * BS); break;
-        case  4: VMAC64(4, weights, 4 * 4 * BS); break;
-        case  5: VMAC64(5, weights, 4 * 5 * BS); break;
-        case  6: VMAC64(6, weights, 4 * 6 * BS); break;
-        case  7: VMAC64(7, weights, 4 * 7 * BS); break;
-        case  8: VMAC64(8, weights, 4 * 8 * BS); break;
-        case  9: VMAC64(9, weights, 4 * 9 * BS); break;
-        case 10: VMAC64(10, weights, 4 * 10 * BS); break;
-        case 11: VMAC64(11, weights, 4 * 11 * BS); break;
-        case 12: VMAC64(12, weights, 4 * 12 * BS); break;
-        case 13: VMAC64(13, weights, 4 * 13 * BS); break;
-        case 14: VMAC64(14, weights, 4 * 14 * BS); break;
-        case 15: VMAC64(15, weights, 4 * 15 * BS); break;
-        case 16: VMAC64(16, weights, 4 * 16 * BS); break;
-        case 17: VMAC64(17, weights, 4 * 17 * BS); break;
-        case 18: VMAC64(18, weights, 4 * 18 * BS); break;
-        case 19: VMAC64(19, weights, 4 * 19 * BS); break;
-        case 20: VMAC64(20, weights, 4 * 20 * BS); break;
-        case 21: VMAC64(21, weights, 4 * 21 * BS); break;
-        case 22: VMAC64(22, weights, 4 * 22 * BS); break;
-        case 23: VMAC64(23, weights, 4 * 23 * BS); break;
-        case 24: VMAC64(24, weights, 4 * 24 * BS); break;
-        case 25: VMAC64(25, weights, 4 * 25 * BS); break;
-        case 26: VMAC64(26, weights, 4 * 26 * BS); break;
-        case 27: VMAC64(27, weights, 4 * 27 * BS); break;
-        case 28: VMAC64(28, weights, 4 * 28 * BS); break;
-        case 29: VMAC64(29, weights, 4 * 29 * BS); break;
-        case 30: VMAC64(30, weights, 4 * 30 * BS); break;
-        case 31: VMAC64(31, weights, 4 * 31 * BS); break;
+        case  0: VMAC64(0,  weights +  0*BS); break; 
+        case  1: VMAC64(1,  weights +  1*BS); break;
+        case  2: VMAC64(2,  weights +  2*BS); break;
+        case  3: VMAC64(3,  weights +  3*BS); break;
+        case  4: 
+	VMAC64(4,  weights +  4*BS);
+#ifdef PROBE
+print_str("\n=== VMAC CASE 4 ===\n");
+	for (int i_w = 0; i_w < BS; i_w++){
+		pc_WA("W |", i_w, *(weights+4*BS+i_w));
+	}
+
+// Show the first 8x8 outer product
+    print_outer_product_8x8(
+        ptr_chk,                 // activation source
+        weights + 4*BS          // weight source
+    ); //this print represents one vword
+
+	kill_simulation(); 
+#endif 
+	break;
+        case  5: VMAC64(5,  weights +  5*BS); break;
+        case  6: VMAC64(6,  weights +  6*BS); break;
+        case  7: VMAC64(7,  weights +  7*BS); break;
+        case  8: VMAC64(8,  weights +  8*BS); break;
+        case  9: VMAC64(9,  weights +  9*BS); break;
+        case 10: VMAC64(10, weights + 10*BS); break;
+        case 11: VMAC64(11, weights + 11*BS); break;
+        case 12: VMAC64(12, weights + 12*BS); break;
+        case 13: VMAC64(13, weights + 13*BS); break;
+        case 14: VMAC64(14, weights + 14*BS); break;
+        case 15: VMAC64(15, weights + 15*BS); break;
+        case 16: VMAC64(16, weights + 16*BS); break;
+        case 17: VMAC64(17, weights + 17*BS); break;
+        case 18: VMAC64(18, weights + 18*BS); break;
+        case 19: VMAC64(19, weights + 19*BS); break;
+        case 20: VMAC64(20, weights + 20*BS); break;
+        case 21: VMAC64(21, weights + 21*BS); break;
+        case 22: VMAC64(22, weights + 22*BS); break;
+        case 23: VMAC64(23, weights + 23*BS); break;
+        case 24: VMAC64(24, weights + 24*BS); break;
+        case 25: VMAC64(25, weights + 25*BS); break;
+        case 26: VMAC64(26, weights + 26*BS); break;
+        case 27: VMAC64(27, weights + 27*BS); break;
+        case 28: VMAC64(28, weights + 28*BS); break;
+        case 29: VMAC64(29, weights + 29*BS); break;
+        case 30: VMAC64(30, weights + 30*BS); break;
+        case 31: VMAC64(31, weights + 31*BS); break;
         default: break;
     }
     MAC_AS(As[0], As[1]);   // apply activation scales
@@ -323,7 +672,15 @@ void load_vreg(int vreg, const uint32_t *ptr) {
         case  1: VLE32(1,  ptr); break;
         case  2: VLE32(2,  ptr); break;
         case  3: VLE32(3,  ptr); break;
-        case  4: VLE32(4,  ptr); break;
+        case  4: 
+	VLE32(4,  ptr); 
+#ifdef PROBE
+	for (int i_a = 0; i_a < BS; i_a++){
+		pc_WA("A |", i_a, ptr[i_a]);
+		ptr_chk[i_a] = ptr[i_a];
+	}
+#endif
+	break;
         case  5: VLE32(5,  ptr); break;
         case  6: VLE32(6,  ptr); break;
         case  7: VLE32(7,  ptr); break;
@@ -358,31 +715,21 @@ void load_vreg(int vreg, const uint32_t *ptr) {
 // =======================================
 // FP4 Quantization
 // =======================================
-// Value of each FP4 E2M1 magnitude code 0..7
-static const float fp4_grid[8] = {
-    0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f
+static const uint8_t fp4_mag_lut[16] = {
+    0, 1, 2, 3, 4, 4, 5, 6, 6, 6, 6, 7, 7, 7, 7, 7
 };
 
-// Convert input float to the nearest FP4 code, saturating at 6.0
+// Convert input float to the nearest FP4 value
 int16_t fp4_quantize(float value) {
-    int negative = (value < 0.0f);
-    float x = negative ? -value : value;
+    int sign = (value < 0.0f);
+    float abs_v = sign ? -value : value;
 
-    // Walk up the grid until value falls below the midpoint to the next code
-    // If on a midpoint, round to nearest even takes the even code
-    uint8_t code = 7;   // past the last midpoint (5.0), saturate to 6.0
-    for (int c = 0; c < 7; c++) {
-        float midpoint = 0.5f * (fp4_grid[c] + fp4_grid[c+1]);
-        int below_midpoint = (x < midpoint);
-        int tie_to_even    = (x == midpoint) && (c % 2 == 0);
-        if (below_midpoint || tie_to_even) {
-            code = c;
-            break;
-        }
-    }
+    int idx = (int)(abs_v * 2.0f + 0.5f);
+    if (idx > 15) idx = 15;
+    uint8_t mag = fp4_mag_lut[idx];
 
-    if (code == 0) return 0;
-    return (int16_t)(negative ? (0x8 | code) : code);
+    if (mag == 0) return 0;
+    return (int16_t)(sign ? (0x8 | mag) : mag);
 }
 
 // =======================================
@@ -391,11 +738,9 @@ int16_t fp4_quantize(float value) {
 // Precomputed table to convert pixel bytes to FP4
 static uint8_t pix_to_fp4[256];
 
-// Pixels are scaled by 2^rdout_shift[0] before quantizing, ascale1 undoes it
 static void build_pix_lut(void) {
-    float scale = (float)(1 << rdout_shift[0]);
     for (int v = 0; v < 256; v++) {
-        pix_to_fp4[v] = (uint8_t)(fp4_quantize((float)v / 255.0f * scale) & 0xF);
+        pix_to_fp4[v] = (uint8_t)(fp4_quantize((float)v / 255.0f) & 0xF);
     }
 }
 
@@ -571,10 +916,9 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
 }
 
 int main(void) {
-    // the readout lut is built for one shift, so the header has to agree
-    assert(rdout_shift[1] == RDOUT_SHIFT && rdout_shift[2] == RDOUT_SHIFT);
+    assert(rdout_shift[1] == 3 && rdout_shift[2] == 3);
     // Store one word per pixel for all batch lanes
-    static uint32_t image_packed[IN_DIM];
+    static uint32_t image_packed[NVREG*BS];
     // Raw pixels for the whole batch
     static uint32_t stage_buf[BATCH][IN_REAL/4];
     int predictions[BATCH];
@@ -638,6 +982,13 @@ int main(void) {
             }
         });
 
+/*
+#ifdef PROBE
+            for (int p = 0; p < IN_DIM; p++) { //quick print for packed img
+		pc_WA("IMG |", p, image_packed[p]);
+            }
+#endif
+*/
         inference_batch(image_packed, predictions);
 
         for (int j = 0; j < n; j++) {
