@@ -30,7 +30,6 @@ module mac_scale_fsm #(
 
     typedef enum logic [1:0] {
         IDLE,
-        INIT_RD,    // Prime the memory pipeline with the first read
         STREAM,     // Continuous pipeline: read N+4, compute/write N
         DRAIN       // Flush remaining pipeline writes
     } state_e;
@@ -48,7 +47,6 @@ module mac_scale_fsm #(
 
     // Drain cycle countdown tracking
     logic [2:0] drain_cnt_q;
-    logic       rd_init_q;
 
     // Read counter increment helper flag
     logic       rd_last;
@@ -64,7 +62,6 @@ module mac_scale_fsm #(
             rd_row_grp_q     <= '0;
             wr_valid_pipe_q  <= '0;
             drain_cnt_q      <= '0;
-            rd_init_q        <= 1'b0;
             for (int i = 0; i < 4; i++) begin
                 wr_col_pipe_q[i] <= '0;
                 wr_row_pipe_q[i] <= '0;
@@ -77,7 +74,7 @@ module mac_scale_fsm #(
             // Pipeline Stage 0: Sample current read info on active read cycle
             wr_col_pipe_q[0]  <= rd_col_q;
             wr_row_pipe_q[0]  <= rd_row_grp_q;
-            wr_valid_pipe_q[0]<= (state_q == INIT_RD || state_q == STREAM);
+            wr_valid_pipe_q[0]<= (state_q == STREAM);
 
             // Pipeline Stages 1-3: Shift down every clock cycle
             for (int i = 1; i < 4; i++) begin
@@ -93,13 +90,6 @@ module mac_scale_fsm #(
                 drain_cnt_q <= drain_cnt_q - 1'b1;
             end
 
-            // Prime status tracking
-            if (state_q == INIT_RD) begin
-                rd_init_q <= 1'b1;
-            // Fix: Reverted safely back to exact clean syntax
-            end else if (state_q == IDLE || state_q == DRAIN) begin
-                rd_init_q <= 1'b0;
-            end
         end
     end
 
@@ -116,13 +106,10 @@ module mac_scale_fsm #(
                 rd_col_d     = '0;
                 rd_row_grp_d = '0;
                 if (context_ready_i) begin
-                    state_d = INIT_RD;
+                    state_d = STREAM;
                 end
             end
 
-            INIT_RD: begin
-                state_d  = STREAM;
-            end
 
             STREAM: begin
                 if (rd_last) begin
@@ -152,7 +139,7 @@ module mac_scale_fsm #(
     //--------------------------------------------------------------------------
     assign context_accept_o = (state_q == IDLE) && context_ready_i;
     assign scale_busy_o     = (state_q != IDLE);
-    assign scale_rd_en_o    = (state_q == INIT_RD) || (state_q == STREAM);
+    assign scale_rd_en_o    = (state_q == STREAM);
     
     // Drive write assignments directly from the terminal pipeline stage (T+4)
     assign scale_write_o        = wr_valid_pipe_q[3];
