@@ -424,8 +424,8 @@ module cve2_cf_mac_unit
     always_comb begin
         fp4_pack_d = fp4_pack_q;
         if (ctrl_fp4_capture) begin
-            fp4_pack_d[{1'b0, ctrl_fp4_idx, 2'b00} +: 4] = fp4_lo;   // nibble k
-            fp4_pack_d[{1'b1, ctrl_fp4_idx, 2'b00} +: 4] = fp4_hi;   // nibble k+4
+            fp4_pack_d[{ctrl_fp4_idx, 1'b0, 2'b00} +: 4] = fp4_lo;   // nibble 2k
+            fp4_pack_d[{ctrl_fp4_idx, 1'b1, 2'b00} +: 4] = fp4_hi;   // nibble 2k+1
         end
     end
 

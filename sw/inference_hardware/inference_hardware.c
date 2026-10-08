@@ -424,15 +424,15 @@ static void argmax(int *predictions, int WH) {
         int neuron0 = tile * TT;
         int cols = (WH - neuron0 < TT) ? (WH - neuron0) : TT;   // real neurons in this bank
         for (int row = 0; row < TT/2; row++) {
-            uint16_t best1 = best[row];
-            uint16_t best2 = best[row+TT/2];
-            int      pred1 = predictions[row];
-            int      pred2 = predictions[row+TT/2];
+            uint16_t best1 = best[2*row];
+            uint16_t best2 = best[2*row+1];
+            int      pred1 = predictions[2*row];
+            int      pred2 = predictions[2*row+1];
             for (int col = 0; col < cols; col++) {
                 int neuron = neuron0 + col;                              // column picks the neuron
                 uint32_t pair = bram_rd(tile, 2 * row, col);
-                uint16_t lo = bf16_ordered((uint16_t)(pair & 0xFFFF));   // sample = row
-                uint16_t hi = bf16_ordered((uint16_t)(pair >> 16)   );   // sample = row + TT/2
+                uint16_t lo = bf16_ordered((uint16_t)(pair & 0xFFFF));   // sample = 2*row
+                uint16_t hi = bf16_ordered((uint16_t)(pair >> 16)   );   // sample = 2*row + 1
                 if (lo > best1) {
                     best1 = lo;
                     pred1 = neuron;
@@ -442,10 +442,10 @@ static void argmax(int *predictions, int WH) {
                     pred2 = neuron;
                 }
             }
-            best[row]      = best1;
-            best[row+TT/2] = best2;
-            predictions[row]      = pred1;
-            predictions[row+TT/2] = pred2;
+            best[2*row]      = best1;
+            best[2*row+1]    = best2;
+            predictions[2*row]      = pred1;
+            predictions[2*row+1]    = pred2;
         }
     }
 }
