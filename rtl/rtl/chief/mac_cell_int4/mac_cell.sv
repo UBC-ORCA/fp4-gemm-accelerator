@@ -50,7 +50,7 @@ module mac_cell import chief_pkg::*;
     // Saturating adder
     //-----------------------------------------
     sat16_adder 
-    #(  .ACC_WIDTH(.ACC_WIDTH) )
+    #(  .ACC_WIDTH(ACC_WIDTH) )
     u_add (
         .accum_i(accum_o),
         .prod_i(product),

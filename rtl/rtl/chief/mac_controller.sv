@@ -3,7 +3,8 @@
 
 module mac_controller #(
     parameter int VL = 32, 
-    parameter int TT = 8
+    parameter int TT = 8, 
+    parameter int NBANKS = 4
 ) (
     input  logic                        clk_i,
     input  logic                        rst_ni,
@@ -54,7 +55,7 @@ module mac_controller #(
     // FP4 read-out
     output logic                        fp4_sel_o,
     output logic                        fp4_capture_o,
-    output logic [1:0]                  fp4_idx_o,
+    output logic                        fp4_idx_o,
     // [rbs - end]
 
     // Optimized Vector Slices
@@ -89,6 +90,8 @@ module mac_controller #(
     output logic [2:0]                  accum_wr_col_o,
     output logic [15:0]                 accum_wr_data_o
 );
+
+    localparam BRAM_RD_FP4_CYCS = TT/NBANKS;
 
     logic [31:0] act_scale_lo_q;
     logic [31:0] act_scale_hi_q;
@@ -242,7 +245,7 @@ module mac_controller #(
             case(cf_req_op_i)
                 cve2_pkg::OP_VMACH: begin 
                     vrf_base_elem_d = VL/2;
-                    vrf_last_elem_d = VL/2-1;   
+                    vrf_last_elem_d = VL-1;   
                 end
 
                 cve2_pkg::OP_VMACL: begin 
@@ -305,7 +308,7 @@ module mac_controller #(
                             brd_phase_d = 1'b1;
                         end else begin
                             brd_phase_d = 1'b0;
-                            if (count_q == 3) begin
+                            if (count_q == BRAM_RD_FP4_CYCS) begin
                                 count_d = '0;
                                 state_d = DONE;
                             end else begin
@@ -434,12 +437,14 @@ module mac_controller #(
                             // phase 0: issue the read for this row pair
                             accum_rd_en_o   = 1'b1;
                             accum_rd_tile_o = bias_tile;               // rs1[10:6]
-                            accum_rd_row_o  = {count_q[1:0], 1'b0};    // rows 0,2,4,6
+                            
+                            // FIXME: Parametrize towards using the bank dimensions
+                            accum_rd_row_o  = {count_q[0], 2'b0};    // rows 0,2,4,6
                             accum_rd_col_o  = bias_col;                // rs1[2:0]
                         end else begin
                             // phase 1: data is valid, convert and pack
                             fp4_capture_o = 1'b1;
-                            if (count_q == 3) scalar_we_o = 1'b1;
+                            if (count_q == BRAM_RD_FP4_CYCS) scalar_we_o = 1'b1;
                         end
                     end
                     // [rbs - end]
@@ -452,7 +457,8 @@ module mac_controller #(
                     mac_vrf_relem_o = elem_idx;
                     if (!mem_req_sent_q) begin
                         data_req_o  = 1'b1;
-                        data_addr_o = base_q + (count_q << 2); 
+                        // ptr already points at this half, so offset relative to the base element
+                        data_addr_o = base_q + ((count_q - vrf_base_elem_q) << 2);
                     end
                 end
             end
@@ -474,7 +480,7 @@ module mac_controller #(
     endgenerate
 
     // [rbs]
-    assign fp4_idx_o = count_q[1:0];
+    assign fp4_idx_o = count_q[0];
     assign fp4_sel_o = (op_q == cve2_pkg::OP_BRAM_FP4);
     // [rbs - end]
 

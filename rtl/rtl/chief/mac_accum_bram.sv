@@ -6,6 +6,7 @@
 // to support zero-stall read-modify-write accumulation loops.
 
 `timescale 1ns/1ps
+// `define BRAM_DEBUG
 
 module mac_accum_bram #(
     parameter int unsigned NTILES = 32,

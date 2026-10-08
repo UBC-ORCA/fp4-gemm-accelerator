@@ -74,7 +74,7 @@ import chief_pkg::*; (
     localparam logic [14:0] BF16_NAN = 15'h7fc0;
     localparam int E4M3_M = 3;
     localparam int E4M3_E = 4;
-    localparam int Q14_2_FRAC = 0;
+    localparam int Q14_2_FRAC = 2;
     //localparam int Q14_2_FRAC = 2;
     localparam int Q14_2_WIDTH = 16;
 

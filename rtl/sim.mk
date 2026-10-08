@@ -31,8 +31,8 @@ VC_PATCHED := openhwgroup_cve2_cve2_top_0.1_patched.vc
 VIVADO_DIR := build/openhwgroup_cve2_cve2_top_0.1/syn-vivado
 
 # What software kernel to build
-# opts: hardware | novec | baseline | int4
-INFERENCE_KERNEL ?= hardware 
+# opts: hardware | novec | baseline | int4 | nvfp4
+INFERENCE_VERSION ?= nvfp4
 
 RTL := rtl
 

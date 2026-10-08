@@ -9,8 +9,8 @@
 # Two-stage pipeline without additional branch target ALU and 3 cycle multiplier
 # (4 cycles for mulh), resulting in 2 stall cycles for mul (3 for mulh)
 small:
-  MHPMCounterNum           : 10
-  MHPMCounterWidth         : 40
+  MHPMCounterNum           : 0
+  MHPMCounterWidth         : 0
   RV32E                    : 0
   RV32M                    : "cve2_pkg::RV32MSingleCycle"
 

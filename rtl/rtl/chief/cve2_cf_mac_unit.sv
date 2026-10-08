@@ -195,7 +195,7 @@ module cve2_cf_mac_unit
     // [rbs]
     logic        ctrl_fp4_sel;
     logic        ctrl_fp4_capture;
-    logic [1:0]  ctrl_fp4_idx;
+    logic  ctrl_fp4_idx;
     // [rbs - end]
 
     // Scale accumulators input for the scale units
@@ -246,16 +246,17 @@ module cve2_cf_mac_unit
             // Check bank[1] to determine the bank selection 
             // for the address.
             if (bram_wr_row[1]) begin 
-                bram_wr_data = {16'b0, 16'b0, 
-                                ctrl_accum_wr_data,
-                                ctrl_accum_wr_data};
-                bram_bank_sel = 4'b0011;
-            end else begin 
                 bram_bank_sel = 4'b1100;
                 bram_wr_data = {ctrl_accum_wr_data, 
                                 ctrl_accum_wr_data, 
                                 16'b0, 
                                 16'b0};
+            end else begin 
+                bram_bank_sel = 4'b0011;
+                bram_wr_data = {16'b0, 16'b0, 
+                                ctrl_accum_wr_data,
+                                ctrl_accum_wr_data};
+                
             end 
         end
     end
@@ -383,15 +384,6 @@ module cve2_cf_mac_unit
         .bank_sel             (bram_bank_sel)
     );
 
-
-    // Use the T+1 context coordinate: the snapshot is combinational but the
-    // accumulator comes back from BRAM a cycle late, and mac_scale_accum latches
-    // both into the same stage-1 register, so they must be presented together.
-    always_comb begin
-        scale_tile_value[0] = ctx_tile_snapshot[{scale_ctx_row_group,1'b0}][scale_ctx_col];
-        scale_tile_value[1] = ctx_tile_snapshot[{scale_ctx_row_group,1'b0}+1][scale_ctx_col];
-    end
-
     logic [7:0] scaleA [0:N_SCALE_UNITS-1];
     logic [7:0] scaleW [0:N_SCALE_UNITS-1];
     logic [N_SCALE_UNITS-1:0] scale_rd_end_tok;
@@ -418,10 +410,18 @@ module cve2_cf_mac_unit
                 .end_tok_o         (scale_wr_end_tok[i])
             );
 
+
+            // Use the T+1 context coordinate: the snapshot is combinational but the
+            // accumulator comes back from BRAM a cycle late, and mac_scale_accum latches
+            // both into the same stage-1 register, so they must be presented together.
+
             // Address mapping from context address to scale unit inputs
             assign scaleA[i] = ctx_act_scale[scale_ctx_row_group*N_SCALE_UNITS + i];
             assign scaleW[i] = ctx_weight_scale[scale_ctx_col];
-            assign scale_accum_in[i] = bram_rd_data[i];
+            assign scale_accum_in[i] = bram_rd_data[i]; 
+            assign scale_tile_value[i] = ctx_tile_snapshot[scale_ctx_row_group*N_SCALE_UNITS + i]
+                                                          [scale_ctx_col];
+
         end : gen_scale_unit
     endgenerate 
 
@@ -452,9 +452,8 @@ module cve2_cf_mac_unit
     );
 
     // [rbs]
-    logic [3:0]     fp4_lo, fp4_hi;
-    logic [31:0]    fp4_pack_q, fp4_pack_d;
-    
+    logic [7:0][3:0] fp4_pack_q, fp4_pack_d;
+    logic [N_SCALE_UNITS-1:0][3:0]     fp4_quantized           ;    
     // Signals for BRAM word selection
     // FIXME: PARAMETERIZE ROW BITFIELDS
     logic [1:0]     bram_rd_bank_q;
@@ -462,8 +461,14 @@ module cve2_cf_mac_unit
     logic [15:0]    bf16_hi, bf16_lo;
     logic [31:0]    bram_rd_scalar_word;
 
-    bf16_to_fp4 u_fp4_lo (.bf16_i(bf16_lo),  .fp4_o(fp4_lo));
-    bf16_to_fp4 u_fp4_hi (.bf16_i(bf16_hi), .fp4_o(fp4_hi));
+
+    /* Quantize BRAM bf16 values */
+    generate
+        for (genvar b = 0; b < N_SCALE_UNITS; ++b) begin : gen_bf16_quantizer
+            bf16_to_fp4 u_bf16_quant_fp4 (.bf16_i(bram_rd_data[b]), 
+                                          .fp4_o(fp4_quantized[b]));
+        end
+    endgenerate
 
     always_comb begin
         fp4_pack_d = fp4_pack_q;
@@ -476,11 +481,9 @@ module cve2_cf_mac_unit
         bram_rd_scalar_word = {bram_rd_data[{bram_rd_bank_q[1], 1'b1}],
                               bram_rd_data[{bram_rd_bank_q[1], 1'b0}]};
 
-        {bf16_hi, bf16_lo} = bram_rd_scalar_word;
-
         if (ctrl_fp4_capture) begin
-            fp4_pack_d[{1'b0, ctrl_fp4_idx, 2'b00} +: 4] = fp4_lo;   // nibble k
-            fp4_pack_d[{1'b1, ctrl_fp4_idx, 2'b00} +: 4] = fp4_hi;   // nibble k+4
+            fp4_pack_d[(N_SCALE_UNITS * ctrl_fp4_idx) +: N_SCALE_UNITS] 
+                = fp4_quantized;
         end
     end
 
@@ -498,15 +501,15 @@ module cve2_cf_mac_unit
     // [rbs - end]
 
 
-`ifdef BRAM_DEBUG
-    // FIX: Clear display trace that avoids mixed unaligned signals
-    always_ff @(posedge clk_i) begin
-        if (rst_ni && scale_busy && scale_write && scale_tile_q == 5'd0) begin
-            $display("[CF_SCALE] Transaction Committed | Active Write Col = %0d", scale_wr_col);
-            $display("           Lower Vector -> Tile val: 0x%4h | scaleW: 0x%2h | Base BRAM Acc In: 0x%4h -> Pipe Out: 0x%4h",
-                     scale_tile_value[0], scaleW[0], scale_accum_in[0], scale_accum_out[0]);
-        end
-    end
-`endif
+// `ifdef BRAM_DEBUG
+//     // FIX: Clear display trace that avoids mixed unaligned signals
+//     always_ff @(posedge clk_i) begin
+//         if (rst_ni && scale_busy && scale_write && scale_tile_q == 5'd0) begin
+//             $display("[CF_SCALE] Transaction Committed | Active Write Col = %0d", scale_wr_col);
+//             $display("           Lower Vector -> Tile val: 0x%4h | scaleW: 0x%2h | Base BRAM Acc In: 0x%4h -> Pipe Out: 0x%4h",
+//                      scale_tile_value[0], scaleW[0], scale_accum_in[0], scale_accum_out[0]);
+//         end
+//     end
+// `endif
 
 endmodule

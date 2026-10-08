@@ -22,6 +22,8 @@ declare -A VDIR=(
   [baseline]=inference_baseline
   [novec]=inference_novec
   [hardware]=inference_hardware
+  [int4]=inference_int4
+  [nvfp4]=inference_nvfp4
 )
 
 usage() {
@@ -30,7 +32,7 @@ run_inference.sh - launch a CVE2 FP4 MNIST inference build under Verilator
 
   ./run_inference.sh <version> [dataset] [size] [options]
 
-  version : baseline | novec | hardware | int4    (required)
+  version : baseline | novec | hardware | int4 | nvfp4   (required)
   dataset : mnist | fashion                (default: mnist)
   size    : 8 | 80 | 400 | 1k | 2k | 10k   (default: 80 | UPDATE IN C)
 
@@ -72,7 +74,7 @@ TRACE_WAVE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    baseline|novec|hardware) VERSION="$1" ;;
+    baseline|novec|hardware|int4|nvfp4) VERSION="$1" ;;
     mnist|fashion)     DATASET="$1" ;;
     8|test_8|test8)          SIZE=8 ;;
     80|test_80|test80)          SIZE=80 ;;

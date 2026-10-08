@@ -7,9 +7,9 @@
 source [file join [file dirname [info script]] util.tcl]
 
 set FPGA_PART xczu7ev-ffvc1156-2-e
-set TOP_LEVEL cve2_top
+set TOP_LEVEL cve2_core
 set SYN_REPORT_DIR output/rpts/syn
-set MAX_THREADS 12
+set MAX_THREADS 8
 
 set timestamp [clock format [clock seconds] -format {%Y%m%d_%H%M}]
 set  REPORT_DIR "$SYN_REPORT_DIR/$timestamp"
@@ -23,8 +23,8 @@ file mkdir $CKPTS_DIR
 
 
 puts "Running Vivado synthesis for CVE2"
-synth_design -top $TOP_LEVEL -part $FPGA_PART -flatten_hierarchy rebuilt \
-    -max_dsp 0  
+synth_design -top $TOP_LEVEL -part $FPGA_PART -flatten_hierarchy none \
+    -max_dsp -1 
 
 # Report utilization for top level
 puts "Writing top level utilization report to $REPORT_DIR/cve2_top_util.rpt"
