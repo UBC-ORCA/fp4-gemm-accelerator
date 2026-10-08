@@ -116,7 +116,8 @@ import fp4_pkg::*;
             lost_bits = min_mant << (EXT_MANT_WIDTH - exp_diff);
             min_mant_shifted = min_mant >> exp_diff;
         end
-        min_mant_shifted[0] = |lost_bits; // Sticky bit retention
+        //min_mant_shifted[0] = |lost_bits; // Sticky bit retention
+	min_mant_shifted[0] = min_mant_shifted[0] | (|lost_bits); // Sticky bit retention
 
         // ---------------------------------------------------------------------
         // 2. EFFECTIVE OPERATION & ADDITION/SUBTRACTION
