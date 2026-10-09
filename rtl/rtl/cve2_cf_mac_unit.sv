@@ -76,10 +76,6 @@ module cve2_cf_mac_unit
     logic        act_scale_ready, weight_scale_ready;
     logic        snapshot_valid;
 
-    // help with inst reordering
-    logic [31:0] act_scale_lo_safe, act_scale_hi_safe;
-    logic [31:0] weight_scale_lo_safe, weight_scale_hi_safe;
-
     logic signed [15:0] tile_snapshot [0:TT-1][0:TT-1];
 
     logic                snapshot_valid_q;
@@ -318,7 +314,6 @@ module cve2_cf_mac_unit
         .accum_rd_tile_o      (ctrl_accum_rd_tile),
         .accum_rd_row_o       (ctrl_accum_rd_row),
         .accum_rd_col_o       (ctrl_accum_rd_col),
-        .accum_rd_data_i      (bram_rd_data[15:0]), 
         .accum_wr_en_o        (ctrl_accum_wr_en),
         .accum_wr_tile_o      (ctrl_accum_wr_tile),
         .accum_wr_row_o       (ctrl_accum_wr_row),
