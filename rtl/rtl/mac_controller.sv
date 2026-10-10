@@ -149,6 +149,11 @@ output logic mac_vrf_en_o,
     logic [4:0] scalar_waddr_q;
     logic        brd_phase_q, brd_phase_d;   // BRAM read: 0=issue read, 1=capture+writeback
 
+    logic fp4_capture_d;
+    logic fp4_capture_q;
+    logic [1:0] rd_row_d;
+    logic [1:0] rd_row_q;
+
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
             brd_phase_q        <= 1'b0;
@@ -167,6 +172,8 @@ output logic mac_vrf_en_o,
             act_scale_pulse    <= 1'b1;
             weight_scale_pulse <= 1'b0;
             vmac_last_q        <= 1'b0;
+            fp4_capture_q <= '0;
+            rd_row_q <= '0;
         end else begin
             state_q            <= state_d;
             count_q            <= count_d;
@@ -175,6 +182,9 @@ output logic mac_vrf_en_o,
             snapshot_valid_q   <= 1'b0;
             act_scale_pulse    <= 1'b0;
             weight_scale_pulse <= 1'b0;
+
+            fp4_capture_q <= fp4_capture_d;
+            rd_row_q <= rd_row_d;
 
             if (req_valid_i && req_ready_o) begin
                 op_q           <= cf_req_op_i;
@@ -241,17 +251,17 @@ output logic mac_vrf_en_o,
                 // [rbs]
                 else if (op_q == cve2_pkg::OP_BRAM_FP4) begin
                     // four row pairs
-                    if (!brd_phase_q) begin
-                        brd_phase_d = 1'b1;
-                    end else begin
-                        brd_phase_d = 1'b0;
+                    //if (!brd_phase_q) begin
+                      //  brd_phase_d = 1'b1;
+                    //end else begin
+                      //  brd_phase_d = 1'b0;
                         if (count_q == 3) begin
                             count_d = '0;
                             state_d = DONE;
                         end else begin
                             count_d = count_q + 1'b1;
                         end
-                    end
+                    //end
                 end
                 // [rbs - end]
                 else if ((op_q == cve2_pkg::OP_MAC_AS) ||
@@ -291,7 +301,10 @@ output logic mac_vrf_en_o,
         done_o         = 1'b0;
         scalar_we_o    = 1'b0;
         scalar_waddr_o = scalar_waddr_q;
-        fp4_capture_o  = 1'b0;   // [rbs]
+        //fp4_capture_o  = 1'b0;   // [rbs]
+ 	fp4_capture_d = 1'b0;   // [rbs]
+	rd_row_d = '0;
+
 
         // Clean output decode logic
         mac_en_o = (((state_q == EXEC) || (state_q == DONE)) && (op_q == cve2_pkg::OP_VMAC) && data_rvalid_i); 
@@ -361,17 +374,19 @@ output logic mac_vrf_en_o,
                     end
                     // [rbs]
                     cve2_pkg::OP_BRAM_FP4: begin
-                        if (!brd_phase_q) begin
+                        //if (!brd_phase_q) begin
                             // phase 0: issue the read for this row pair
                             accum_rd_en_o   = 1'b1;
                             accum_rd_tile_o = bias_tile;               // rs1[10:6]
                             accum_rd_row_o  = {count_q[1:0], 1'b0};    // rows 0,2,4,6
+                            rd_row_d  = count_q[1:0];    // rows 0,2,4,6
                             accum_rd_col_o  = bias_col;                // rs1[2:0]
-                        end else begin
+                        //end else begin
                             // phase 1: data is valid, convert and pack
-                            fp4_capture_o = 1'b1;
-                            if (count_q == 3) scalar_we_o = 1'b1;
-                        end
+                           // fp4_capture_o = 1'b1;
+                            fp4_capture_d = 1'b1;
+                           // if (count_q == 3) scalar_we_o = 1'b1;
+                        //end
                     end
                     // [rbs - end]
                     default: ;
@@ -388,6 +403,8 @@ output logic mac_vrf_en_o,
 
             DONE: begin
                 done_o = 1'b1;
+                if (op_q == cve2_pkg::OP_BRAM_FP4) scalar_we_o = 1'b1;
+
             end
 
             default: ;
@@ -403,8 +420,12 @@ output logic mac_vrf_en_o,
     endgenerate
 
     // [rbs]
-    assign fp4_idx_o = count_q[1:0];
+    //assign fp4_idx_o = count_q[1:0];
+    assign fp4_idx_o = rd_row_q;
     assign fp4_sel_o = (op_q == cve2_pkg::OP_BRAM_FP4);
+    assign fp4_capture_o       = fp4_capture_q;
+    //assign accum_rd_row_o  = rd_row_q[1]; 
+
     // [rbs - end]
 
     // Simulation debugging hooks
