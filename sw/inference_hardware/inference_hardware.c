@@ -24,6 +24,9 @@
 #define NTILES     32             // Number of tiles that fit in BRAM
 #define AV          8             // Activation matrix vertical size
 
+// Layer 1 input scales per image (one per block)
+#define NUM_SCALES (IN_DIM / SCALE_BLK_HDR)
+
 // MAC array is TT x TT cells
 #define MAC_UNITS       (TT * TT)
 // Useful MACs per image
@@ -356,50 +359,6 @@ void load_vreg(int vreg, const uint32_t *ptr) {
 }
 
 // =======================================
-// FP4 Quantization
-// =======================================
-// Value of each FP4 E2M1 magnitude code 0..7
-static const float fp4_grid[8] = {
-    0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f
-};
-
-// Convert input float to the nearest FP4 code, saturating at 6.0
-int16_t fp4_quantize(float value) {
-    int negative = (value < 0.0f);
-    float x = negative ? -value : value;
-
-    // Walk up the grid until value falls below the midpoint to the next code
-    // If on a midpoint, round to nearest even takes the even code
-    uint8_t code = 7;   // past the last midpoint (5.0), saturate to 6.0
-    for (int c = 0; c < 7; c++) {
-        float midpoint = 0.5f * (fp4_grid[c] + fp4_grid[c+1]);
-        int below_midpoint = (x < midpoint);
-        int tie_to_even    = (x == midpoint) && (c % 2 == 0);
-        if (below_midpoint || tie_to_even) {
-            code = c;
-            break;
-        }
-    }
-
-    if (code == 0) return 0;
-    return (int16_t)(negative ? (0x8 | code) : code);
-}
-
-// =======================================
-// LUT for input pixel quantization
-// =======================================
-// Precomputed table to convert pixel bytes to FP4
-static uint8_t pix_to_fp4[256];
-
-// Pixels are scaled by 2^rdout_shift[0] before quantizing, ascale1 undoes it
-static void build_pix_lut(void) {
-    float scale = (float)(1 << rdout_shift[0]);
-    for (int v = 0; v < 256; v++) {
-        pix_to_fp4[v] = (uint8_t)(fp4_quantize((float)v / 255.0f * scale) & 0xF);
-    }
-}
-
-// =======================================
 // Reading the accumulator banks back out
 // =======================================
 
@@ -553,12 +512,12 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
 }
 
 // Run the forward pass on a batch of samples
-void inference_batch(const uint32_t* inputs, int* predictions) {
+void inference_batch(const uint32_t* inputs, const uint32_t* ascale_in, int* predictions) {
     // Hidden layers read out to FP4 activations; the final layer argmaxes straight from the banks
     static uint32_t z1_packed[L1_DIM], z2_packed[L2_DIM];
 
     PC_LAYER(0);
-    TIME(pc_gemm[0], gemm(inputs, w1_fp4, bias1_packed, IN_DIM, L1_DIM, wscale1, ascale1));
+    TIME(pc_gemm[0], gemm(inputs, w1_fp4, bias1_packed, IN_DIM, L1_DIM, wscale1, ascale_in));
     TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM));   // feeds layer 2
 
     PC_LAYER(1);
@@ -573,13 +532,18 @@ void inference_batch(const uint32_t* inputs, int* predictions) {
 int main(void) {
     // the readout lut is built for one shift, so the header has to agree
     assert(rdout_shift[1] == RDOUT_SHIFT && rdout_shift[2] == RDOUT_SHIFT);
+    // Only continue if the number of scales in the TB and here match
+    assert(*IMG_NUM_SCALES == NUM_SCALES);
     // Store one word per pixel for all batch lanes
     static uint32_t image_packed[IN_DIM];
-    // Raw pixels for the whole batch
-    static uint32_t stage_buf[BATCH][IN_REAL/4];
-    int predictions[BATCH];
+    // FP4 codes for the whole batch, 8 codes per word
+    static uint32_t stage_buf[BATCH][IN_REAL/8];
+    // Layer 1 input scales for the whole batch, one byte per scale block
+    static uint8_t scale_buf[BATCH][NUM_SCALES];
+    // Layer 1 input scales
+    static uint32_t ascale1_batch[2 * NUM_SCALES];
 
-    build_pix_lut();
+    int predictions[BATCH];
 
     // Print prediction, truth, and reference format
     #ifdef PTM_PRINTS
@@ -604,32 +568,42 @@ int main(void) {
             for (int j = 0; j < n; j++) {
                 image_load(s + j);
                 const volatile uint32_t *stage32 = (const volatile uint32_t *)IMG_STAGE;
-                for (int w = 0; w < IN_REAL/4; w++) {   // 196 words = 784 real pixels
+                for (int w = 0; w < IN_REAL/8; w++) {   // 98 words = 784 pixel codes
                     stage_buf[j][w] = stage32[w];
                 }
                 truth[j] = *IMG_LABEL;
                 ref[j]   = *IMG_PRED;
+
+                for (int b = 0; b < NUM_SCALES; b++) {
+                    scale_buf[j][b] = IMG_SCALES[b];
+                }
             }
 
-            // Sample inner, so each word is built in a register and stored once
-            for (int w = 0; w < IN_REAL/4; w++) {
-                uint32_t a0 = 0;
-                uint32_t a1 = 0;
-                uint32_t a2 = 0;
-                uint32_t a3 = 0;
+            // One pair of words per scale block, one byte per image
+            for (int b = 0; b < NUM_SCALES; b++) {
+                uint32_t scale_lo = 0;   // images 0..3
+                uint32_t scale_hi = 0;   // images 4..7
                 for (int j = 0; j < n; j++) {
-                    uint32_t four = stage_buf[j][w];
-                    int sh = 4 * j;
-                    a0 |= (uint32_t)pix_to_fp4[(four      ) & 0xFF] << sh;
-                    a1 |= (uint32_t)pix_to_fp4[(four >>  8) & 0xFF] << sh;
-                    a2 |= (uint32_t)pix_to_fp4[(four >> 16) & 0xFF] << sh;
-                    a3 |= (uint32_t)pix_to_fp4[(four >> 24) & 0xFF] << sh;
+                    uint32_t scale = scale_buf[j][b];
+                    if (j < 4)
+                        scale_lo |= scale << (8 * j);
+                    else
+                        scale_hi |= scale << (8 * (j - 4));
                 }
-                int p = w * 4;
-                image_packed[p+0] = a0;
-                image_packed[p+1] = a1;
-                image_packed[p+2] = a2;
-                image_packed[p+3] = a3;
+                ascale1_batch[2 * b]     = scale_lo;
+                ascale1_batch[2 * b + 1] = scale_hi;
+            }
+
+            // One staged word holds 8 codes, code k in bits 4k..4k+3
+            for (int w = 0; w < IN_REAL/8; w++) {
+                for (int k = 0; k < 8; k++) {
+                    uint32_t a = 0;
+                    for (int j = 0; j < n; j++) {
+                        uint32_t code = (stage_buf[j][w] >> (4 * k)) & 0xF;
+                        a |= code << (4 * j);
+                    }
+                    image_packed[w * 8 + k] = a;
+                }
             }
 
             // K pad tail (784..799) carries no pixels and must read as zero
@@ -638,7 +612,7 @@ int main(void) {
             }
         });
 
-        inference_batch(image_packed, predictions);
+        inference_batch(image_packed, ascale1_batch, predictions);
 
         for (int j = 0; j < n; j++) {
             if (predictions[j] == truth[j]) correct++;

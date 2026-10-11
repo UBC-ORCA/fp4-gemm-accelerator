@@ -11,6 +11,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -22,9 +23,9 @@
 #define UART_MMIO_ADDR 0x10000000u
 #endif
 
-// pixels per image, set by the build from DATASET: 784 mnist, 3072 cifar
+// pixels per image, set by the build from DATASET: 392 mnist, 1536 cifar
 #ifndef IMG_PIXELS
-#define IMG_PIXELS 784
+#define IMG_PIXELS 392 // 784/2 = 392 since two codes are packed per byte
 #endif
 
 static vluint64_t main_time = 0;
@@ -83,11 +84,15 @@ static constexpr uint32_t DMEM_BYTES = 512 * 1024;
 static constexpr uint32_t IMG_LOAD_ADDR  = 0xFFFF0010u;
 static constexpr uint32_t IMG_LABEL_ADDR = 0xFFFF0014u;
 static constexpr uint32_t IMG_PRED_ADDR  = 0xFFFF0018u;
-static constexpr uint32_t IMG_STAGE_ADDR = 0x80070000u;   // in DMEM
+static constexpr uint32_t IMG_NUM_SCALES_ADDR = 0xFFFF001Cu;
+static constexpr uint32_t IMG_STAGE_ADDR       = 0x80070000u; // in DMEM
+static constexpr uint32_t IMG_SCALE_STAGE_ADDR = 0x80071000u; // in DMEM, past the image codes
+
 
 // host-side dataset, loaded once from a raw .bin (not compiled into the ELF)
-static std::vector<uint8_t> host_images, host_labels, host_preds;
+static std::vector<uint8_t> host_images, host_labels, host_preds, host_scales;
 static uint32_t img_label = 0, img_pred = 0;   // latched for the selected sample
+static uint32_t scales_per_image = 0;          // one per block of (block size) inputs
 
 
 static std::vector<uint8_t> imem(IMEM_BYTES, 0);
@@ -158,7 +163,8 @@ static size_t load_hex(const std::string& path) {
   return written;
 }
 
-// file layout: [u32 n] then n*784 image bytes, then n labels, then n preds
+// file layout: [u32 n] then n*IMG_PIXELS image bytes (two FP4 codes per byte),
+// then n labels, then n preds, then the layer 1 scales, one per block per image
 static uint32_t load_dataset(const std::string& path) {
   std::ifstream f(path, std::ios::binary);
   if (!f) return 0;
@@ -170,6 +176,9 @@ static uint32_t load_dataset(const std::string& path) {
   f.read(reinterpret_cast<char*>(host_images.data()), host_images.size());
   f.read(reinterpret_cast<char*>(host_labels.data()), n);
   f.read(reinterpret_cast<char*>(host_preds.data()),  n);
+  // the scales are whatever is left in the file: read from here to the end
+  host_scales.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+  scales_per_image = n ? (uint32_t)(host_scales.size() / n) : 0;
   return n;
 }
 
@@ -343,6 +352,7 @@ int main(int argc, char** argv) {
       if (!d_resp_is_write) {
         if      (d_resp_addr == IMG_LABEL_ADDR) rdata = img_label;
         else if (d_resp_addr == IMG_PRED_ADDR)  rdata = img_pred;
+        else if (d_resp_addr == IMG_NUM_SCALES_ADDR) rdata = scales_per_image;
         else if (imem_translate(d_resp_addr, off)) rdata = load_le_u32(imem, off);
         else if (dmem_translate(d_resp_addr, off)) {
           rdata = load_le_u32(dmem, off);
@@ -400,7 +410,8 @@ int main(int argc, char** argv) {
                   || d_resp_addr == DONE_MMIO_ADDR
                   || d_resp_addr == IMG_LOAD_ADDR
                   || d_resp_addr == IMG_LABEL_ADDR
-                  || d_resp_addr == IMG_PRED_ADDR;
+                  || d_resp_addr == IMG_PRED_ADDR
+                  || d_resp_addr == IMG_NUM_SCALES_ADDR;
         bool known = mmio
                   || ((imem_translate(d_resp_addr, tmp)
                        || dmem_translate(d_resp_addr, tmp))
@@ -478,6 +489,13 @@ int main(int argc, char** argv) {
                         &host_images[(size_t)idx * IMG_PIXELS], IMG_PIXELS);
             img_label = host_labels[idx];
             img_pred  = host_preds[idx];
+
+            // stage this sample's layer 1 scales, one byte per block
+            uint32_t scale_off = 0;
+            if (dmem_translate(IMG_SCALE_STAGE_ADDR, scale_off)) {
+              std::memcpy(&dmem[scale_off],
+                          &host_scales[(size_t)idx * scales_per_image], scales_per_image);
+            }
             static int dbg_load = 0;
             if (dbg_load < 3) {
               std::printf("[DBG LOAD] idx=%u off=0x%x staged=[%u %u %u] "

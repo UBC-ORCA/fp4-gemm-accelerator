@@ -44,10 +44,10 @@ RTL := rtl
 # (mnist/fashion +-0.5 -> 3, cifar +-1.0 -> 2). override RDOUT_SHIFT to force it
 DATASET ?= mnist
 ifneq ($(filter $(DATASET),cifar10 cifar100),)
-IMG_PIXELS  := 3072
+IMG_PIXELS  := 1536
 RDOUT_SHIFT ?= 2
 else
-IMG_PIXELS  := 784
+IMG_PIXELS  := 392
 RDOUT_SHIFT ?= 3
 endif
 
