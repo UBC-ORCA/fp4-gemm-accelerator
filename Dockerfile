@@ -19,13 +19,12 @@ ENV RISCV_PREFIX=riscv-none-elf
 
 # 1. System packages: build tools, python, and Verilator build deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl git make build-essential \
-      python3 python3-pip python3-dev \
-      autoconf flex bison libfl-dev help2man perl ccache \
-      zlib1g-dev libelf-dev vim nano locales libtinfo5 libtinfo6 && \
-      locale-gen en_US.UTF-8 && \
-      rm -rf /var/lib/apt/lists/*
-
+    ca-certificates curl git make build-essential \
+    python3 python3-pip python3-dev \
+    autoconf flex bison libfl-dev help2man perl ccache \
+    zlib1g-dev libelf-dev vim nano locales libtinfo5 libtinfo6 liblz4-dev && \
+    locale-gen en_US.UTF-8 && \
+    rm -rf /var/lib/apt/lists/*
 
 # 2. RISC-V bare-metal toolchain (xPack riscv-none-elf, with rv32im multilib)
 ARG RISCV_XPACK_VER=14.2.0-3
@@ -47,9 +46,9 @@ RUN printf 'int main(void){return 0;}\n' > /tmp/t.c && \
     rm -f /tmp/t.c /tmp/t.elf
 
 
-# 3. Verilator 5.048
+# 3. Verilator 5.052
 RUN git clone https://github.com/verilator/verilator.git /tmp/verilator && \
-    cd /tmp/verilator && git checkout v5.048 && \
+    cd /tmp/verilator && git checkout v5.052 && \
     autoconf && ./configure && make -j"$(nproc)" && make install && \
     cd / && rm -rf /tmp/verilator && \
     verilator --version
@@ -63,7 +62,7 @@ RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel && \
 
 # 5. Project sources: rtl/ and sw/
 WORKDIR /work
-# COPY rtl/ /work/rtl/
-# COPY sw/  /work/sw/
+COPY rtl/ /work/rtl/
+COPY sw/  /work/sw/
 
 CMD ["/bin/bash"]
