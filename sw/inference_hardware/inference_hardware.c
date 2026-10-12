@@ -94,7 +94,6 @@ static uint64_t pc_imgq;
 static uint64_t pc_gemm[3];
 static uint64_t pc_qact[2];    // hidden read-out as packed FP4 (readout_fp4)
 static uint64_t pc_argmax;     // final read-out + argmax
-static uint64_t pc_bias[3];
 static uint64_t pc_load[3];    // activation vector loads, inside gemm
 static uint64_t pc_ktile[3];   // do_k_tile loop only, inside gemm
 static uint64_t pc_total;      // whole sample loop, one span, loop control included
@@ -164,7 +163,7 @@ static void pc_report(void) {
     print_str("\n[PERF] cycles over run\n");
     pc_line("imgq   |", pc_imgq);       // image load and quant
 
-    pc_line("gemm_1 |", pc_gemm[0]);    // gemm compute per layer (incl. bias seed)
+    pc_line("gemm_1 |", pc_gemm[0]);    // gemm compute per layer
     pc_line("gemm_2 |", pc_gemm[1]);
     pc_line("gemm_3 |", pc_gemm[2]);
 
@@ -172,10 +171,6 @@ static void pc_report(void) {
     pc_line("qact_2 |", pc_qact[1]);
 
     pc_line("argmax |", pc_argmax);     // final read-out from banks + argmax
-
-    pc_line("bias_1 |", pc_bias[0]);    // bias tile seed (subset of gemm)
-    pc_line("bias_2 |", pc_bias[1]);
-    pc_line("bias_3 |", pc_bias[2]);
 
     pc_line("load_1 |", pc_load[0]);    // activation vector loads (subset of gemm)
     pc_line("load_2 |", pc_load[1]);
@@ -189,7 +184,6 @@ static void pc_report(void) {
     uint64_t gemm_t = pc_gemm[0]  + pc_gemm[1]  + pc_gemm[2];
     uint64_t gemm_k = pc_ktile[0] + pc_ktile[1] + pc_ktile[2];
     uint64_t load_t = pc_load[0]  + pc_load[1]  + pc_load[2];
-    uint64_t bias_t = pc_bias[0]  + pc_bias[1]  + pc_bias[2];
     uint64_t qact_t = pc_qact[0]  + pc_qact[1];
     // end to end inference, imgq left out since real inputs arrive as FP4
     uint64_t infer_t = gemm_t + qact_t + pc_argmax;
@@ -199,9 +193,8 @@ static void pc_report(void) {
     pc_line("gemm_T |", gemm_t);
     // the MAC datapath on its own
     pc_line("gemm_K |", gemm_k);
-    // activation loads and bias seed, both inside gemm
+    // activation loads inside gemm
     pc_line("load_T |", load_t);
-    pc_line("bias_T |", bias_t);
     // total read-out as packed FP4
     pc_line("qact_T |", qact_t);
     // end to end inference, the runtime every ratio below is taken over
@@ -236,39 +229,30 @@ static void pc_report(void) {
 // =======================================
 // MAC accelerator instructions
 // =======================================
-// Encodings mirror matmul8_vec.S. CUSTOM1=0x2b, CUSTOM2=0x5b, funct3=0 unless noted
-//   VMAC64(N,ptr,off)  VMAC64   CUSTOM1   vN x weight block at ptr+off -> raw tile
-//   MAC_AS(a,b)        MAC_AS   f7=0x0A   apply act scale words a,b to the tile
-//   MAC_WS(a,b)        MAC_WS   f7=0x0B   apply wgt scale words a,b -> fold into bank
-//   MAC_BIAS(p,v)      MACBIAS  f7=0x0C   seed bf16 v into the cell addressed by p
-//   ACC_BANK(t)        ACCBANK  f7=0x0D   select accumulator bank t
-//   BRAM_RD(rd,p)      BRAMRD   f7=0x0E   read the bram pair at p into register rd
-//   BRAM_RD_FP4(rd,p)  BRAMFP4  f7=0x08   read tile/col at p, 8 samples -> packed fp4
-//   VSETVLI(avl)       vsetvli  OPV=0x57  set vl=avl, e32,m1,ta,ma
-//   VLE32(N,ptr)       vle32.v  0x07      load vl words at ptr -> vN
+// Encoded as CUSTOM1=0x2b, CUSTOM2=0x5b, funct3=0 unless noted
+//   VMAC64(N,ptr,off)          VMAC64   CUSTOM1   vN x weight block at ptr+off -> raw tile
+//   MAC_AS(a,b)                MAC_AS   f7=0x0A   apply act scale words a,b to the tile
+//   MAC_WS(a,b)                MAC_WS   f7=0x0B   apply wgt scale words a,b -> fold into bank
+//   ACC_BANK(t)                ACCBANK  f7=0x0D   select accumulator bank t
+//   BRAM_RD(rd,p)              BRAMRD   f7=0x0E   read the bram pair at p into register rd
+//   BRAM_RD_FP4(rd,p,bias)     BRAMFP4  f7=0x08   read tile/col at p, 8 samples -> packed fp4 and seed with bf16 bias
+//   VSETVLI(avl)               vsetvli  OPV=0x57  set vl=avl, e32,m1,ta,ma
+//   VLE32(N,ptr)               vle32.v  0x07      load vl words at ptr -> vN
 // static assert and macro used for VMAC64
 // off is unsigned in the unit, the assembler only takes -2048..2047
 _Static_assert(4 * (NVREG - 1) * BS <= 0xFFF, "block offset does not fit in imm12");
 #define UINT12_TO_INT12(u12) (((u12) & 0x7FF) - ((u12) & 0x800))
-#define VMAC64(N,ptr,off)   __asm__ volatile(".insn i 0x2b,0x0,x" #N ",%0,%c1" :: "r"(ptr), "i"(UINT12_TO_INT12(off)))
-#define MAC_AS(a,b)         __asm__ volatile(".insn r 0x5b,0x0,0x0a, x0,%0,%1" :: "r"(a),"r"(b))
-#define MAC_WS(a,b)         __asm__ volatile(".insn r 0x5b,0x0,0x0b, x0,%0,%1" :: "r"(a),"r"(b))
-#define MAC_BIAS(p,v)       __asm__ volatile(".insn r 0x5b,0x0,0x0c, x0,%0,%1" :: "r"(p),"r"(v))
-#define ACC_BANK(t)         __asm__ volatile(".insn r 0x5b,0x0,0x0d, x0,%0,x0" :: "r"(t))
-#define BRAM_RD(rd,p)       __asm__ volatile(".insn r 0x5b,0x0,0x0e, %0,%1,x0" : "=r"(rd) : "r"(p))
-//#define BRAM_RD_FP4(rd,p)   __asm__ volatile(".insn r 0x5b,0x0,0x08, %0,%1,x0" : "=r"(rd) : "r"(p))
-#define BRAM_RD_FP4(rd,p,bias) __asm__ volatile(".insn r 0x5b,0x0,0x08, %0,%1,%2" : "=r"(rd) : "r"(p), "r"(bias))
-#define VSETVLI(avl)        __asm__ volatile(".insn i 0x57,0x7,x0,%0,0xD0" :: "r"(avl))
-#define VLE32(N,ptr)        __asm__ volatile(".insn i 0x07,0x6,x" #N ",%0,0x20" :: "r"(ptr))
+#define VMAC64(N,ptr,off)       __asm__ volatile(".insn i 0x2b,0x0,x" #N ",%0,%c1" :: "r"(ptr), "i"(UINT12_TO_INT12(off)))
+#define MAC_AS(a,b)             __asm__ volatile(".insn r 0x5b,0x0,0x0a, x0,%0,%1" :: "r"(a),"r"(b))
+#define MAC_WS(a,b)             __asm__ volatile(".insn r 0x5b,0x0,0x0b, x0,%0,%1" :: "r"(a),"r"(b))
+#define ACC_BANK(t)             __asm__ volatile(".insn r 0x5b,0x0,0x0d, x0,%0,x0" :: "r"(t))
+#define BRAM_RD(rd,p)           __asm__ volatile(".insn r 0x5b,0x0,0x0e, %0,%1,x0" : "=r"(rd) : "r"(p))
+#define BRAM_RD_FP4(rd,p,bias)  __asm__ volatile(".insn r 0x5b,0x0,0x08, %0,%1,%2" : "=r"(rd) : "r"(p), "r"(bias))
+#define VSETVLI(avl)            __asm__ volatile(".insn i 0x57,0x7,x0,%0,0xD0" :: "r"(avl))
+#define VLE32(N,ptr)            __asm__ volatile(".insn i 0x07,0x6,x" #N ",%0,0x20" :: "r"(ptr))
 
 // Address payload for a bram cell: {tile[10:6], row[5:3], col[2:0]}
 #define BRAM_ADDR(tile, row, col)  (((uint32_t)(tile) << 6) | ((uint32_t)(row) << 3) | (col))
-
-// Seed one accumulator cell (tile,row,col) with a bf16 bias value
-// the value is passed raw, the unit only uses rs2[15:0] so the upper half is ignored
-static inline void mac_bias(uint8_t tile, uint8_t row, uint8_t column, uint32_t bf16_raw) {
-    MAC_BIAS(BRAM_ADDR(tile, row, column), bf16_raw);
-}
 
 // Read the accumulator bram pair {row+1,row} at (tile,row,col) into a register
 static inline uint32_t bram_rd(uint32_t tile, uint32_t row, uint32_t col) {
@@ -412,50 +396,30 @@ static void argmax(int *predictions, int WH) {
 
 
 // Read banks back out as FP4 activations
-static void readout_fp4(uint32_t *z, int WH, const uint32_t* bias_packed) {
-    int tiles = (WH + TT - 1) / TT;
+static void readout_fp4(uint32_t *z, int WH, int WH_next, const uint32_t* bias_packed) {
+    assert(WH_next <= WH);              // readout only sees current layer size, breaks if next layer is larger
+    int tiles = (WH + TT - 1) / TT;             // no. of tiles used in readout
+    int bias_tiles = (WH_next + TT - 1) / TT;   // no. of tiles used in bias seeding
     for (int tile = 0; tile < tiles; tile++) {
-
-        int idx = tile;     // assuming that J is 0
-        int cols = WH - idx*TT;                // real neurons in this tile
+        int idx = tile;             // assuming that J is 0
+        int cols = WH - idx*TT;     // real neurons in this tile
         if (cols > TT) cols = TT;
             
-	int neuron0 = tile * TT;                   // first neuron of this bank
-        #pragma GCC unroll 4 // BATCH/2
- 	for (int c = 0; c < (cols + 1)/2; c++) {   // column-pairs holding a neuron (0,1,2,3)
+        int neuron0 = tile * TT;    // first neuron of this bank
+        #pragma GCC unroll 4
+        for (int c = 0; c < (cols + 1)/2; c++) {   // column-pairs holding a neuron (0,1,2,3)
             // load it once (r=0) and seed every row with the same value
-            uint32_t word = bias_packed[idx*32 + c*8];
+            uint32_t word = 0;
+            if (tile < bias_tiles) 
+                word = bias_packed[idx*32 + c*8];
             uint32_t lo = word;            // even col 2c
             uint32_t hi = word >> 16;      // odd  col 2c+1
 
-            BRAM_RD_FP4(z[neuron0+2*c], BRAM_ADDR(tile, 0, 2*c), lo);
-            BRAM_RD_FP4(z[neuron0+2*c+1], BRAM_ADDR(tile, 0, 2*c+1), hi);
-
-/*
-            #pragma GCC unroll 4 // BATCH/2
-            for (int r = 0; r < BATCH; r += 2) {  // 4 row pairs
-                 mac_bias(T, r, 2*c,   lo);
-                 if (2*c + 1 < cols) mac_bias(T, r, 2*c+1, hi);
-            }
-*/
-         }
-
-/*
-        int neuron0 = tile * TT;                   // first neuron of this bank
-        #pragma GCC unroll 8 // TT
-        for (int col = 0; col < TT; col++) {
-            BRAM_RD_FP4(z[neuron0+col], BRAM_ADDR(tile, 0, col));
+            BRAM_RD_FP4(z[neuron0+2*c], BRAM_ADDR(tile, 0, 2*c), lo);       // read out even neurons in fp4, seed with bf16 bias
+            BRAM_RD_FP4(z[neuron0+2*c+1], BRAM_ADDR(tile, 0, 2*c+1), hi);   // odd neurons, seed with bf16 bias
         }
-*/
     }
 }
-/*TODO*/
-/*
-1. passed in arg
-2. adjust counter
-3. adjust encoding declarations
-4. comment out bias from gemm
-*/
 
 
 // =======================================
@@ -466,8 +430,8 @@ static void readout_fp4(uint32_t *z, int WH, const uint32_t* bias_packed) {
 //   W : weights,     KK rows x WH columns (WH = this layer's output size)
 //   C : outputs,     AV rows x WH columns, computed in TTxTT tiles across the banks
 // AV is the batch of 8 samples, assume one column strip (WH <= NTILES*TT)
-void gemm(const uint32_t* A, const uint32_t* W, //const uint32_t* bias_packed,
-          int KK, int WH, const uint32_t* wscale_words, const uint32_t* ascale_words) {
+void gemm(const uint32_t* A, const uint32_t* W, int KK, int WH, 
+    const uint32_t* wscale_words, const uint32_t* ascale_words) {
     // Results are left in the BRAM accumulator
     assert( AV == TT );          // else BRAM must be saved after each I iteration
     assert( WH <= NTILES * TT ); // else BRAM must be saved+reloaded each J iteration
@@ -484,30 +448,6 @@ void gemm(const uint32_t* A, const uint32_t* W, //const uint32_t* bias_packed,
             // tiles in this NTILES*TT column strip
             int tiles_this_strip = num_tiles - J/TT;
             if (tiles_this_strip > NTILES) tiles_this_strip = NTILES;
-
-           /* 
-            TIME(pc_bias[pc_layer], 
-            // seed each bank with its TTxTT bias tile
-            for (int T = 0; T < tiles_this_strip; T++) {
-                int idx = J/TT + T;                    // tile index
-                int cols = WH - idx*TT;                // real neurons in this tile
-                if (cols > TT) cols = TT;
-
-                for (int c = 0; c < (cols + 1)/2; c++) {   // column-pairs holding a neuron
-                    // load it once (r=0) and seed every row with the same value
-                    uint32_t word = bias_packed[idx*32 + c*8];
-                    uint32_t lo = word;            // even col 2c
-                    uint32_t hi = word >> 16;      // odd  col 2c+1
-
-                    #pragma GCC unroll 4 // BATCH/2
-                    for (int r = 0; r < BATCH; r += 2) {  // 4 row pairs
-                        mac_bias(T, r, 2*c,   lo);
-                        if (2*c + 1 < cols) mac_bias(T, r, 2*c+1, hi);
-                    }
-                }
-            }
-            );
-*/
 
             for (int K = 0; K < KK; K += (NVREG*BS))
             {
@@ -555,13 +495,13 @@ void inference_batch(const uint32_t* inputs, const uint32_t* ascale_in, int* pre
     static uint32_t z1_packed[L1_DIM], z2_packed[L2_DIM];
 
     PC_LAYER(0); //[stev] - need to adjust the layer counter sel
-    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, bias1_packed));   // [stev] - dummy read to set bias for l1
+    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, L1_DIM, bias1_packed));   // [stev] - dummy read to set bias for l1
     TIME(pc_gemm[0], gemm(inputs, w1_fp4, IN_DIM, L1_DIM, wscale1, ascale_in));
-    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, bias2_packed));   // out from l1, feeds layer 2, sets bias for l2, (Q) do they use the same tile??? There will be issue if use differnt tiles
+    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, L2_DIM, bias2_packed));   // out from l1, feeds layer 2, sets bias for l2
 
     PC_LAYER(1);
     TIME(pc_gemm[1], gemm(z1_packed, w2_fp4, L1_DIM, L2_DIM, wscale2, ascale2));
-    TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM, bias3_packed));   // out from l2, feeds layer 3, sets bias for l3
+    TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM, OUT_DIM, bias3_packed));   // out from l2, feeds layer 3, sets bias for l3
 
     PC_LAYER(2);
     TIME(pc_gemm[2], gemm(z2_packed, w3_fp4, L2_DIM, OUT_DIM, wscale3, ascale3));
