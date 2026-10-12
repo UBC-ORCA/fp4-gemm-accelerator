@@ -250,18 +250,12 @@ output logic mac_vrf_en_o,
                 end
                 // [rbs]
                 else if (op_q == cve2_pkg::OP_BRAM_FP4) begin
-                    // four row pairs
-                    //if (!brd_phase_q) begin
-                      //  brd_phase_d = 1'b1;
-                    //end else begin
-                      //  brd_phase_d = 1'b0;
                         if (count_q == 3) begin
                             count_d = '0;
                             state_d = DONE;
                         end else begin
                             count_d = count_q + 1'b1;
                         end
-                    //end
                 end
                 // [rbs - end]
                 else if ((op_q == cve2_pkg::OP_MAC_AS) ||
@@ -374,19 +368,22 @@ output logic mac_vrf_en_o,
                     end
                     // [rbs]
                     cve2_pkg::OP_BRAM_FP4: begin
-                        //if (!brd_phase_q) begin
-                            // phase 0: issue the read for this row pair
                             accum_rd_en_o   = 1'b1;
                             accum_rd_tile_o = bias_tile;               // rs1[10:6]
                             accum_rd_row_o  = {count_q[1:0], 1'b0};    // rows 0,2,4,6
                             rd_row_d  = count_q[1:0];    // rows 0,2,4,6
                             accum_rd_col_o  = bias_col;                // rs1[2:0]
-                        //end else begin
-                            // phase 1: data is valid, convert and pack
-                           // fp4_capture_o = 1'b1;
+
                             fp4_capture_d = 1'b1;
-                           // if (count_q == 3) scalar_we_o = 1'b1;
-                        //end
+
+			    //[stev] - wrt signals for bias fuse
+		     	    accum_wr_en_o   = fp4_capture_q;
+                            accum_wr_tile_o = bias_tile;
+                            accum_wr_row_o  = {rd_row_q[1:0], 1'b0};    // rows 0,2,4,6;
+                            accum_wr_col_o  = bias_col;
+                            accum_wr_data_o = bias_value; //keep stable
+
+			    //[end]
                     end
                     // [rbs - end]
                     default: ;
@@ -403,7 +400,16 @@ output logic mac_vrf_en_o,
 
             DONE: begin
                 done_o = 1'b1;
-                if (op_q == cve2_pkg::OP_BRAM_FP4) scalar_we_o = 1'b1;
+                if (op_q == cve2_pkg::OP_BRAM_FP4) begin 
+			scalar_we_o = 1'b1;
+			//[stev] - wrt signals for bias fuse
+		     	accum_wr_en_o   = fp4_capture_q;
+                        accum_wr_tile_o = bias_tile;
+                        accum_wr_row_o  = {rd_row_q[1:0], 1'b0};    // rows 0,2,4,6;
+                        accum_wr_col_o  = bias_col;
+                        accum_wr_data_o = bias_value; //keep stable
+			//[end]
+		end
 
             end
 

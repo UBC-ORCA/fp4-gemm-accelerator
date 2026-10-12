@@ -256,7 +256,8 @@ _Static_assert(4 * (NVREG - 1) * BS <= 0xFFF, "block offset does not fit in imm1
 #define MAC_BIAS(p,v)       __asm__ volatile(".insn r 0x5b,0x0,0x0c, x0,%0,%1" :: "r"(p),"r"(v))
 #define ACC_BANK(t)         __asm__ volatile(".insn r 0x5b,0x0,0x0d, x0,%0,x0" :: "r"(t))
 #define BRAM_RD(rd,p)       __asm__ volatile(".insn r 0x5b,0x0,0x0e, %0,%1,x0" : "=r"(rd) : "r"(p))
-#define BRAM_RD_FP4(rd,p)   __asm__ volatile(".insn r 0x5b,0x0,0x08, %0,%1,x0" : "=r"(rd) : "r"(p))
+//#define BRAM_RD_FP4(rd,p)   __asm__ volatile(".insn r 0x5b,0x0,0x08, %0,%1,x0" : "=r"(rd) : "r"(p))
+#define BRAM_RD_FP4(rd,p,bias) __asm__ volatile(".insn r 0x5b,0x0,0x08, %0,%1,%2" : "=r"(rd) : "r"(p), "r"(bias))
 #define VSETVLI(avl)        __asm__ volatile(".insn i 0x57,0x7,x0,%0,0xD0" :: "r"(avl))
 #define VLE32(N,ptr)        __asm__ volatile(".insn i 0x07,0x6,x" #N ",%0,0x20" :: "r"(ptr))
 
@@ -411,16 +412,51 @@ static void argmax(int *predictions, int WH) {
 
 
 // Read banks back out as FP4 activations
-static void readout_fp4(uint32_t *z, int WH) {
+static void readout_fp4(uint32_t *z, int WH, const uint32_t* bias_packed) {
     int tiles = (WH + TT - 1) / TT;
     for (int tile = 0; tile < tiles; tile++) {
+
+        int idx = tile;     // assuming that J is 0
+        int cols = WH - idx*TT;                // real neurons in this tile
+        if (cols > TT) cols = TT;
+            
+	int neuron0 = tile * TT;                   // first neuron of this bank
+        #pragma GCC unroll 4 // BATCH/2
+ 	for (int c = 0; c < (cols + 1)/2; c++) {   // column-pairs holding a neuron (0,1,2,3)
+            // load it once (r=0) and seed every row with the same value
+            uint32_t word = bias_packed[idx*32 + c*8];
+            uint32_t lo = word;            // even col 2c
+            uint32_t hi = word >> 16;      // odd  col 2c+1
+
+            BRAM_RD_FP4(z[neuron0+2*c], BRAM_ADDR(tile, 0, 2*c), lo);
+            BRAM_RD_FP4(z[neuron0+2*c+1], BRAM_ADDR(tile, 0, 2*c+1), hi);
+
+/*
+            #pragma GCC unroll 4 // BATCH/2
+            for (int r = 0; r < BATCH; r += 2) {  // 4 row pairs
+                 mac_bias(T, r, 2*c,   lo);
+                 if (2*c + 1 < cols) mac_bias(T, r, 2*c+1, hi);
+            }
+*/
+         }
+
+/*
         int neuron0 = tile * TT;                   // first neuron of this bank
         #pragma GCC unroll 8 // TT
         for (int col = 0; col < TT; col++) {
             BRAM_RD_FP4(z[neuron0+col], BRAM_ADDR(tile, 0, col));
         }
+*/
     }
 }
+/*TODO*/
+/*
+1. passed in arg
+2. adjust counter
+3. adjust encoding declarations
+4. comment out bias from gemm
+*/
+
 
 // =======================================
 // GEMM
@@ -430,7 +466,7 @@ static void readout_fp4(uint32_t *z, int WH) {
 //   W : weights,     KK rows x WH columns (WH = this layer's output size)
 //   C : outputs,     AV rows x WH columns, computed in TTxTT tiles across the banks
 // AV is the batch of 8 samples, assume one column strip (WH <= NTILES*TT)
-void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
+void gemm(const uint32_t* A, const uint32_t* W, //const uint32_t* bias_packed,
           int KK, int WH, const uint32_t* wscale_words, const uint32_t* ascale_words) {
     // Results are left in the BRAM accumulator
     assert( AV == TT );          // else BRAM must be saved after each I iteration
@@ -448,7 +484,8 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
             // tiles in this NTILES*TT column strip
             int tiles_this_strip = num_tiles - J/TT;
             if (tiles_this_strip > NTILES) tiles_this_strip = NTILES;
-            
+
+           /* 
             TIME(pc_bias[pc_layer], 
             // seed each bank with its TTxTT bias tile
             for (int T = 0; T < tiles_this_strip; T++) {
@@ -470,6 +507,7 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
                 }
             }
             );
+*/
 
             for (int K = 0; K < KK; K += (NVREG*BS))
             {
@@ -516,16 +554,17 @@ void inference_batch(const uint32_t* inputs, const uint32_t* ascale_in, int* pre
     // Hidden layers read out to FP4 activations; the final layer argmaxes straight from the banks
     static uint32_t z1_packed[L1_DIM], z2_packed[L2_DIM];
 
-    PC_LAYER(0);
-    TIME(pc_gemm[0], gemm(inputs, w1_fp4, bias1_packed, IN_DIM, L1_DIM, wscale1, ascale_in));
-    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM));   // feeds layer 2
+    PC_LAYER(0); //[stev] - need to adjust the layer counter sel
+    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, bias1_packed));   // [stev] - dummy read to set bias for l1
+    TIME(pc_gemm[0], gemm(inputs, w1_fp4, IN_DIM, L1_DIM, wscale1, ascale_in));
+    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, bias2_packed));   // out from l1, feeds layer 2, sets bias for l2, (Q) do they use the same tile??? There will be issue if use differnt tiles
 
     PC_LAYER(1);
-    TIME(pc_gemm[1], gemm(z1_packed, w2_fp4, bias2_packed, L1_DIM, L2_DIM, wscale2, ascale2));
-    TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM));   // feeds layer 3
+    TIME(pc_gemm[1], gemm(z1_packed, w2_fp4, L1_DIM, L2_DIM, wscale2, ascale2));
+    TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM, bias3_packed));   // out from l2, feeds layer 3, sets bias for l3
 
     PC_LAYER(2);
-    TIME(pc_gemm[2], gemm(z2_packed, w3_fp4, bias3_packed, L2_DIM, OUT_DIM, wscale3, ascale3));
+    TIME(pc_gemm[2], gemm(z2_packed, w3_fp4, L2_DIM, OUT_DIM, wscale3, ascale3));
     TIME(pc_argmax, argmax(predictions, OUT_DIM));  // final layer -> argmax
 }
 
