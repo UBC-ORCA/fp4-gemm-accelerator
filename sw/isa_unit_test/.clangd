@@ -1,0 +1,12 @@
+CompileFlags:
+  Add:
+    - -I/usr/share/verilator/include
+    - -I/usr/share/verilator/include/vltstd
+    - -I/mnt/SSD2/UBC_S2026/chief/fp4-gemm-accelerator/rtl/build/openhwgroup_cve2_cve2_top_0.1/lint-verilator
+    - -I/mnt/SSD2/UBC_S2026/chief/fp4-gemm-accelerator/sw/isa_unit_test/include
+    - -I/mnt/SSD2/UBC_S2026/chief/fp4-gemm-accelerator/sw/isa_unit_test/src
+---
+If:
+  PathMatch: [.*\.cpp, .*\.hpp]
+CompileFlags:
+  Add: [-std=c++17]

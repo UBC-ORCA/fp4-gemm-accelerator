@@ -1,0 +1,62 @@
+/*
+    Linker script template for the ISA unit tests.
+
+    Run through the C preprocessor (see unit_tests.mk) so the regions
+    come straight from include/mmio.h, the same map the tb uses:
+
+        IMEM   .text, .rodata         -> <test>_imem.hex
+        DMEM   .data                  -> <test>_dmem.hex
+               .bss, stack            (not in the image)
+        STAGE  tb staging buffers     (not in the image, NOLOAD)
+*/
+#include "mmio.h"
+
+ENTRY(_start)
+
+MEMORY
+{
+  IMEM  (rx) : ORIGIN = PROGRAM_MEM_BASE, LENGTH = PROGRAM_MEM_WORDS * 4
+  DMEM  (rw) : ORIGIN = DATA_MEM_BASE,    LENGTH = DATA_MEM_WORDS * 4
+  STAGE (rw) : ORIGIN = STAGE_MEM_BASE,   LENGTH = STAGE_MEM_WORDS * 4
+}
+
+SECTIONS
+{
+  .text : {
+    *(.text.init)
+    *(.text*)
+  } > IMEM
+
+  .rodata : ALIGN(4) {
+    *(.rodata*)
+    *(.srodata*)
+  } > IMEM
+
+  .data : ALIGN(4) {
+    *(.sdata*)
+    *(.data*)
+  } > DMEM
+
+  .bss (NOLOAD) : ALIGN(4) {
+    *(.sbss*)
+    *(.bss*)
+    *(COMMON)
+  } > DMEM
+
+  /*
+     Reserved for the tb staging buffers. The firmware reaches them through
+     the fixed *_ADDR pointers in the mmio headers; anything placed here with
+     __attribute__((section(".stage"))) lands in the same region.
+  */
+  .stage (NOLOAD) : ALIGN(4) {
+    _stage_start = .;
+    *(.stage*)
+  } > STAGE
+  _stage_end = ORIGIN(STAGE) + LENGTH(STAGE);
+
+  _stack_top = ORIGIN(DMEM) + LENGTH(DMEM);
+}
+
+/* Regions must not overlap, or the tb's region decode becomes ambiguous */
+ASSERT(DATA_MEM_BASE  >= PROGRAM_MEM_BASE + PROGRAM_MEM_WORDS * 4, "DMEM overlaps IMEM")
+ASSERT(STAGE_MEM_BASE >= DATA_MEM_BASE + DATA_MEM_WORDS * 4,       "STAGE overlaps DMEM")
