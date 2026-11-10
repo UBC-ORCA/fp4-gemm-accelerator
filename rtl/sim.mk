@@ -16,6 +16,18 @@ SHELL := /bin/bash
 
 CVE2_CONFIG ?= small
 
+# Scale unit implementation: "array" (scale_array/scale_accum_array_e4m3,
+# default) or "legacy" (per-lane rtl/chief/e4m3_scale.sv).
+# Re-run `fuse` after changing it.
+SCALE_UNIT ?= array
+ifeq ($(SCALE_UNIT),legacy)
+  FUSESOC_SCALE_FLAG := --flag=legacy_scale
+else ifeq ($(SCALE_UNIT),array)
+  FUSESOC_SCALE_FLAG :=
+else
+  $(error SCALE_UNIT must be "array" or "legacy" (got "$(SCALE_UNIT)"))
+endif
+
 TB_BASE := ../../../../sw/tb
 #MATMUL_TB_CPP := $(TB_BASE)/matrix_tb/min_tb_matmul8.cpp
 MAC_CELL_TB_CPP := $(TB_BASE)/artih_tb/mac_cell.cpp
@@ -109,6 +121,7 @@ fuse: rtl/fp4_mul_int9.sv
 		--target=lint \
 		--tool=verilator \
 		--setup \
+		$(FUSESOC_SCALE_FLAG) \
 		openhwgroup:cve2:cve2_top:0.1 \
 		$$(./util/cve2_config.py $(CVE2_CONFIG) fusesoc_opts)
 
@@ -126,6 +139,7 @@ $(VIVADO_DIR)/openhwgroup_cve2_cve2_top_0.1.xpr:
 			--tool=vivado \
 			--setup \
 			--no-export \
+			$(FUSESOC_SCALE_FLAG) \
 			openhwgroup:cve2:cve2_top:0.1 \
 			$$(./util/cve2_config.py $(CVE2_CONFIG) fusesoc_opts)
 		# Make the .xpr file

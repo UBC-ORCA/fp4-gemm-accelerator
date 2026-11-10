@@ -36,19 +36,39 @@ filesets:
       - openhwgroup:cve2:cve2_pkg
     files:
       - rtl/chief/mac_accum_bram.sv
-      - rtl/chief/fp4_e4m3_scale_mul.sv
-      - rtl/chief/e4m3_scale.sv
-      - rtl/chief/mac_scale_fsm.sv
-      - rtl/chief/int16_to_bf16.sv
-      - rtl/chief/bf16_accumulate.sv
-      - rtl/chief/mac_scale_accum.sv
       - rtl/chief/parameterized_adder.sv
+      - rtl/chief/mac_scale_fsm.sv
       - rtl/chief/mac_controller.sv
       - rtl/chief/mac_array.sv
       - rtl/chief/bf16_to_fp4.sv
       - rtl/chief/cve2_cf_mac_unit.sv
       - rtl/chief/cve2_vec_regfile.sv
       - rtl/chief/cve2_vec_unit.sv
+    file_type: systemVerilogSource
+
+  # Scale unit implementations (mutually exclusive: module names overlap).
+  # Default is the scale_array; pass `--flag=legacy_scale` to fusesoc
+  # (or SCALE_UNIT=legacy to make) for the original per-lane e4m3_scale.
+  files_scale_array:
+    depend:
+      - openhwgroup:cve2:cve2_pkg
+    files:
+      - rtl/chief/priority_enc.sv
+      - rtl/chief/scale_array/round_rne.sv
+      - rtl/chief/scale_array/bf16_accumulate.sv
+      - rtl/chief/scale_array/e4m3_broadcast_mul.sv
+      - rtl/chief/scale_array/e4m3_scale.sv
+      - rtl/chief/scale_array/scale_accum_array.sv
+    file_type: systemVerilogSource
+
+  files_scale_legacy:
+    depend:
+      - openhwgroup:cve2:cve2_pkg
+    files:
+      - rtl/chief/fp4_e4m3_scale_mul.sv
+      - rtl/chief/e4m3_scale.sv
+      - rtl/chief/int16_to_bf16.sv
+      - rtl/chief/bf16_accumulate.sv
     file_type: systemVerilogSource
 
   files_rtl:
@@ -106,6 +126,12 @@ parameters:
     default: false
     paramtype: vlogdefine
 
+  CHIEF_LEGACY_SCALE:
+    datatype: bool
+    default: false
+    paramtype: vlogdefine
+    description: "Build the legacy per-lane e4m3_scale instead of scale_accum_array_e4m3. Set via the legacy_scale flag."
+
   RV32E:
     datatype: int
     default: 0
@@ -124,11 +150,14 @@ targets:
       - tool_veriblelint ? (files_lint_verible)
       - files_chief_pkg
       - files_chief
+      - legacy_scale ? (files_scale_legacy)
+      - "!legacy_scale ? (files_scale_array)"
       - files_mac_fp4  
       - files_rtl
     toplevel: cve2_core
     parameters:
       - tool_vivado ? (FPGA_XILINX=true)
+      - legacy_scale ? (CHIEF_LEGACY_SCALE=true)
   
   lint_int4: 
     filesets:
@@ -136,17 +165,21 @@ targets:
       - tool_veriblelint ? (files_lint_verible)
       - files_chief_pkg
       - files_chief
+      - legacy_scale ? (files_scale_legacy)
+      - "!legacy_scale ? (files_scale_array)"
       - files_mac_int4  
       - files_rtl
     toplevel: cve2_core
     parameters:
       - tool_vivado ? (FPGA_XILINX=true)
+      - legacy_scale ? (CHIEF_LEGACY_SCALE=true)
 
   lint:
     <<: *default_target
     parameters:
       - SYNTHESIS=true
       - RVFI=true
+      - legacy_scale ? (CHIEF_LEGACY_SCALE=true)
     default_tool: verilator
     tools:
       verilator:
@@ -161,10 +194,13 @@ targets:
       - files_chief_pkg
       - files_mac_fp4
       - files_chief
+      - legacy_scale ? (files_scale_legacy)
+      - "!legacy_scale ? (files_scale_array)"
       - files_rtl
     parameters:
       - SYNTHESIS=true
       - RVFI=true
+      - legacy_scale ? (CHIEF_LEGACY_SCALE=true)
     default_tool: veribleformat
     toplevel: cve2_core
     tools:
