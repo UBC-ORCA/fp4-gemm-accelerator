@@ -122,8 +122,6 @@ module mac_controller #(
     logic [5:0]  vrf_last_elem_q;
     logic [4:0]  vrf_base_elem_q;   
 
-    logic        mem_req_sent_q;
-    logic        mem_req_sent_d;
 
     cve2_pkg::mac_op_e op_q;
 
@@ -180,7 +178,6 @@ module mac_controller #(
             base_q             <= '0; 
             state_q            <= IDLE;
             count_q            <= '0;
-            mem_req_sent_q     <= 1'b0;
             scalar_waddr_q     <= '0;
             act_scale_lo_q     <= '0;
             act_scale_hi_q     <= '0;
@@ -195,7 +192,6 @@ module mac_controller #(
         end else begin
             state_q            <= state_d;
             count_q            <= count_d;
-            mem_req_sent_q     <= mem_req_sent_d;
             brd_phase_q        <= brd_phase_d;
 
             snapshot_valid_q   <= 1'b0;
@@ -269,12 +265,10 @@ module mac_controller #(
         state_d        = state_q;
         count_d        = count_q;
         brd_phase_d    = brd_phase_q;
-        mem_req_sent_d = mem_req_sent_q;
 
         case (state_q)
             IDLE: begin
                 count_d        = '0;
-                mem_req_sent_d = 1'b0;
                 brd_phase_d    = 1'b0;
 
                 if (req_valid_i) begin
@@ -328,13 +322,8 @@ module mac_controller #(
                 endcase
 
                 if (vmac_op_check(op_q)) begin 
-                    if (!mem_req_sent_q) begin
-                        if (data_gnt_i) begin
-                            mem_req_sent_d = 1'b1;
-                    end
-                    end else begin
+                    if (data_gnt_i) begin
                         if (data_rvalid_i) begin
-                            mem_req_sent_d = 1'b0;
                             if (count_q == vrf_last_elem_q) begin
                                 state_d = DONE;
                                 count_d = '0;
