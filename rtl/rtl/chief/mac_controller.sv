@@ -455,11 +455,11 @@ module mac_controller #(
 		            mac_vrf_en_o    = 1'b1;
                     mac_vrf_raddr_o = mac_vrf_addr;
                     mac_vrf_relem_o = elem_idx;
-                    if (!mem_req_sent_q) begin
-                        data_req_o  = 1'b1;
-                        // ptr already points at this half, so offset relative to the base element
-                        data_addr_o = base_q + ((count_q - vrf_base_elem_q) << 2);
-                    end
+                    // if (!mem_req_sent_q) begin
+                    data_req_o  = 1'b1;
+                    // ptr already points at this half, so offset relative to the base element
+                    data_addr_o = base_q + ((count_q - vrf_base_elem_q) << 2);
+                    // end
                 end
             end
 

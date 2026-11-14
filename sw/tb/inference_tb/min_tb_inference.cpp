@@ -333,7 +333,7 @@ int main(int argc, char** argv) {
     }
 
     dut->instr_gnt_i = if_resp_due ? 0 : 1;
-    dut->data_gnt_i  = d_resp_due  ? 0 : 1;
+    dut->data_gnt_i  = 1;
 
     dut->eval();
     if (tfp) tfp->dump(main_time);
