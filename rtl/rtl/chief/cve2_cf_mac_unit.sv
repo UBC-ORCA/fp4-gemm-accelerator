@@ -283,10 +283,12 @@ module cve2_cf_mac_unit
     assign data_wdata_o  = mem_wdata;
 
     logic busy_main;
-    assign busy_o = busy_main || scale_busy;
+    // assign busy_o = busy_main || scale_busy;
+    assign busy_o = busy_main;
     logic done_main;
-    assign done_o = done_main || scale_done;
+    assign done_o = done_main;
 
+    
     mac_controller #(
         .VL(32),
         .TT(TT)
@@ -384,6 +386,10 @@ module cve2_cf_mac_unit
         .bank_sel             (bram_bank_sel)
     );
 
+`ifdef CHIEF_LEGACY_SCALE
+    //------------------------------------------------------------
+    // Legacy scale unit: one e4m3_scale per lane
+    //------------------------------------------------------------
     logic [7:0] scaleA [0:N_SCALE_UNITS-1];
     logic [7:0] scaleW [0:N_SCALE_UNITS-1];
     logic [N_SCALE_UNITS-1:0] scale_rd_end_tok;
@@ -424,6 +430,68 @@ module cve2_cf_mac_unit
 
         end : gen_scale_unit
     endgenerate 
+`else
+    //------------------------------------------------------------
+    // Scale + accumulate array (N_SCALE_UNITS lanes, shared weight scale)
+    //------------------------------------------------------------
+    chief_pkg::chief_scaler_e4m3_t scaleW;
+    chief_pkg::chief_scaler_e4m3_t scaleA            [0:N_SCALE_UNITS-1];
+    chief_pkg::bf16_t              scale_accum_in_bf [0:N_SCALE_UNITS-1];
+    chief_pkg::bf16_t              scale_accum_out_bf[0:N_SCALE_UNITS-1];
+    logic [N_SCALE_UNITS-1:0] scale_rd_end_tok;
+    logic [N_SCALE_UNITS-1:0] scale_wr_end_tok;
+    logic                     scale_out_valid;
+    logic                     scale_out_end_tok;
+    logic [2:0]               scale_wr_col_shared;
+    logic [0:0]               scale_wr_row_group_shared;
+
+    // Use the T+1 context coordinate: the snapshot is combinational but the
+    // accumulator comes back from BRAM a cycle late, and the scale array
+    // latches both into the same stage-1 register, so they must be presented together.
+    assign scaleW = ctx_weight_scale[scale_ctx_col];
+
+    generate
+        for (genvar i = 0; i < N_SCALE_UNITS; ++i) begin : gen_scale_lane
+            // Address mapping from context address to scale array inputs
+            assign scaleA[i]             = ctx_act_scale[scale_ctx_row_group*N_SCALE_UNITS + i];
+            assign scale_accum_in[i]     = bram_rd_data[i];
+            assign scale_accum_in_bf[i]  = scale_accum_in[i];
+            assign scale_tile_value[i]   = ctx_tile_snapshot[scale_ctx_row_group*N_SCALE_UNITS + i]
+                                                            [scale_ctx_col];
+            assign scale_accum_out[i]    = scale_accum_out_bf[i];
+
+            // All lanes move in lockstep; replicate the shared control outputs
+            assign scale_write_valid[i]      = scale_out_valid;
+            assign scale_wr_end_tok[i]       = scale_out_end_tok;
+            assign scale_wr_col_vec[i]       = scale_wr_col_shared;
+            assign scale_wr_row_group_vec[i] = scale_wr_row_group_shared;
+        end : gen_scale_lane
+    endgenerate
+
+    scale_accum_array_e4m3 #(
+        .N_SCALE_UNITS (N_SCALE_UNITS),
+        .TILE_INT_BIAS (-2),
+        .TILE_INT_WIDTH(16),
+        .COL_AW        (3),
+        .ROW_AW        (1)
+    ) u_scale_array (
+        .clk_i                  (clk_i),
+        .rst_ni                 (rst_ni),
+        .ws_i                   (scaleW),
+        .as_i                   (scaleA),
+        .tile_in_i              (scale_tile_value),
+        .bram_rd_col_base_addr_i(scale_ctx_col),
+        .bram_rd_row_addr_i     (scale_ctx_row_group),
+        .bram_acc_i             (scale_accum_in_bf),
+        .input_valid_i          (scale_rd_valid[0]),
+        .out_valid_o            (scale_out_valid),
+        .bram_wr_col_addr_o     (scale_wr_col_shared),
+        .bram_wr_row_addr_o     (scale_wr_row_group_shared),
+        .bram_acc_o             (scale_accum_out_bf),
+        .end_tok_i              (scale_rd_end_tok[0]),
+        .end_tok_o              (scale_out_end_tok)
+    );
+`endif // CHIEF_LEGACY_SCALE
 
 
     mac_scale_fsm #(

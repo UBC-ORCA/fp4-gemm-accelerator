@@ -355,7 +355,7 @@ module mac_controller #(
         fp4_capture_o  = 1'b0;   // [rbs]
 
         // Clean output decode logic
-        mac_en_o = ((state_q == EXEC) && (vmac_op_check(op_q)) && data_rvalid_i); 
+        mac_en_o = ((state_q == EXEC || (state_q == DONE)) && (vmac_op_check(op_q)) && data_rvalid_i); 
 
         clear_o  = (state_q == CLEAR);
 
