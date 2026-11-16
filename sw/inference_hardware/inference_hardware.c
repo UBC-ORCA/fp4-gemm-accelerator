@@ -568,6 +568,7 @@ static void pair_profile_report(const char *name,
 
 #ifdef PAIR_PROFILE
 
+/*
 static void profile_activations(const char *name,
                                 const uint32_t *A,
                                 int KK)
@@ -594,12 +595,55 @@ static void profile_activations(const char *name,
 
     pair_profile_report(name, &p);
 }
+*/
+
+#define FP4_PER_WORD 8
+//#define PAIR_BLOCK   16
+//#define PAIR_COUNT   (PAIR_BLOCK / 2)
+
+static void profile_activations(const char *name,
+                                const uint32_t *A,
+                                int KK)
+{
+    pair_profile_t p;
+    pair_profile_init(&p);
+
+    // Each profiling block contains 16 FP4 values = 2 uint32 words.
+    const int WORDS_PER_BLOCK = PAIR_BLOCK / FP4_PER_WORD;
+
+    for (int block = 0; block < KK; block += WORDS_PER_BLOCK) {
+
+        for (int word = 0; word < WORDS_PER_BLOCK; word++) {
+
+            int k = block + word;
+
+            if (k >= KK)
+                continue;
+
+            // Four adjacent FP4 pairs inside A[k].
+            for (int pair = 0; pair < FP4_PER_WORD / 2; pair++) {
+
+                int s0 = 2 * pair;
+                int s1 = s0 + 1;
+
+                uint8_t a = (A[k] >> (4 * s0)) & 0xF;
+                uint8_t b = (A[k] >> (4 * s1)) & 0xF;
+
+                pair_profile_add(&p, a, b);
+            }
+        }
+    }
+
+    pair_profile_report(name, &p);
+}
+
 
 #endif
 
 
 #ifdef PAIR_PROFILE
 
+/*
 static void profile_weights(const char *name,
                             const uint32_t *W,
                             int KK,
@@ -637,6 +681,71 @@ static void profile_weights(const char *name,
 
     pair_profile_report(name, &p);
 }
+*/
+
+static void profile_weights(const char *name,
+                            const uint32_t *W,
+                            int KK,
+                            int WH)
+{
+    pair_profile_t p;
+    pair_profile_init(&p);
+
+    int num_blocks = (KK + BS - 1) / BS;
+    int num_tiles  = (WH + TT - 1) / TT;
+
+    // Outer J-strip traversal matching GEMM
+    for (int J = 0; J < WH; J += NTILES * TT) {
+        int tiles_this_strip = num_tiles - J / TT;
+        if (tiles_this_strip > NTILES)
+            tiles_this_strip = NTILES;
+
+        // K-chunk traversal matching GEMM
+        for (int K = 0; K < KK; K += NVREG * BS) {
+            int blk0 = K / BS;
+            int blks = num_blocks - blk0;
+            if (blks > NVREG)
+                blks = NVREG;
+
+            const uint32_t *weights = &W[(K / BS) * BS];
+
+            // Tile loop matching GEMM
+            for (int T = 0; T < tiles_this_strip; T++) {
+                int tile = J / TT + T;
+
+                int cols = WH - tile * TT;
+                if (cols > TT)
+                    cols = TT;
+
+                // Vector register / K-block loop matching GEMM
+                for (int vreg = 0; vreg < blks; vreg++) {
+                    const uint32_t *block_w = weights + vreg * BS;
+                    int kbase = K + vreg * BS;
+
+                    for (int col = 0; col < cols; col++) {
+                        for (int ptr_k = 0; ptr_k < BS; ptr_k += 2) {
+                            int k0 = ptr_k;
+                            int k1 = ptr_k + 1;
+
+                            if (kbase + k1 >= KK)
+                                continue;
+
+                            uint8_t a = (block_w[k0] >> (4 * col)) & 0xF;
+                            uint8_t b = (block_w[k1] >> (4 * col)) & 0xF;
+
+                            pair_profile_add(&p, a, b);
+                        }
+                    }
+                }
+
+                weights += num_blocks * BS;
+            }
+        }
+    }
+
+    pair_profile_report(name, &p);
+}
+
 
 #endif
 
