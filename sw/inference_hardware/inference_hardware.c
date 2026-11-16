@@ -49,6 +49,18 @@ static const int rdout_shift[3] = RDOUT_SHIFT_HDR;
 // Enable intermediate UART prints (P|T|M results)
 // #define PTM_PRINTS
 
+//[PROF]
+#define PAIR_PROFILE
+
+static volatile uint32_t *const DONE_MMIO = (volatile uint32_t *)0xFFFF0000u;
+
+static inline void kill_simulation(void) {
+    *DONE_MMIO = 0xFF; // Signal simulator testbench to halt
+    while (1);         // Catch pipeline flush before termination
+}
+
+//[end]
+
 void __assert_func(const char *f,int l,const char *fn,const char *e){
     (void)f;(void)l;(void)fn;(void)e; __builtin_trap();
 }
@@ -421,6 +433,216 @@ static void readout_fp4(uint32_t *z, int WH, int WH_next, const uint32_t* bias_p
     }
 }
 
+//[PROF]
+
+#ifdef PAIR_PROFILE
+
+#define PAIR_BLOCK 16
+#define PAIR_COUNT  (PAIR_BLOCK / 2)
+
+typedef struct {
+    uint64_t exp_pair[4][4];  // ordered (EA, EB)
+    uint64_t zero_pairs;      // at least one operand is zero
+    uint64_t nonzero_pairs;
+} pair_profile_t;
+
+static void pair_profile_init(pair_profile_t *p)
+{
+    for (int a = 0; a < 4; a++)
+        for (int b = 0; b < 4; b++)
+            p->exp_pair[a][b] = 0;
+
+    p->zero_pairs = 0;
+    p->nonzero_pairs = 0;
+}
+
+static inline void pair_profile_add(pair_profile_t *p,
+                                    uint8_t a, uint8_t b)
+{
+    // FP4 zero: magnitude bits are both zero.
+    if ((a & 0x7) == 0 || (b & 0x7) == 0) {
+        p->zero_pairs++;
+        return;
+    }
+
+    uint8_t ea = (a >> 1) & 0x3;
+    uint8_t eb = (b >> 1) & 0x3;
+
+    p->exp_pair[ea][eb]++;
+    p->nonzero_pairs++;
+}
+
+static void pair_print_percent(uint64_t count, uint64_t total)
+{
+    uint32_t pct = total ? (uint32_t)((count * 10000) / total) : 0;
+
+    putdec(pct / 100);
+    putchar_uart('.');
+    if ((pct % 100) < 10) putchar_uart('0');
+    putdec(pct % 100);
+    putchar_uart('%');
+}
+
+// Print ordered exponent-pair composition.
+static void pair_profile_report(const char *name,
+                                const pair_profile_t *p)
+{
+    print_str("\n[PAIR PROFILE] ");
+    print_str(name);
+    print_str("\n");
+
+    print_str("Nonzero pairs: ");
+    putdec64(p->nonzero_pairs);
+    print_str("\nZero-containing pairs: ");
+    putdec64(p->zero_pairs);
+    print_str("\n");
+
+    print_str("       EB=00    EB=01    EB=10    EB=11\n");
+
+    for (int ea = 0; ea < 4; ea++) {
+        print_str("EA=");
+        putdec(ea);
+        print_str("  ");
+
+        for (int eb = 0; eb < 4; eb++) {
+            pair_print_percent(p->exp_pair[ea][eb],
+                               p->nonzero_pairs);
+            print_str("  ");
+        }
+        print_str("\n");
+    }
+
+    // Distribution by absolute exponent difference.
+    uint64_t diff[4] = {0, 0, 0, 0};
+
+    for (int ea = 0; ea < 4; ea++) {
+        for (int eb = 0; eb < 4; eb++) {
+            int d = (ea > eb) ? (ea - eb) : (eb - ea);
+            diff[d] += p->exp_pair[ea][eb];
+        }
+    }
+
+    print_str("\nExponent difference distribution:\n");
+    for (int d = 0; d < 4; d++) {
+        print_str("d=");
+        putdec(d);
+        print_str(": ");
+        pair_print_percent(diff[d], p->nonzero_pairs);
+        print_str("  count=");
+        putdec64(diff[d]);
+        print_str("\n");
+    }
+
+    // Candidate 3-bit codebook composition.
+    // 000-011: d=0
+    // 100-110: d=1
+    // 111:     d>=2 (large correction)
+    uint64_t code_count[8] = {0};
+
+    for (int ea = 0; ea < 4; ea++) {
+        for (int eb = 0; eb < 4; eb++) {
+            int lo = (ea < eb) ? ea : eb;
+            int hi = (ea > eb) ? ea : eb;
+            int d = hi - lo;
+
+            if (d == 0) {
+                code_count[lo]++;
+            } else if (d == 1) {
+                // The three d=1 states, independent of orientation.
+                code_count[4 + lo]++;
+            } else {
+                code_count[7]++;
+            }
+
+            // Count each ordered pair exactly once.
+            // For d=1, both orientations share the same candidate code.
+        }
+    }
+
+    // The codebook counts above are illustrative only:
+    // print actual ordered-pair counts in the matrix above.
+}
+
+#endif
+
+
+#ifdef PAIR_PROFILE
+
+static void profile_activations(const char *name,
+                                const uint32_t *A,
+                                int KK)
+{
+    pair_profile_t p;
+    pair_profile_init(&p);
+
+    for (int sample = 0; sample < BATCH; sample++) {
+        for (int block = 0; block < KK; block += PAIR_BLOCK) {
+            for (int pair = 0; pair < PAIR_COUNT; pair++) {
+                int k0 = block + 2 * pair;
+                int k1 = k0 + 1;
+
+                if (k1 >= KK)
+                    continue;
+
+                uint8_t a = (A[k0] >> (4 * sample)) & 0xF;
+                uint8_t b = (A[k1] >> (4 * sample)) & 0xF;
+
+                pair_profile_add(&p, a, b);
+            }
+        }
+    }
+
+    pair_profile_report(name, &p);
+}
+
+#endif
+
+
+#ifdef PAIR_PROFILE
+
+static void profile_weights(const char *name,
+                            const uint32_t *W,
+                            int KK,
+                            int WH)
+{
+    pair_profile_t p;
+    pair_profile_init(&p);
+
+    int num_blocks = (KK + BS - 1) / BS;
+    int num_tiles  = (WH + TT - 1) / TT;
+
+    for (int tile = 0; tile < num_tiles; tile++) {
+        int cols = WH - tile * TT;
+        if (cols > TT) cols = TT;
+
+        const uint32_t *tile_w = W + tile * num_blocks * BS;
+
+        for (int col = 0; col < cols; col++) {
+            for (int block = 0; block < KK; block += PAIR_BLOCK) {
+                for (int pair = 0; pair < PAIR_COUNT; pair++) {
+                    int k0 = block + 2 * pair;
+                    int k1 = k0 + 1;
+
+                    if (k1 >= KK)
+                        continue;
+
+                    uint8_t a = (tile_w[k0] >> (4 * col)) & 0xF;
+                    uint8_t b = (tile_w[k1] >> (4 * col)) & 0xF;
+
+                    pair_profile_add(&p, a, b);
+                }
+            }
+        }
+    }
+
+    pair_profile_report(name, &p);
+}
+
+#endif
+
+
+//[end]
+
 
 // =======================================
 // GEMM
@@ -496,16 +718,30 @@ void inference_batch(const uint32_t* inputs, const uint32_t* ascale_in, int* pre
 
     PC_LAYER(0); //[stev] - need to adjust the layer counter sel
     TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, L1_DIM, bias1_packed));   // [stev] - dummy read to set bias for l1
+#ifdef PAIR_PROFILE
+    profile_activations("L1 ACTIVATIONS", inputs, IN_DIM);
+    profile_weights("L1 WEIGHTS", w1_fp4, IN_DIM, L1_DIM);
+#endif
     TIME(pc_gemm[0], gemm(inputs, w1_fp4, IN_DIM, L1_DIM, wscale1, ascale_in));
     TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, L2_DIM, bias2_packed));   // out from l1, feeds layer 2, sets bias for l2
 
     PC_LAYER(1);
+#ifdef PAIR_PROFILE
+    profile_activations("L2 ACTIVATIONS", z1_packed, L1_DIM);
+    profile_weights("L2 WEIGHTS", w2_fp4, L1_DIM, L2_DIM);
+#endif
     TIME(pc_gemm[1], gemm(z1_packed, w2_fp4, L1_DIM, L2_DIM, wscale2, ascale2));
     TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM, OUT_DIM, bias3_packed));   // out from l2, feeds layer 3, sets bias for l3
 
     PC_LAYER(2);
+#ifdef PAIR_PROFILE
+    profile_activations("L3 ACTIVATIONS", z2_packed, L2_DIM);
+    profile_weights("L3 WEIGHTS", w3_fp4, L2_DIM, OUT_DIM);
+#endif
     TIME(pc_gemm[2], gemm(z2_packed, w3_fp4, L2_DIM, OUT_DIM, wscale3, ascale3));
     TIME(pc_argmax, argmax(predictions, OUT_DIM));  // final layer -> argmax
+
+kill_simulation(); 
 }
 
 int main(void) {
