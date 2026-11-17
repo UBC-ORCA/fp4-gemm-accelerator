@@ -51,6 +51,7 @@ static const int rdout_shift[3] = RDOUT_SHIFT_HDR;
 
 //[PROF]
 #define PAIR_PROFILE
+#define PAIR_COMPRESS_TEST
 
 static volatile uint32_t *const DONE_MMIO = (volatile uint32_t *)0xFFFF0000u;
 
@@ -456,6 +457,69 @@ static void pair_profile_init(pair_profile_t *p)
     p->nonzero_pairs = 0;
 }
 
+// Preserve sign and mantissa; replace only the 2-bit exponent.
+static inline uint8_t fp4_set_exp(uint8_t code, uint8_t exp)
+{
+    return (uint8_t)((code & 0x9) | ((exp & 0x3) << 1));
+}
+
+// Return 1 if the pair was rewritten.
+// weight_mode = 0: activation mapping
+// weight_mode = 1: weight mapping
+static inline int pair_compress_codes(uint8_t *a,
+                                      uint8_t *b,
+                                      int weight_mode)
+{
+    // Do not modify pairs containing zero.
+    if (((*a & 0x7) == 0) || ((*b & 0x7) == 0))
+        return 0;
+
+    uint8_t ea = (*a >> 1) & 0x3;
+    uint8_t eb = (*b >> 1) & 0x3;
+
+    if (!weight_mode) {
+        // ACTIVATIONS:
+        // (Emax,d) = 000: (00,00) -> (00,01)
+        if (ea == 0 && eb == 0) {
+            eb = 1;
+        }
+        // (Emax,d) = 113: (00,11) -> (01,11)
+        else if (ea == 0 && eb == 3) {
+            ea = 1;
+        }
+        // (Emax,d) = 113: (11,00) -> (11,01)
+        else if (ea == 3 && eb == 0) {
+            eb = 1;
+        }
+        else {
+            return 0;
+        }
+    }
+    else {
+        // WEIGHTS:
+        // (Emax,d) = 110: (11,11) -> (10,11)
+        if (ea == 3 && eb == 3) {
+            ea = 2;
+        }
+        // (Emax,d) = 113: (00,11) -> (01,11)
+        else if (ea == 0 && eb == 3) {
+            ea = 1;
+        }
+        // (Emax,d) = 113: (11,00) -> (11,01)
+        else if (ea == 3 && eb == 0) {
+            eb = 1;
+        }
+        else {
+            return 0;
+        }
+    }
+
+    *a = fp4_set_exp(*a, ea);
+    *b = fp4_set_exp(*b, eb);
+
+    return 1;
+}
+
 static inline void pair_profile_add(pair_profile_t *p,
                                     uint8_t a, uint8_t b)
 {
@@ -485,10 +549,18 @@ static void pair_print_percent(uint64_t count, uint64_t total)
 
 // Print ordered exponent-pair composition.
 static void pair_profile_report(const char *name,
-                                const pair_profile_t *p)
+                                const pair_profile_t *p,
+                                int batch_number,
+                                uint64_t rewritten_pairs)
 {
-    print_str("\n[PAIR PROFILE] ");
+    print_str("\n[PAIR PROFILE] BATCH ");
+    putdec(batch_number);
+    print_str(" ");
     print_str(name);
+    print_str("\n");
+
+    print_str("Rewritten pairs: ");
+    putdec64(rewritten_pairs);
     print_str("\n");
 
     print_str("Nonzero pairs: ");
@@ -558,9 +630,6 @@ static void pair_profile_report(const char *name,
             // For d=1, both orientations share the same candidate code.
         }
     }
-
-    // The codebook counts above are illustrative only:
-    // print actual ordered-pair counts in the matrix above.
 }
 
 #endif
@@ -568,129 +637,69 @@ static void pair_profile_report(const char *name,
 
 #ifdef PAIR_PROFILE
 
-/*
-static void profile_activations(const char *name,
-                                const uint32_t *A,
-                                int KK)
-{
-    pair_profile_t p;
-    pair_profile_init(&p);
-
-    for (int sample = 0; sample < BATCH; sample++) {
-        for (int block = 0; block < KK; block += PAIR_BLOCK) {
-            for (int pair = 0; pair < PAIR_COUNT; pair++) {
-                int k0 = block + 2 * pair;
-                int k1 = k0 + 1;
-
-                if (k1 >= KK)
-                    continue;
-
-                uint8_t a = (A[k0] >> (4 * sample)) & 0xF;
-                uint8_t b = (A[k1] >> (4 * sample)) & 0xF;
-
-                pair_profile_add(&p, a, b);
-            }
-        }
-    }
-
-    pair_profile_report(name, &p);
-}
-*/
-
 #define FP4_PER_WORD 8
-//#define PAIR_BLOCK   16
-//#define PAIR_COUNT   (PAIR_BLOCK / 2)
 
 static void profile_activations(const char *name,
-                                const uint32_t *A,
-                                int KK)
+                                uint32_t *A,
+                                int KK,
+                                int batch_number,
+                                int compress)
 {
     pair_profile_t p;
     pair_profile_init(&p);
 
-    // Each profiling block contains 16 FP4 values = 2 uint32 words.
+    uint64_t rewritten = 0;
     const int WORDS_PER_BLOCK = PAIR_BLOCK / FP4_PER_WORD;
 
     for (int block = 0; block < KK; block += WORDS_PER_BLOCK) {
-
         for (int word = 0; word < WORDS_PER_BLOCK; word++) {
-
             int k = block + word;
 
             if (k >= KK)
                 continue;
 
-            // Four adjacent FP4 pairs inside A[k].
             for (int pair = 0; pair < FP4_PER_WORD / 2; pair++) {
-
                 int s0 = 2 * pair;
                 int s1 = s0 + 1;
 
                 uint8_t a = (A[k] >> (4 * s0)) & 0xF;
                 uint8_t b = (A[k] >> (4 * s1)) & 0xF;
 
+                if (compress && pair_compress_codes(&a, &b, 0)) {
+                    uint32_t mask =
+                        (0xFu << (4 * s0)) |
+                        (0xFu << (4 * s1));
+
+                    A[k] = (A[k] & ~mask) |
+                           ((uint32_t)a << (4 * s0)) |
+                           ((uint32_t)b << (4 * s1));
+
+                    rewritten++;
+                }
+
                 pair_profile_add(&p, a, b);
             }
         }
     }
 
-    pair_profile_report(name, &p);
+    pair_profile_report(name, &p, batch_number, rewritten);
 }
-
 
 #endif
 
 
 #ifdef PAIR_PROFILE
 
-/*
 static void profile_weights(const char *name,
-                            const uint32_t *W,
+                            uint32_t *W,
                             int KK,
-                            int WH)
+                            int WH,
+                            int compress)
 {
     pair_profile_t p;
     pair_profile_init(&p);
 
-    int num_blocks = (KK + BS - 1) / BS;
-    int num_tiles  = (WH + TT - 1) / TT;
-
-    for (int tile = 0; tile < num_tiles; tile++) {
-        int cols = WH - tile * TT;
-        if (cols > TT) cols = TT;
-
-        const uint32_t *tile_w = W + tile * num_blocks * BS;
-
-        for (int col = 0; col < cols; col++) {
-            for (int block = 0; block < KK; block += PAIR_BLOCK) {
-                for (int pair = 0; pair < PAIR_COUNT; pair++) {
-                    int k0 = block + 2 * pair;
-                    int k1 = k0 + 1;
-
-                    if (k1 >= KK)
-                        continue;
-
-                    uint8_t a = (tile_w[k0] >> (4 * col)) & 0xF;
-                    uint8_t b = (tile_w[k1] >> (4 * col)) & 0xF;
-
-                    pair_profile_add(&p, a, b);
-                }
-            }
-        }
-    }
-
-    pair_profile_report(name, &p);
-}
-*/
-
-static void profile_weights(const char *name,
-                            const uint32_t *W,
-                            int KK,
-                            int WH)
-{
-    pair_profile_t p;
-    pair_profile_init(&p);
-
+    uint64_t rewritten = 0;
     int num_blocks = (KK + BS - 1) / BS;
     int num_tiles  = (WH + TT - 1) / TT;
 
@@ -707,7 +716,7 @@ static void profile_weights(const char *name,
             if (blks > NVREG)
                 blks = NVREG;
 
-            const uint32_t *weights = &W[(K / BS) * BS];
+            uint32_t *weights = &W[(K / BS) * BS];
 
             // Tile loop matching GEMM
             for (int T = 0; T < tiles_this_strip; T++) {
@@ -719,7 +728,7 @@ static void profile_weights(const char *name,
 
                 // Vector register / K-block loop matching GEMM
                 for (int vreg = 0; vreg < blks; vreg++) {
-                    const uint32_t *block_w = weights + vreg * BS;
+                    uint32_t *block_w = weights + vreg * BS;
                     int kbase = K + vreg * BS;
 
                     for (int col = 0; col < cols; col++) {
@@ -733,6 +742,21 @@ static void profile_weights(const char *name,
                             uint8_t a = (block_w[k0] >> (4 * col)) & 0xF;
                             uint8_t b = (block_w[k1] >> (4 * col)) & 0xF;
 
+                            if (compress && pair_compress_codes(&a, &b, 1)) {
+                                uint32_t mask = 0xFu << (4 * col);
+
+                                uint32_t *word0 = &block_w[k0];
+                                uint32_t *word1 = &block_w[k1];
+
+                                *word0 = (*word0 & ~mask) |
+                                         ((uint32_t)a << (4 * col));
+
+                                *word1 = (*word1 & ~mask) |
+                                         ((uint32_t)b << (4 * col));
+
+                                rewritten++;
+                            }
+
                             pair_profile_add(&p, a, b);
                         }
                     }
@@ -743,9 +767,8 @@ static void profile_weights(const char *name,
         }
     }
 
-    pair_profile_report(name, &p);
+    pair_profile_report(name, &p, 1, rewritten);
 }
-
 
 #endif
 
@@ -821,36 +844,68 @@ void gemm(const uint32_t* A, const uint32_t* W, int KK, int WH,
 }
 
 // Run the forward pass on a batch of samples
-void inference_batch(const uint32_t* inputs, const uint32_t* ascale_in, int* predictions) {
+void inference_batch(uint32_t* inputs,
+                     const uint32_t* ascale_in,
+                     int* predictions,
+                     uint32_t* W1,
+                     uint32_t* W2,
+                     uint32_t* W3,
+                     int batch_number) {
     // Hidden layers read out to FP4 activations; the final layer argmaxes straight from the banks
     static uint32_t z1_packed[L1_DIM], z2_packed[L2_DIM];
 
-    PC_LAYER(0); //[stev] - need to adjust the layer counter sel
-    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, L1_DIM, bias1_packed));   // [stev] - dummy read to set bias for l1
+    PC_LAYER(0);
+
+    TIME(pc_qact[0],
+         readout_fp4(z1_packed, L1_DIM, L1_DIM, bias1_packed));
+
 #ifdef PAIR_PROFILE
-    profile_activations("L1 ACTIVATIONS", inputs, IN_DIM);
-    profile_weights("L1 WEIGHTS", w1_fp4, IN_DIM, L1_DIM);
+    profile_activations("L1 ACTIVATIONS", inputs, IN_DIM,
+                        batch_number, 1);
+
+    if (batch_number == 1) {
+        profile_weights("L1 WEIGHTS", W1, IN_DIM, L1_DIM, 1);
+    }
 #endif
-    TIME(pc_gemm[0], gemm(inputs, w1_fp4, IN_DIM, L1_DIM, wscale1, ascale_in));
-    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, L2_DIM, bias2_packed));   // out from l1, feeds layer 2, sets bias for l2
+
+    TIME(pc_gemm[0],
+         gemm(inputs, W1, IN_DIM, L1_DIM, wscale1, ascale_in));
+
+    TIME(pc_qact[0],
+         readout_fp4(z1_packed, L1_DIM, L2_DIM, bias2_packed));
 
     PC_LAYER(1);
+
 #ifdef PAIR_PROFILE
-    profile_activations("L2 ACTIVATIONS", z1_packed, L1_DIM);
-    profile_weights("L2 WEIGHTS", w2_fp4, L1_DIM, L2_DIM);
+    profile_activations("L2 ACTIVATIONS", z1_packed, L1_DIM,
+                        batch_number, 1);
+
+    if (batch_number == 1) {
+        profile_weights("L2 WEIGHTS", W2, L1_DIM, L2_DIM, 1);
+    }
 #endif
-    TIME(pc_gemm[1], gemm(z1_packed, w2_fp4, L1_DIM, L2_DIM, wscale2, ascale2));
-    TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM, OUT_DIM, bias3_packed));   // out from l2, feeds layer 3, sets bias for l3
+
+    TIME(pc_gemm[1],
+         gemm(z1_packed, W2, L1_DIM, L2_DIM, wscale2, ascale2));
+
+    TIME(pc_qact[1],
+         readout_fp4(z2_packed, L2_DIM, OUT_DIM, bias3_packed));
 
     PC_LAYER(2);
-#ifdef PAIR_PROFILE
-    profile_activations("L3 ACTIVATIONS", z2_packed, L2_DIM);
-    profile_weights("L3 WEIGHTS", w3_fp4, L2_DIM, OUT_DIM);
-#endif
-    TIME(pc_gemm[2], gemm(z2_packed, w3_fp4, L2_DIM, OUT_DIM, wscale3, ascale3));
-    TIME(pc_argmax, argmax(predictions, OUT_DIM));  // final layer -> argmax
 
-kill_simulation(); 
+#ifdef PAIR_PROFILE
+    profile_activations("L3 ACTIVATIONS", z2_packed, L2_DIM,
+                        batch_number, 1);
+
+    if (batch_number == 1) {
+        profile_weights("L3 WEIGHTS", W3, L2_DIM, OUT_DIM, 1);
+    }
+#endif
+
+    TIME(pc_gemm[2],
+         gemm(z2_packed, W3, L2_DIM, OUT_DIM, wscale3, ascale3));
+
+    TIME(pc_argmax, argmax(predictions, OUT_DIM));
 }
 
 int main(void) {
@@ -936,7 +991,15 @@ int main(void) {
             }
         });
 
-        inference_batch(image_packed, ascale1_batch, predictions);
+        int batch_number = (s / BATCH) + 1;
+
+        inference_batch(image_packed,
+                        ascale1_batch,
+                        predictions,
+                        w1_fp4,
+                        w2_fp4,
+                        w3_fp4,
+                        batch_number);
 
         for (int j = 0; j < n; j++) {
             if (predictions[j] == truth[j]) correct++;
@@ -968,6 +1031,8 @@ int main(void) {
     print_str("\n");
 
     pc_report();
+
+    kill_simulation();
 
     return 0;
 }
