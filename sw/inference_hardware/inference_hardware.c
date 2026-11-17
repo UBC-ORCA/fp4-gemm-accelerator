@@ -470,9 +470,11 @@ static inline int pair_compress_codes(uint8_t *a,
                                       uint8_t *b,
                                       int weight_mode)
 {
+/*
     // Do not modify pairs containing zero.
     if (((*a & 0x7) == 0) || ((*b & 0x7) == 0))
         return 0;
+*/
 
     uint8_t ea = (*a >> 1) & 0x3;
     uint8_t eb = (*b >> 1) & 0x3;
@@ -523,11 +525,13 @@ static inline int pair_compress_codes(uint8_t *a,
 static inline void pair_profile_add(pair_profile_t *p,
                                     uint8_t a, uint8_t b)
 {
+/*
     // FP4 zero: magnitude bits are both zero.
     if ((a & 0x7) == 0 || (b & 0x7) == 0) {
         p->zero_pairs++;
         return;
     }
+*/
 
     uint8_t ea = (a >> 1) & 0x3;
     uint8_t eb = (b >> 1) & 0x3;
@@ -1032,7 +1036,7 @@ int main(void) {
 
     pc_report();
 
-    kill_simulation();
+    //kill_simulation();
 
     return 0;
 }
