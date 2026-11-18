@@ -669,6 +669,8 @@ static void profile_activations(const char *name,
                 uint8_t a = (A[k] >> (4 * s0)) & 0xF;
                 uint8_t b = (A[k] >> (4 * s1)) & 0xF;
 
+                pair_profile_add(&p, a, b);
+
                 if (compress && pair_compress_codes(&a, &b, 0)) {
                     uint32_t mask =
                         (0xFu << (4 * s0)) |
@@ -681,7 +683,7 @@ static void profile_activations(const char *name,
                     rewritten++;
                 }
 
-                pair_profile_add(&p, a, b);
+                //pair_profile_add(&p, a, b);
             }
         }
     }
@@ -746,6 +748,8 @@ static void profile_weights(const char *name,
                             uint8_t a = (block_w[k0] >> (4 * col)) & 0xF;
                             uint8_t b = (block_w[k1] >> (4 * col)) & 0xF;
 
+                            pair_profile_add(&p, a, b);
+
                             if (compress && pair_compress_codes(&a, &b, 1)) {
                                 uint32_t mask = 0xFu << (4 * col);
 
@@ -761,7 +765,7 @@ static void profile_weights(const char *name,
                                 rewritten++;
                             }
 
-                            pair_profile_add(&p, a, b);
+                            //pair_profile_add(&p, a, b);
                         }
                     }
                 }
