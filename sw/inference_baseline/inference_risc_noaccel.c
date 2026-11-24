@@ -224,35 +224,6 @@ static void pc_report(void) {
 #endif
 
 // =======================================
-// FP4 Quantization
-// =======================================
-static const uint8_t fp4_mag_lut[16] = {
-    0, 1, 2, 3, 4, 4, 5, 6, 6, 6, 6, 7, 7, 7, 7, 7
-};
-
-// Convert input float to the nearest FP4 value
-int16_t fp4_quantize(float value) {
-    int sign = (value < 0.0f);
-    float abs_v = sign ? -value : value;
-
-    int idx = (int)(abs_v * 4.0f + 0.5f);
-    if (idx > 15) idx = 15;
-    uint8_t mag = fp4_mag_lut[idx];
-
-    if (mag == 0) return 0;
-    return (int16_t)(sign ? (0x8 | mag) : mag);
-}
-
-// Precomputed table to convert pixel bytes to FP4
-static int8_t pix_to_fp4[256];
-
-static void build_pix_lut(void) {
-    for (int v = 0; v < 256; v++) {
-        { int8_t c = (int8_t)(fp4_quantize((float)v / 255.0f) & 0xF); pix_to_fp4[v] = (int8_t)((c ^ 8) - 8); }
-    }
-}
-
-// =======================================
 // GEMM
 // =======================================
 // One layer, one sample. C = A*W + bias, all scalar.
@@ -345,8 +316,6 @@ int inference(const int8_t *image) {
 int main(void) {
     static int8_t image[IN_REAL];
 
-    build_pix_lut();
-
     // Print prediction, truth, and reference format
     #ifdef PTM_PRINTS
     print_str("P|T|M\n");
@@ -362,12 +331,16 @@ int main(void) {
     for (int s = 0; s < N_SAMPLES; s++) {
         int truth, ref;
 
-        // Load one image and quantize its pixels to FP4 codes
+        // Load one image, already FP4 codes, two per byte
         TIME(pc_imgq, {
             image_load(s);
             const volatile uint8_t *stage = (const volatile uint8_t *)IMG_STAGE;
-            for (int p = 0; p < IN_REAL; p++) {
-                image[p] = pix_to_fp4[stage[p]];
+            for (int b = 0; b < IN_REAL/2; b++) {
+                uint8_t two = stage[b];            // first pixel in the low 4 bits
+                int8_t lo = (int8_t)(two & 0xF);
+                int8_t hi = (int8_t)(two >> 4);
+                image[2*b]   = (int8_t)((lo ^ 8) - 8);   // same sign extension as before
+                image[2*b+1] = (int8_t)((hi ^ 8) - 8);
             }
         });
         truth = *IMG_LABEL;

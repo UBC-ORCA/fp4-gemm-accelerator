@@ -26,6 +26,9 @@
 #define NTILES     32             // Number of tiles that fit in BRAM
 #define AV          8             // Activation matrix vertical size
 
+// Layer 1 input scales per image (one per block)
+#define NUM_SCALES (IN_DIM / SCALE_BLK_HDR)
+
 // MAC array is TT x TT cells
 #define MAC_UNITS       (TT * TT)
 // Useful MACs per image
@@ -93,7 +96,6 @@ static uint64_t pc_imgq;
 static uint64_t pc_gemm[3];
 static uint64_t pc_qact[2];    // hidden read-out as packed FP4 (readout_fp4)
 static uint64_t pc_argmax;     // final read-out + argmax
-static uint64_t pc_bias[3];
 static uint64_t pc_ktile[3];   // do_k_tile loop only, inside gemm
 static uint64_t pc_total;      // whole sample loop, one span, loop control included
 static int      pc_layer;
@@ -162,7 +164,7 @@ static void pc_report(void) {
     print_str("\n[PERF] cycles over run\n");
     pc_line("imgq   |", pc_imgq);       // image load and quant
 
-    pc_line("gemm_1 |", pc_gemm[0]);    // gemm compute per layer (incl. bias seed)
+    pc_line("gemm_1 |", pc_gemm[0]);    // gemm compute per layer
     pc_line("gemm_2 |", pc_gemm[1]);
     pc_line("gemm_3 |", pc_gemm[2]);
 
@@ -171,10 +173,6 @@ static void pc_report(void) {
 
     pc_line("argmax |", pc_argmax);     // final read-out from banks + argmax
 
-    pc_line("bias_1 |", pc_bias[0]);    // bias tile seed (subset of gemm)
-    pc_line("bias_2 |", pc_bias[1]);
-    pc_line("bias_3 |", pc_bias[2]);
-
     pc_line("ktile_1|", pc_ktile[0]);   // do_k_tile loop only (subset of gemm)
     pc_line("ktile_2|", pc_ktile[1]);
     pc_line("ktile_3|", pc_ktile[2]);
@@ -182,7 +180,6 @@ static void pc_report(void) {
     // widest view is the whole gemm function, narrowest is the do_k_tile loop
     uint64_t gemm_t = pc_gemm[0]  + pc_gemm[1]  + pc_gemm[2];
     uint64_t gemm_k = pc_ktile[0] + pc_ktile[1] + pc_ktile[2];
-    uint64_t bias_t = pc_bias[0]  + pc_bias[1]  + pc_bias[2];
     uint64_t qact_t = pc_qact[0]  + pc_qact[1];
     // end to end inference, imgq left out since real inputs arrive as FP4
     uint64_t infer_t = gemm_t + qact_t + pc_argmax;
@@ -192,8 +189,6 @@ static void pc_report(void) {
     pc_line("gemm_T |", gemm_t);
     // the MAC datapath on its own
     pc_line("gemm_K |", gemm_k);
-    // bias seed, inside gemm
-    pc_line("bias_T |", bias_t);
     // total read-out as packed FP4
     pc_line("qact_T |", qact_t);
     // end to end inference, the runtime every ratio below is taken over
@@ -232,27 +227,19 @@ static void pc_report(void) {
 //   VMAC64(N,ptr)   VMAC64   CUSTOM1   vN x weight block at ptr -> raw tile
 //   MAC_AS(a,b)     MAC_AS   f7=0x0A   apply act scale words a,b to the tile
 //   MAC_WS(a,b)     MAC_WS   f7=0x0B   apply wgt scale words a,b -> fold into bank
-//   MAC_BIAS(p,v)   MACBIAS  f7=0x0C   seed bf16 v into the cell addressed by p
 //   ACC_BANK(t)     ACCBANK  f7=0x0D   select accumulator bank t
 //   BRAM_RD(rd,p)   BRAMRD   f7=0x0E   read the bram pair at p into register rd
-//   BRAM_RD_FP4(rd,p) BRAMFP4 f7=0x08  read tile/col at p, 8 samples -> packed fp4
+//   BRAM_RD_FP4(rd,p,bias) BRAMFP4 f7=0x08  read tile/col at p, 8 samples -> packed fp4 and seed with bf16 bias
 // VMAC64, MAC_AS and MAC_WS stand in as mul cost stubs
 #define VMAC64(N,wgt,act)  __asm__ volatile("mul x0,%0,%1" :: "r"(wgt),"r"(act) )
 #define MAC_AS(a,b)    __asm__ volatile("mul x0,%0,%1" :: "r"(a),"r"(b))
 #define MAC_WS(a,b)    __asm__ volatile("mul x0,%0,%1" :: "r"(a),"r"(b))
-#define MAC_BIAS(p,v)  __asm__ volatile(".insn r 0x5b,0x0,0x0c, x0,%0,%1" :: "r"(p),"r"(v))
 #define ACC_BANK(t)    __asm__ volatile(".insn r 0x5b,0x0,0x0d, x0,%0,x0" :: "r"(t))
 #define BRAM_RD(rd,p)  __asm__ volatile(".insn r 0x5b,0x0,0x0e, %0,%1,x0" : "=r"(rd) : "r"(p))
-#define BRAM_RD_FP4(rd,p) __asm__ volatile(".insn r 0x5b,0x0,0x08, %0,%1,x0" : "=r"(rd) : "r"(p))
+#define BRAM_RD_FP4(rd,p,bias) __asm__ volatile(".insn r 0x5b,0x0,0x08, %0,%1,%2" : "=r"(rd) : "r"(p), "r"(bias))
 
 // Address payload for a bram cell: {tile[10:6], row[5:3], col[2:0]}
 #define BRAM_ADDR(tile, row, col)  (((uint32_t)(tile) << 6) | ((uint32_t)(row) << 3) | (col))
-
-// Seed one accumulator cell (tile,row,col) with a bf16 bias value
-// the value is passed raw, the unit only uses rs2[15:0] so the upper half is ignored
-static inline void mac_bias(uint8_t tile, uint8_t row, uint8_t column, uint32_t bf16_raw) {
-    MAC_BIAS(BRAM_ADDR(tile, row, column), bf16_raw);
-}
 
 // Read the accumulator bram pair {row+1,row} at (tile,row,col) into a register
 static inline uint32_t bram_rd(uint32_t tile, uint32_t row, uint32_t col) {
@@ -275,38 +262,6 @@ void do_k_tile(const uint32_t *As, const uint32_t *Ws,
   MAC_WS(Ws[0], Ws[1]);   // apply weight scales
 }
 
-
-// =======================================
-// FP4 Quantization
-// =======================================
-static const uint8_t fp4_mag_lut[16] = {
-    0, 1, 2, 3, 4, 4, 5, 6, 6, 6, 6, 7, 7, 7, 7, 7
-};
-
-// Convert input float to the nearest FP4 value
-int16_t fp4_quantize(float value) {
-    int sign = (value < 0.0f);
-    float abs_v = sign ? -value : value;
-
-    int idx = (int)(abs_v * 4.0f + 0.5f);
-    if (idx > 15) idx = 15;
-    uint8_t mag = fp4_mag_lut[idx];
-
-    if (mag == 0) return 0;
-    return (int16_t)(sign ? (0x8 | mag) : mag);
-}
-
-// =======================================
-// LUT for input pixel quantization
-// =======================================
-// Precomputed table to convert pixel bytes to FP4
-static uint8_t pix_to_fp4[256];
-
-static void build_pix_lut(void) {
-    for (int v = 0; v < 256; v++) {
-        pix_to_fp4[v] = (uint8_t)(fp4_quantize((float)v / 255.0f) & 0xF);
-    }
-}
 
 // =======================================
 // Reading the accumulator banks back out
@@ -333,15 +288,15 @@ static void argmax(int *predictions, int WH) {
         int neuron0 = tile * TT;
         int cols = (WH - neuron0 < TT) ? (WH - neuron0) : TT;   // real neurons in this bank
         for (int row = 0; row < TT/2; row++) {
-            uint16_t best1 = best[row];
-            uint16_t best2 = best[row+TT/2];
-            int      pred1 = predictions[row];
-            int      pred2 = predictions[row+TT/2];
+            uint16_t best1 = best[2*row];
+            uint16_t best2 = best[2*row+1];
+            int      pred1 = predictions[2*row];
+            int      pred2 = predictions[2*row+1];
             for (int col = 0; col < cols; col++) {
                 int neuron = neuron0 + col;                              // column picks the neuron
                 uint32_t pair = bram_rd(tile, 2 * row, col);
-                uint16_t lo = bf16_ordered((uint16_t)(pair & 0xFFFF));   // sample = row
-                uint16_t hi = bf16_ordered((uint16_t)(pair >> 16)   );   // sample = row + TT/2
+                uint16_t lo = bf16_ordered((uint16_t)(pair & 0xFFFF));   // sample = 2*row
+                uint16_t hi = bf16_ordered((uint16_t)(pair >> 16)   );   // sample = 2*row + 1
                 if (lo > best1) {
                     best1 = lo;
                     pred1 = neuron;
@@ -351,22 +306,36 @@ static void argmax(int *predictions, int WH) {
                     pred2 = neuron;
                 }
             }
-            best[row]      = best1;
-            best[row+TT/2] = best2;
-            predictions[row]      = pred1;
-            predictions[row+TT/2] = pred2;
+            best[2*row]      = best1;
+            best[2*row+1]    = best2;
+            predictions[2*row]      = pred1;
+            predictions[2*row+1]    = pred2;
         }
     }
 }
 
 // Read banks back out as FP4 activations
-static void readout_fp4(uint32_t *z, int WH) {
-    int tiles = (WH + TT - 1) / TT;
+static void readout_fp4(uint32_t *z, int WH, int WH_next, const uint32_t* bias_packed) {
+    assert(WH_next <= WH);              // readout only sees current layer size, breaks if next layer is larger
+    int tiles = (WH + TT - 1) / TT;             // no. of tiles used in readout
+    int bias_tiles = (WH_next + TT - 1) / TT;   // no. of tiles used in bias seeding
     for (int tile = 0; tile < tiles; tile++) {
-        int neuron0 = tile * TT;                   // first neuron of this bank
-        #pragma GCC unroll 8 // TT
-        for (int col = 0; col < TT; col++) {
-            BRAM_RD_FP4(z[neuron0+col], BRAM_ADDR(tile, 0, col));
+        int idx = tile;             // assuming that J is 0
+        int cols = WH - idx*TT;     // real neurons in this tile
+        if (cols > TT) cols = TT;
+
+        int neuron0 = tile * TT;    // first neuron of this bank
+        #pragma GCC unroll 4
+        for (int c = 0; c < (cols + 1)/2; c++) {   // column-pairs holding a neuron (0,1,2,3)
+            // load it once (r=0) and seed every row with the same value
+            uint32_t word = 0;
+            if (tile < bias_tiles)
+                word = bias_packed[idx*32 + c*8];
+            uint32_t lo = word;            // even col 2c
+            uint32_t hi = word >> 16;      // odd  col 2c+1
+
+            BRAM_RD_FP4(z[neuron0+2*c], BRAM_ADDR(tile, 0, 2*c), lo);       // read out even neurons in fp4, seed with bf16 bias
+            BRAM_RD_FP4(z[neuron0+2*c+1], BRAM_ADDR(tile, 0, 2*c+1), hi);   // odd neurons, seed with bf16 bias
         }
     }
 }
@@ -379,8 +348,8 @@ static void readout_fp4(uint32_t *z, int WH) {
 //   W : weights,     KK rows x WH columns (WH = this layer's output size)
 //   C : outputs,     AV rows x WH columns, computed in TTxTT tiles across the banks
 // AV is the batch of 8 samples, assume one column strip (WH <= NTILES*TT)
-void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
-          int KK, int WH, const uint32_t* wscale_words, const uint32_t* ascale_words) {
+void gemm(const uint32_t* A, const uint32_t* W, int KK, int WH,
+    const uint32_t* wscale_words, const uint32_t* ascale_words) {
     // Results are left in the BRAM accumulator
     assert( AV == TT );          // else BRAM must be saved after each I iteration
     assert( WH <= NTILES * TT ); // else BRAM must be saved+reloaded each J iteration
@@ -399,28 +368,6 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
             // tiles in this NTILES*TT column strip
             int tiles_this_strip = num_tiles - J/TT;
             if (tiles_this_strip > NTILES) tiles_this_strip = NTILES;
-
-            TIME(pc_bias[pc_layer],
-            // seed each bank with its TTxTT bias tile
-            for (int T = 0; T < tiles_this_strip; T++) {
-                int idx = J/TT + T;                    // tile index
-                int cols = WH - idx*TT;                // real neurons in this tile
-                if (cols > TT) cols = TT;
-
-                for (int c = 0; c < (cols + 1)/2; c++) {   // column-pairs holding a neuron
-                    // load it once (r=0) and seed every row with the same value
-                    uint32_t word = bias_packed[idx*32 + c*8];
-                    uint32_t lo = word;            // even col 2c
-                    uint32_t hi = word >> 16;      // odd  col 2c+1
-
-                    #pragma GCC unroll 4 // BATCH/2
-                    for (int r = 0; r < BATCH; r += 2) {  // 4 row pairs
-                        mac_bias(T, r, 2*c,   lo);
-                        if (2*c + 1 < cols) mac_bias(T, r, 2*c+1, hi);
-                    }
-                }
-            }
-            );
 
             // A register now holds one K element, not a BS-block, so a chunk
             // covers NVREG elements of K instead of NVREG*BS
@@ -450,32 +397,38 @@ void gemm(const uint32_t* A, const uint32_t* W, const uint32_t* bias_packed,
 }
 
 // Run the forward pass on a batch of samples
-void inference_batch(const uint32_t* inputs, int* predictions) {
+void inference_batch(const uint32_t* inputs, const uint32_t* ascale_in, int* predictions) {
     // Hidden layers read out to FP4 activations; the final layer argmaxes straight from the banks
     static uint32_t z1_packed[L1_DIM], z2_packed[L2_DIM];
 
     PC_LAYER(0);
-    TIME(pc_gemm[0], gemm(inputs, w1_fp4, bias1_packed, IN_DIM, L1_DIM, wscale1, ascale1));
-    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM));   // feeds layer 2
+    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, L1_DIM, bias1_packed));   // dummy read to set bias for l1
+    TIME(pc_gemm[0], gemm(inputs, w1_fp4, IN_DIM, L1_DIM, wscale1, ascale_in));
+    TIME(pc_qact[0], readout_fp4(z1_packed, L1_DIM, L2_DIM, bias2_packed));   // out from l1, feeds layer 2, sets bias for l2
 
     PC_LAYER(1);
-    TIME(pc_gemm[1], gemm(z1_packed, w2_fp4, bias2_packed, L1_DIM, L2_DIM, wscale2, ascale2));
-    TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM));   // feeds layer 3
+    TIME(pc_gemm[1], gemm(z1_packed, w2_fp4, L1_DIM, L2_DIM, wscale2, ascale2));
+    TIME(pc_qact[1], readout_fp4(z2_packed, L2_DIM, OUT_DIM, bias3_packed));   // out from l2, feeds layer 3, sets bias for l3
 
     PC_LAYER(2);
-    TIME(pc_gemm[2], gemm(z2_packed, w3_fp4, bias3_packed, L2_DIM, OUT_DIM, wscale3, ascale3));
+    TIME(pc_gemm[2], gemm(z2_packed, w3_fp4, L2_DIM, OUT_DIM, wscale3, ascale3));
     TIME(pc_argmax, argmax(predictions, OUT_DIM));  // final layer -> argmax
 }
 
 int main(void) {
     assert(rdout_shift[1] == RDOUT_SHIFT && rdout_shift[2] == RDOUT_SHIFT);
+    // Only continue if the number of scales in the TB and here match
+    assert(*IMG_NUM_SCALES == NUM_SCALES);
     // Store one word per pixel for all batch lanes
     static uint32_t image_packed[IN_DIM];
-    // Raw pixels for the whole batch
-    static uint32_t stage_buf[BATCH][IN_REAL/4];
-    int predictions[BATCH];
+    // FP4 codes for the whole batch, 8 codes per word
+    static uint32_t stage_buf[BATCH][IN_REAL/8];
+    // Layer 1 input scales for the whole batch, one byte per scale block
+    static uint8_t scale_buf[BATCH][NUM_SCALES];
+    // Layer 1 input scales
+    static uint32_t ascale1_batch[2 * NUM_SCALES];
 
-    build_pix_lut();
+    int predictions[BATCH];
 
     // Print prediction, truth, and reference format
     #ifdef PTM_PRINTS
@@ -500,32 +453,42 @@ int main(void) {
             for (int j = 0; j < n; j++) {
                 image_load(s + j);
                 const volatile uint32_t *stage32 = (const volatile uint32_t *)IMG_STAGE;
-                for (int w = 0; w < IN_REAL/4; w++) {   // 196 words = 784 real pixels
+                for (int w = 0; w < IN_REAL/8; w++) {   // 98 words = 784 pixel codes
                     stage_buf[j][w] = stage32[w];
                 }
                 truth[j] = *IMG_LABEL;
                 ref[j]   = *IMG_PRED;
+
+                for (int b = 0; b < NUM_SCALES; b++) {
+                    scale_buf[j][b] = IMG_SCALES[b];
+                }
             }
 
-            // Sample inner, so each word is built in a register and stored once
-            for (int w = 0; w < IN_REAL/4; w++) {
-                uint32_t a0 = 0;
-                uint32_t a1 = 0;
-                uint32_t a2 = 0;
-                uint32_t a3 = 0;
+            // One pair of words per scale block, one byte per image
+            for (int b = 0; b < NUM_SCALES; b++) {
+                uint32_t scale_lo = 0;   // images 0..3
+                uint32_t scale_hi = 0;   // images 4..7
                 for (int j = 0; j < n; j++) {
-                    uint32_t four = stage_buf[j][w];
-                    int sh = 4 * j;
-                    a0 |= (uint32_t)pix_to_fp4[(four      ) & 0xFF] << sh;
-                    a1 |= (uint32_t)pix_to_fp4[(four >>  8) & 0xFF] << sh;
-                    a2 |= (uint32_t)pix_to_fp4[(four >> 16) & 0xFF] << sh;
-                    a3 |= (uint32_t)pix_to_fp4[(four >> 24) & 0xFF] << sh;
+                    uint32_t scale = scale_buf[j][b];
+                    if (j < 4)
+                        scale_lo |= scale << (8 * j);
+                    else
+                        scale_hi |= scale << (8 * (j - 4));
                 }
-                int p = w * 4;
-                image_packed[p+0] = a0;
-                image_packed[p+1] = a1;
-                image_packed[p+2] = a2;
-                image_packed[p+3] = a3;
+                ascale1_batch[2 * b]     = scale_lo;
+                ascale1_batch[2 * b + 1] = scale_hi;
+            }
+
+            // One staged word holds 8 codes, code k in bits 4k..4k+3
+            for (int w = 0; w < IN_REAL/8; w++) {
+                for (int k = 0; k < 8; k++) {
+                    uint32_t a = 0;
+                    for (int j = 0; j < n; j++) {
+                        uint32_t code = (stage_buf[j][w] >> (4 * k)) & 0xF;
+                        a |= code << (4 * j);
+                    }
+                    image_packed[w * 8 + k] = a;
+                }
             }
 
             // K pad tail (784..799) carries no pixels and must read as zero
@@ -534,7 +497,7 @@ int main(void) {
             }
         });
 
-        inference_batch(image_packed, predictions);
+        inference_batch(image_packed, ascale1_batch, predictions);
 
         for (int j = 0; j < n; j++) {
             if (predictions[j] == truth[j]) correct++;
